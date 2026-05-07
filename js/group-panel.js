@@ -19,6 +19,7 @@ import {
   updateGroup,
   removeGroup,
 } from "./groups.js";
+import { listPins, updatePin } from "./pins.js";
 
 // Rotated through on each "Add group" click so successive defaults are
 // visually distinct without forcing the user to pick a color first.
@@ -126,7 +127,20 @@ function buildRow(group) {
   remove.className = "remove-group";
   remove.textContent = "✕";
   remove.setAttribute("aria-label", `Remove group ${group.name || ""}`);
-  remove.addEventListener("click", () => removeGroup(group.id));
+  remove.addEventListener("click", () => {
+    // NICE-005 cascade: clear `pin.group` on every pin pointing at this
+    // group BEFORE removing the group itself. Order matters — if we
+    // removed the group first, those pins would briefly hold a dangling
+    // reference and any listener firing in between (storage, map render)
+    // would see an inconsistent snapshot. Going pin-side first means each
+    // updatePin notify() lands on a still-valid group store.
+    for (const pin of listPins()) {
+      if (pin.group === group.id) {
+        updatePin(pin.id, { group: null });
+      }
+    }
+    removeGroup(group.id);
+  });
 
   row.appendChild(colorInput);
   row.appendChild(nameInput);

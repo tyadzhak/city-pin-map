@@ -5,6 +5,7 @@
 // never has to touch `L` directly — they go through `getMap()`.
 
 import { updatePin } from "./pins.js";
+import { listGroups } from "./groups.js";
 import { saveMapStyle } from "./storage.js";
 
 // Registry of available basemap styles. Single source of truth: js/app.js
@@ -208,16 +209,31 @@ export function renderRoute(pins, { visible }) {
   routePolyline.bringToBack();
 }
 
+// Resolve the color a pin should render as. Group color wins when the pin
+// is assigned to a still-existing group; otherwise the pin's own color is
+// the source of truth. A pin whose `group` references a deleted group is
+// silently treated as ungrouped — render must never crash on stale data
+// (NICE-005 acceptance criterion).
+//
+// Re-reads the group list on every call. Cheap at v2 scale (handfuls of
+// groups) and avoids any caching concerns when groups are renamed/recolored.
+export function effectiveColor(pin) {
+  if (!pin.group) return pin.color;
+  const group = listGroups().find((g) => g.id === pin.group);
+  return group?.color ?? pin.color;
+}
+
 // Marker style: L.circleMarker. Picked over L.divIcon for simplicity and
 // because vector circles capture cleanly in the dom-to-image-more export
 // path (CORE-012). renderPins handles .addTo(map); these two functions
 // only build / mutate the marker itself.
 
 function createMarker(pin) {
+  const color = effectiveColor(pin);
   const marker = L.circleMarker([pin.lat, pin.lon], {
     radius: 8,
-    color: pin.color,
-    fillColor: pin.color,
+    color,
+    fillColor: color,
     fillOpacity: 0.9,
     weight: 2,
   }).bindTooltip(pin.name);
@@ -233,8 +249,9 @@ function createMarker(pin) {
 }
 
 function updateMarker(marker, pin) {
+  const color = effectiveColor(pin);
   marker.setLatLng([pin.lat, pin.lon]);
-  marker.setStyle({ color: pin.color, fillColor: pin.color });
+  marker.setStyle({ color, fillColor: color });
   marker.setTooltipContent(pin.name);
 }
 
