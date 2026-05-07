@@ -147,7 +147,21 @@
             No groups yet — click "Add group" to create one.
           </p>
         </section>
-        <h2 class="pin-list__heading">Pins</h2>
+        <!-- Pins header bar mirrors .group-panel__header so the side panel
+             reads as one design family. The two backup buttons sit beside
+             the heading per HARDEN-001: a one-click rescue path the user
+             discovers in the same place they manage their pins. -->
+        <div class="pin-list__header">
+          <h2 class="pin-list__heading">Pins</h2>
+          <div class="backup-controls">
+            <button id="export-json" type="button" class="backup-btn">
+              Export JSON
+            </button>
+            <button id="import-json" type="button" class="backup-btn">
+              Import JSON
+            </button>
+          </div>
+        </div>
         <ul id="pin-list" class="pin-list"></ul>
         <p id="pin-list-empty" class="pin-list__empty">
           No pins yet — search for a city above.

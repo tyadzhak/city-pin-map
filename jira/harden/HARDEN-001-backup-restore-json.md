@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-001`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `None`                                      |
@@ -23,8 +23,8 @@ The pin and group entity shapes are documented in `CLAUDE.md` → "Pin data mode
 
 ## Acceptance criteria
 
-- [ ] A new button **Export JSON** is visible in the side panel (next to or above the Pins heading is fine).
-- [ ] Clicking **Export JSON** downloads a file named `city-pin-map-{YYYY-MM-DD}.json` whose contents are a JSON object with the shape:
+- [x] A new button **Export JSON** is visible in the side panel (next to or above the Pins heading is fine).
+- [x] Clicking **Export JSON** downloads a file named `city-pin-map-{YYYY-MM-DD}.json` whose contents are a JSON object with the shape:
 
   ```json
   {
@@ -35,16 +35,16 @@ The pin and group entity shapes are documented in `CLAUDE.md` → "Pin data mode
   }
   ```
 
-- [ ] A new button **Import JSON** is visible adjacent to **Export JSON** and opens a file picker restricted to `.json`.
-- [ ] On a valid file, a `confirm()` dialog warns "Replace your current pins and groups with the contents of this file? Existing data will be lost." Cancelling leaves state untouched.
-- [ ] On confirm, both stores are replaced via `replaceAll()` so the map, side panel, route, and storage subscribers all update through the existing pub/sub fan-out.
-- [ ] Invalid JSON, wrong top-level shape, or missing `pins` / `groups` arrays shows a friendly message via the existing error banner (`showError` in `storage.js`) and does not change any state.
-- [ ] A pin whose `group` references a group not present in the imported `groups` array is allowed in (the existing stale-reference handling in `effectiveColor` and `pin-list.js` covers it).
-- [ ] An export → import round-trip on the same machine produces a byte-identical pin set and group set (modulo `createdAt` ordering, which is preserved).
-- [ ] Both buttons are keyboard-accessible (focusable, Enter/Space activate).
-- [ ] The README warning about no built-in backup is removed.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] A new button **Import JSON** is visible adjacent to **Export JSON** and opens a file picker restricted to `.json`.
+- [x] On a valid file, a `confirm()` dialog warns "Replace your current pins and groups with the contents of this file? Existing data will be lost." Cancelling leaves state untouched.
+- [x] On confirm, both stores are replaced via `replaceAll()` so the map, side panel, route, and storage subscribers all update through the existing pub/sub fan-out.
+- [x] Invalid JSON, wrong top-level shape, or missing `pins` / `groups` arrays shows a friendly message via the existing error banner (`showError` in `storage.js`) and does not change any state.
+- [x] A pin whose `group` references a group not present in the imported `groups` array is allowed in (the existing stale-reference handling in `effectiveColor` and `pin-list.js` covers it).
+- [x] An export → import round-trip on the same machine produces a byte-identical pin set and group set (modulo `createdAt` ordering, which is preserved).
+- [x] Both buttons are keyboard-accessible (focusable, Enter/Space activate).
+- [x] The README warning about no built-in backup is removed.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
