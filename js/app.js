@@ -182,14 +182,26 @@ function initMapStyleSelector(initialStyleId) {
 // tile-wait window (where the user has no other feedback that anything is
 // happening). The finally branch restores it whether export succeeded,
 // failed silently into showError(), or threw past the catch.
+//
+// HARDEN-003: the inline #export-status span gets "Rendering…" only after
+// a 200 ms delay — the Nielsen "feels-instant" threshold. Fast-path
+// exports (current view, no title/subtitle) typically resolve before the
+// timer fires, so no label flash. The timer handle is cleared in the
+// finally branch whether the export resolved before or after the threshold.
 function initExportButton() {
   const button = document.getElementById("export-png");
+  const status = document.getElementById("export-status");
   if (!button) return;
   button.addEventListener("click", async () => {
     button.disabled = true;
+    const statusTimer = window.setTimeout(() => {
+      if (status) status.textContent = "Rendering…";
+    }, 200);
     try {
       await exportMapAsPng(getMap());
     } finally {
+      window.clearTimeout(statusTimer);
+      if (status) status.textContent = "";
       button.disabled = false;
     }
   });
