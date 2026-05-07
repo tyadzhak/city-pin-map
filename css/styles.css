@@ -555,6 +555,62 @@ body.dragging-pin * {
     0 0 0 3px rgba(76, 110, 245, 0.45);
 }
 
+/* Read-only state for grouped pins (NICE-005). The swatch still renders
+   the effective (group) color, but it's no longer a control: no hover
+   ring, no scale-up, no cursor change. The hidden color input is also
+   omitted from the row in pin-list.js — the swatch alone has nothing to
+   open. The default cursor and the absence of the hover ring together
+   communicate "this isn't interactive". */
+.pin-list__swatch--readonly {
+  cursor: default;
+}
+
+.pin-list__swatch--readonly:hover {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.18);
+  transform: none;
+}
+
+/* Per-row group selector (NICE-005). Compact dropdown that fits between
+   the pin name and the edit/remove buttons without forcing the row to
+   grow. max-width caps the visible width when a group has a long name —
+   the native <select> still pops the full text in the dropdown. The
+   chevron is the same inline SVG used by .map-style-select so the two
+   selectors read as one design family. */
+.pin-list__group-select {
+  flex: 0 0 auto;
+  max-width: 110px;
+  height: 24px;
+  padding: 0 22px 0 6px;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background-color: #f5f7fa;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M1 1l4 4 4-4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.pin-list__group-select:hover {
+  background-color: #ffffff;
+  border-color: #9ca3af;
+}
+
+/* Mirrors the focus ring used by .pin-list__rename-input and the header
+   controls so keyboard navigation across the side panel feels uniform. */
+.pin-list__group-select:focus-visible {
+  border-color: #4c6ef5;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
 /* Visually hidden but kept in the layout tree — some browsers won't open
    the native picker for a fully `display: none` input. The swatch calls
    .click() on this element to trigger the dialog. */

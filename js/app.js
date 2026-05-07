@@ -54,6 +54,11 @@ function init() {
   // hydration (which fired notify() before we were listening).
   pinStore.subscribe(renderPins);
   pinStore.subscribe((snapshot) => renderRoute(snapshot, { visible: routeVisible }));
+  // Group changes (create / rename / recolor / delete) all alter the
+  // effective color a marker should render with (NICE-005). The cheapest
+  // way to keep markers honest is to re-render the full marker set against
+  // the latest pin snapshot whenever the group store ticks.
+  groupStore.subscribe(() => renderPins(pinStore.listPins()));
   renderPins(pinStore.listPins());
   renderRoute(pinStore.listPins(), { visible: routeVisible });
 

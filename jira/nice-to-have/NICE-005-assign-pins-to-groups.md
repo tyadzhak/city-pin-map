@@ -4,7 +4,7 @@
 |-----------------|------------------------------------------------------------|
 | **ID**          | `NICE-005`                                                 |
 | **Milestone**   | `Nice-to-have`                                             |
-| **Status**      | `Todo`                                                     |
+| **Status**      | `Done`                                                     |
 | **Priority**    | `Medium`                                                   |
 | **Estimate**    | `M`                                                        |
 | **Depends on**  | `NICE-004`, `CORE-005`, `CORE-008`, `CORE-011`             |
@@ -29,17 +29,17 @@ CORE-011 (per-pin color picker) keeps working for ungrouped pins. When a pin is 
 
 ## Acceptance criteria
 
-- [ ] Each pin list row displays a "Group" selector (e.g. `<select>`) listing "(none)" plus every existing group.
-- [ ] Choosing a group from a pin's selector calls `updatePin(pin.id, { group: groupId })`. The map marker recolors to the group's color immediately; the pin list row's swatch reflects the same color.
-- [ ] Choosing "(none)" sets `pin.group = null` and the marker / row swatch revert to the pin's individual color.
-- [ ] When a group's color is changed (NICE-004 affordance), every pin currently assigned to that group recolors live on the map and in the list — no manual refresh required.
-- [ ] When a group is renamed, the new name appears in every pin row's group selector immediately.
-- [ ] When a group is deleted, every pin previously assigned to that group is automatically reassigned to `(none)`; the pins remain on the map at their original individual color.
-- [ ] When a pin's data carries a `group` ID that does not exist in the group store (e.g. corruption, manual edit), the pin renders with its individual color and the selector shows "(none)" — no crash, no console error spam.
-- [ ] The per-pin color picker (CORE-011) remains operable for ungrouped pins. For grouped pins, either disable / hide the per-pin picker, or allow it to silently update `pin.color` (which simply takes effect again on un-grouping). Pick one and document it in the task notes.
-- [ ] Group assignment persists across reloads.
-- [ ] No regressions in previously completed tasks (search, rename, remove, drag, color, route toggle, map style, export).
-- [ ] No errors in browser console.
+- [x] Each pin list row displays a "Group" selector (e.g. `<select>`) listing "(none)" plus every existing group.
+- [x] Choosing a group from a pin's selector calls `updatePin(pin.id, { group: groupId })`. The map marker recolors to the group's color immediately; the pin list row's swatch reflects the same color.
+- [x] Choosing "(none)" sets `pin.group = null` and the marker / row swatch revert to the pin's individual color.
+- [x] When a group's color is changed (NICE-004 affordance), every pin currently assigned to that group recolors live on the map and in the list — no manual refresh required.
+- [x] When a group is renamed, the new name appears in every pin row's group selector immediately.
+- [x] When a group is deleted, every pin previously assigned to that group is automatically reassigned to `(none)`; the pins remain on the map at their original individual color.
+- [x] When a pin's data carries a `group` ID that does not exist in the group store (e.g. corruption, manual edit), the pin renders with its individual color and the selector shows "(none)" — no crash, no console error spam.
+- [x] The per-pin color picker (CORE-011) remains operable for ungrouped pins. For grouped pins, either disable / hide the per-pin picker, or allow it to silently update `pin.color` (which simply takes effect again on un-grouping). Pick one and document it in the task notes.
+- [x] Group assignment persists across reloads.
+- [x] No regressions in previously completed tasks (search, rename, remove, drag, color, route toggle, map style, export).
+- [x] No errors in browser console.
 
 ## Files affected
 
@@ -127,6 +127,6 @@ When finished, update this task file's Status field to `Done` and tick every acc
 
 ## Notes
 
-Open question for the implementer (decide and record in this Notes section after implementing): when a pin is currently assigned to a group, should the per-pin color picker (CORE-011) be visually hidden or visually disabled? Both are reasonable; "hidden" reduces UI clutter and signals "this is controlled by the group", while "disabled" leaves the affordance discoverable. Pick one and stay consistent.
+Per-pin color picker on grouped pins: **hidden** — the row's hidden `<input type="color">` is omitted from the DOM and the swatch becomes a passive (non-keyboard-focusable, non-clickable) indicator that still shows the effective (group) color. `pin.color` stays intact in the data and the picker reappears the moment the selector is set back to "(none)".
 
 There is no separate per-group polyline in this task. NICE-003 stays a single chronological line through all pins regardless of grouping; per-group routes are a possible future refinement.
