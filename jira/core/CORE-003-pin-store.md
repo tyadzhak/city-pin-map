@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-003`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `CORE-001`                                  |
@@ -21,16 +21,16 @@ This task is data-only: no UI, no map markers, no persistence. Those come in COR
 
 ## Acceptance criteria
 
-- [ ] `js/pins.js` exports `addPin`, `removePin`, `updatePin`, `listPins`, and `subscribe` as named exports.
-- [ ] `addPin({ name, lat, lon, color })` creates a pin with an auto-generated `id` (e.g. `crypto.randomUUID()`), `createdAt: Date.now()`, and `group: null`, returning the new pin.
-- [ ] `removePin(id)` removes the pin with that id; calling it with an unknown id is a no-op (no throw).
-- [ ] `updatePin(id, patch)` shallow-merges `patch` into the matching pin and preserves all other fields.
-- [ ] `listPins()` returns a fresh array (not a live reference) so callers can't mutate internal state.
-- [ ] `subscribe(fn)` registers a listener that fires after every mutation; it returns an `unsubscribe()` function.
-- [ ] All mutation paths (`addPin`, `removePin`, `updatePin`) call subscribers exactly once with the new pin list.
-- [ ] Calling subscribers does not throw if one subscriber throws (other subscribers still fire) — log the error and continue.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] `js/pins.js` exports `addPin`, `removePin`, `updatePin`, `listPins`, and `subscribe` as named exports.
+- [x] `addPin({ name, lat, lon, color })` creates a pin with an auto-generated `id` (e.g. `crypto.randomUUID()`), `createdAt: Date.now()`, and `group: null`, returning the new pin.
+- [x] `removePin(id)` removes the pin with that id; calling it with an unknown id is a no-op (no throw).
+- [x] `updatePin(id, patch)` shallow-merges `patch` into the matching pin and preserves all other fields.
+- [x] `listPins()` returns a fresh array (not a live reference) so callers can't mutate internal state.
+- [x] `subscribe(fn)` registers a listener that fires after every mutation; it returns an `unsubscribe()` function.
+- [x] All mutation paths (`addPin`, `removePin`, `updatePin`) call subscribers exactly once with the new pin list.
+- [x] Calling subscribers does not throw if one subscriber throws (other subscribers still fire) — log the error and continue.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
