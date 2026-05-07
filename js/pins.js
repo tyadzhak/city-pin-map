@@ -45,6 +45,12 @@ export function listPins() {
   return pins.slice();
 }
 
+export function replaceAll(newPins) {
+  pins.length = 0;
+  pins.push(...newPins);
+  notify();
+}
+
 export function subscribe(fn) {
   listeners.push(fn);
   return () => {

@@ -3,11 +3,12 @@
 // need to re-export it.
 import { initMap } from "./map.js";
 import { geocode } from "./geocode.js";
-import "./pins.js";
-import { loadPins, savePins } from "./storage.js";
+import * as pinStore from "./pins.js";
+import { attachStorage } from "./storage.js";
 import { exportMapPng } from "./export.js";
 
 function init() {
+  attachStorage(pinStore);
   initMap("map");
 }
 
