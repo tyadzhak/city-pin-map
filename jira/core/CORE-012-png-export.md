@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-012`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-002`, `CORE-005`                      |
@@ -24,15 +24,15 @@ CORE-001 pinned a single PNG-export library (`html-to-image` or `dom-to-image-mo
 
 ## Acceptance criteria
 
-- [ ] An "Export PNG" button is visible in the header (or a clearly discoverable location).
-- [ ] Clicking the button triggers a download of a PNG file named like `city-pin-map-<yyyy-mm-dd>.png`.
-- [ ] The PNG contains the current map view: visible tiles, all pin markers in their on-screen positions, marker tooltips/labels (if visible), and the OSM attribution text in the bottom-right.
-- [ ] If any tiles are still loading when the button is pressed, the export waits for them before capturing — the resulting PNG has no missing/grey tiles.
-- [ ] The image dimensions match the on-screen size of the map element (no clipping of the visible area).
-- [ ] If export fails for any reason, the page-level error banner from CORE-004 shows a clear message; the app remains usable.
-- [ ] The button is keyboard-accessible.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] An "Export PNG" button is visible in the header (or a clearly discoverable location).
+- [x] Clicking the button triggers a download of a PNG file named like `city-pin-map-<yyyy-mm-dd>.png`.
+- [x] The PNG contains the current map view: visible tiles, all pin markers in their on-screen positions, marker tooltips/labels (if visible), and the OSM attribution text in the bottom-right.
+- [x] If any tiles are still loading when the button is pressed, the export waits for them before capturing — the resulting PNG has no missing/grey tiles.
+- [x] The image dimensions match the on-screen size of the map element (no clipping of the visible area).
+- [x] If export fails for any reason, the page-level error banner from CORE-004 shows a clear message; the app remains usable.
+- [x] The button is keyboard-accessible.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
