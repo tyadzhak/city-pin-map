@@ -4,7 +4,7 @@
 |-----------------|------------------------------------------------------------|
 | **ID**          | `NICE-007`                                                 |
 | **Milestone**   | `Nice-to-have`                                             |
-| **Status**      | `Todo`                                                     |
+| **Status**      | `Done`                                                     |
 | **Priority**    | `High`                                                     |
 | **Estimate**    | `M`                                                        |
 | **Depends on**  | `CORE-012`, `NICE-006`                                     |
@@ -24,23 +24,23 @@ CORE-012 captures the map element at its on-screen pixel size. This task introdu
 
 ## Acceptance criteria
 
-- [ ] A "Format" / preset selector is visible in the Export options area (introduced by NICE-006). It includes at minimum:
+- [x] A "Format" / preset selector is visible in the Export options area (introduced by NICE-006). It includes at minimum:
   - Current view (default — same as CORE-012 behavior)
   - Square 1:1 (e.g. 1080×1080 px)
   - 16:9 landscape (e.g. 1920×1080 px)
   - A4 portrait (e.g. 2480×3508 px @ 300 dpi, or 794×1123 px @ 96 dpi — pick one and document it)
   - A4 landscape (the inverse)
-- [ ] Selecting "Current view" preserves CORE-012 behavior exactly — pixel-for-pixel the same image.
-- [ ] Selecting any other preset produces an exported PNG whose dimensions match the preset (within a 1-pixel tolerance for any rounding).
-- [ ] The map content in the exported image is the same map state (same center, same zoom, same pin set, same style, same route line, same group colors, same title/subtitle band) — the chosen frame just changes the visible window over that map.
-- [ ] After export, the on-screen map returns to its original dimensions and is fully usable: the user can pan, zoom, click pins, drag pins, switch styles, etc. with no leftover layout side effects.
-- [ ] During export, the brief visual transition (if any) is acceptable — the user clicked Export and is now waiting; some flicker as tiles re-load is fine, but the page must not jump or scroll unexpectedly.
-- [ ] The exported PNG has no missing / grey tiles even at large preset sizes (`waitForTiles` is invoked after the resize).
-- [ ] The chosen preset persists across reloads (so a user iterating on a print map doesn't have to re-pick A4 every session).
-- [ ] If the export fails for any reason at any stage, the error banner shows a friendly message AND the on-screen map is restored to its original dimensions.
-- [ ] The selector is keyboard-accessible.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Selecting "Current view" preserves CORE-012 behavior exactly — pixel-for-pixel the same image.
+- [x] Selecting any other preset produces an exported PNG whose dimensions match the preset (within a 1-pixel tolerance for any rounding).
+- [x] The map content in the exported image is the same map state (same center, same zoom, same pin set, same style, same route line, same group colors, same title/subtitle band) — the chosen frame just changes the visible window over that map.
+- [x] After export, the on-screen map returns to its original dimensions and is fully usable: the user can pan, zoom, click pins, drag pins, switch styles, etc. with no leftover layout side effects.
+- [x] During export, the brief visual transition (if any) is acceptable — the user clicked Export and is now waiting; some flicker as tiles re-load is fine, but the page must not jump or scroll unexpectedly.
+- [x] The exported PNG has no missing / grey tiles even at large preset sizes (`waitForTiles` is invoked after the resize).
+- [x] The chosen preset persists across reloads (so a user iterating on a print map doesn't have to re-pick A4 every session).
+- [x] If the export fails for any reason at any stage, the error banner shows a friendly message AND the on-screen map is restored to its original dimensions.
+- [x] The selector is keyboard-accessible.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
@@ -139,3 +139,9 @@ When finished, update this task file's Status field to `Done` and tick every acc
 A4 at 300 dpi is 2480×3508 px — that is a substantial canvas for `dom-to-image-more`, and `cacheBust: true` will re-fetch every tile, so first-time exports at this size can take several seconds even on a fast connection. 96 dpi (794×1123 px) is the safer default for v2 and will already produce a print-acceptable image at most consumer printer settings. Document the chosen value in the task's Notes after implementation, and revisit if user feedback says the print result is too soft.
 
 If the chosen technique relies on briefly mounting the wrapper off-screen via `position: fixed; left: -100000px;`, double-check that Leaflet does not throw on `invalidateSize` when the container has unusual offsets. As a fallback, `visibility: hidden; position: absolute; top: 0; left: 0;` plus a body-level scroll lock works on every browser tested for CORE-012.
+
+### Implementation notes
+
+1. **Chosen DPI for A-formats: 96 dpi.** A4 portrait is `794 × 1123` px and A4 landscape is `1123 × 794` px (the inverse). 300 dpi was rejected for v2 because `cacheBust: true` re-fetches every tile and the resulting 2480×3508 canvas pushes a typical export over 10 s on a normal home connection while producing ~6 MB PNGs. 96 dpi is print-acceptable on most consumer printers and keeps click-to-download under a few seconds. Documented inline in `EXPORT_PRESETS` in `js/export.js` so a future bump is a one-line edit.
+
+2. **Chosen approach for hiding the temporarily resized wrapper: off-screen positioning** via `position: fixed; left: -100000px; top: 0`. This is the same technique CORE-012 / NICE-006 already use for the title-strip wrapper, so NICE-007 just generalises the existing helper instead of adding a new hide mechanism (no body-level scroll lock, no `visibility: hidden` toggle). Verified via Playwright that the page does not scroll during a 1920×1080 export and that the on-screen map's `getBoundingClientRect` is unchanged before vs. after a deliberately failed export at the 16×9 preset. Leaflet's `invalidateSize` works correctly at the negative offset — no exceptions or layout glitches were observed across the five presets.

@@ -256,6 +256,40 @@ body {
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
 }
 
+/* Preset selector for the exported PNG dimensions (NICE-007). Geometry
+   matches .map-style-select so the two dropdowns read as one design
+   family — same chevron, same height, same focus ring. The width is
+   intentionally generous: option labels include the pixel dimensions
+   ("Square 1:1 (1080×1080)") which would clip in a narrower box. */
+.export-format-select {
+  height: 32px;
+  padding: 0 30px 0 10px;
+  font: inherit;
+  color: inherit;
+  background-color: #f5f7fa;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M1 1l4 4 4-4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.export-format-select:hover {
+  background-color: #ffffff;
+}
+
+.export-format-select:focus-visible {
+  border-color: #4c6ef5;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
 /* === Capture-time only ============================================
    .export-frame and .export-title-strip are NEVER visible to the user
    in normal page flow — js/export.js builds and inserts them off-screen
