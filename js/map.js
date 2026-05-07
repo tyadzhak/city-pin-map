@@ -1,4 +1,4 @@
-// Leaflet setup and tile layer wiring. Pin rendering is added in CORE-005.
+// Leaflet setup, tile layers, and pin → marker rendering.
 //
 // Leaflet is loaded as a classic <script defer> in index.html and exposes
 // the global `L`. This module wraps initialization so the rest of the app
@@ -6,6 +6,12 @@
 
 // Module-scoped singleton. Treat as private; outside callers use getMap().
 let mapInstance = null;
+
+// pinId → Leaflet marker. Lets renderPins sync the visible markers against
+// the pin store in O(n), preserving marker identity across updates so any
+// per-marker Leaflet state (open tooltips, future drag handles, etc.) is
+// not destroyed on every change.
+const markers = new Map();
 
 /**
  * Initialize the Leaflet map inside the given container element id.
@@ -34,4 +40,57 @@ export function initMap(containerId) {
  */
 export function getMap() {
   return mapInstance;
+}
+
+/**
+ * Synchronize the rendered marker set with `pins`.
+ *
+ * - Pins newly present in the array → a marker is created and added.
+ * - Pins still present → the existing marker is mutated in place.
+ * - Markers whose pin is gone → removed from the map.
+ *
+ * Safe to call on every pin-store change. No-op until initMap() has run.
+ */
+export function renderPins(pins) {
+  if (!mapInstance) return;
+
+  const seen = new Set();
+  for (const pin of pins) {
+    seen.add(pin.id);
+    const existing = markers.get(pin.id);
+    if (existing) {
+      updateMarker(existing, pin);
+    } else {
+      const marker = createMarker(pin).addTo(mapInstance);
+      markers.set(pin.id, marker);
+    }
+  }
+
+  for (const [id, marker] of markers) {
+    if (!seen.has(id)) {
+      marker.remove();
+      markers.delete(id);
+    }
+  }
+}
+
+// Marker style: L.circleMarker. Picked over L.divIcon for simplicity and
+// because vector circles capture cleanly in the dom-to-image-more export
+// path (CORE-012). renderPins handles .addTo(map); these two functions
+// only build / mutate the marker itself.
+
+function createMarker(pin) {
+  return L.circleMarker([pin.lat, pin.lon], {
+    radius: 8,
+    color: pin.color,
+    fillColor: pin.color,
+    fillOpacity: 0.9,
+    weight: 2,
+  }).bindTooltip(pin.name);
+}
+
+function updateMarker(marker, pin) {
+  marker.setLatLng([pin.lat, pin.lon]);
+  marker.setStyle({ color: pin.color, fillColor: pin.color });
+  marker.setTooltipContent(pin.name);
 }
