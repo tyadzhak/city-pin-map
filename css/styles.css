@@ -371,6 +371,26 @@ body {
   cursor: progress;
 }
 
+/* Inline export status (HARDEN-003). Sits to the right of the Export
+   button while a render is in flight. Quiet styling — small + muted +
+   italic — so it reads as ambient feedback, not a second action. The
+   :empty rule drops the element from layout entirely while no export
+   is happening, so the header looks unchanged at rest. */
+.export-status {
+  margin-left: 8px;
+  font-size: 12px;
+  font-style: italic;
+  color: #6b7280;
+  /* line-height matches the 32px toolbar row so the text is vertically
+     centered against the button without needing a flex wrapper. */
+  line-height: 32px;
+  white-space: nowrap;
+}
+
+.export-status:empty {
+  display: none;
+}
+
 .app-map {
   grid-area: map;
   position: relative;

@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-003`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `None`                                      |
@@ -28,14 +28,14 @@ The framed path resizes the map to as large as 1920×1080 or A4 dimensions. With
 
 ## Acceptance criteria
 
-- [ ] During an export, an inline element next to the Export PNG button shows a short status string (e.g. "Rendering…" or "Exporting…").
-- [ ] The status appears immediately on click and is hidden again as soon as the export completes (success or failure).
-- [ ] On the fast path (current view, no title, no subtitle), the status appears so briefly it's effectively invisible — but it does not flicker visibly. (One acceptable implementation: only show after a 200 ms delay, so instant exports never flash a label.)
-- [ ] The status uses the existing error banner's visual style or a simpler unobtrusive styling — must not push other header controls out of position.
-- [ ] On export failure, the existing error banner still appears; the inline status is cleared.
-- [ ] The status text is a plain string. No spinner GIFs, no animations beyond a CSS pulse if you want one.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] During an export, an inline element next to the Export PNG button shows a short status string (e.g. "Rendering…" or "Exporting…").
+- [x] The status appears immediately on click and is hidden again as soon as the export completes (success or failure).
+- [x] On the fast path (current view, no title, no subtitle), the status appears so briefly it's effectively invisible — but it does not flicker visibly. (One acceptable implementation: only show after a 200 ms delay, so instant exports never flash a label.)
+- [x] The status uses the existing error banner's visual style or a simpler unobtrusive styling — must not push other header controls out of position.
+- [x] On export failure, the existing error banner still appears; the inline status is cleared.
+- [x] The status text is a plain string. No spinner GIFs, no animations beyond a CSS pulse if you want one.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 

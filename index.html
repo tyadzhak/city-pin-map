@@ -125,6 +125,16 @@
         <button id="export-png" type="button" class="export-btn">
           Export PNG
         </button>
+        <!-- Inline progress status (HARDEN-003). Rendered to the right of
+             the Export button so it never shifts the button when shown.
+             Empty at rest; CSS uses :empty to drop it from layout entirely
+             so the header reads identically when no export is in flight. -->
+        <span
+          id="export-status"
+          class="export-status"
+          role="status"
+          aria-live="polite"
+        ></span>
       </header>
 
       <main class="app-map" aria-label="Map">
