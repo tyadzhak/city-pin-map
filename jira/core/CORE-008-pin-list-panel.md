@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-008`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `CORE-005`                                  |
@@ -21,16 +21,16 @@ CORE-005 already subscribes to the pin store from the map side. This task adds t
 
 ## Acceptance criteria
 
-- [ ] The side panel shows a heading like "Pins" and a list (`<ul>` or similar) underneath.
-- [ ] Each list row corresponds to one pin and displays: a colored swatch matching the pin's color, and the pin's name.
-- [ ] Rows are ordered by `createdAt` ascending (oldest first) so newly added pins appear at the bottom.
-- [ ] Adding a pin via search appends a new row immediately.
-- [ ] Removing a pin from the store removes its row.
-- [ ] Updating a pin's name updates the row's text in place; updating its color updates the swatch in place.
-- [ ] When the list is empty, an empty-state message is shown (e.g. "No pins yet — search for a city above.").
-- [ ] The list is keyboard-accessible (rows are reachable via Tab if they are interactive in later tasks; for now plain text rows are fine).
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] The side panel shows a heading like "Pins" and a list (`<ul>` or similar) underneath.
+- [x] Each list row corresponds to one pin and displays: a colored swatch matching the pin's color, and the pin's name.
+- [x] Rows are ordered by `createdAt` ascending (oldest first) so newly added pins appear at the bottom.
+- [x] Adding a pin via search appends a new row immediately.
+- [x] Removing a pin from the store removes its row.
+- [x] Updating a pin's name updates the row's text in place; updating its color updates the swatch in place.
+- [x] When the list is empty, an empty-state message is shown (e.g. "No pins yet — search for a city above.").
+- [x] The list is keyboard-accessible (rows are reachable via Tab if they are interactive in later tasks; for now plain text rows are fine).
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 

@@ -2,11 +2,11 @@
 // Other modules reach the map via map.js → getMap(), so app.js doesn't
 // need to re-export it.
 import { initMap, renderPins } from "./map.js";
-import { geocode } from "./geocode.js";
 import * as pinStore from "./pins.js";
 import { attachStorage } from "./storage.js";
 import { exportMapPng } from "./export.js";
 import { initSearch } from "./search.js";
+import { initPinList } from "./pin-list.js";
 
 function init() {
   initMap("map");
@@ -18,6 +18,10 @@ function init() {
   // hydration (which fired notify() before we were listening).
   pinStore.subscribe(renderPins);
   renderPins(pinStore.listPins());
+
+  // Side-panel pin list. Subscribes internally and runs an initial render
+  // to backfill the hydration notify() that fired during attachStorage.
+  initPinList();
 
   // Search wires the header input to the geocoder + pin store. It must run
   // after the DOM is ready (we're already inside DOMContentLoaded) and
