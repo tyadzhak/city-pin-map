@@ -3,6 +3,8 @@ const GROUPS_STORAGE_KEY = "city-pin-map.groups.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
 const EXPORT_TEXT_KEY = "city-pin-map.export-text.v1";
+const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
+const DEFAULT_EXPORT_FORMAT = "current";
 const BANNER_TIMEOUT_MS = 6000;
 const EMPTY_EXPORT_TEXT = Object.freeze({ title: "", subtitle: "" });
 
@@ -166,6 +168,32 @@ export function saveExportText({ title, subtitle }) {
     console.error("failed to save export text:", err);
     showError(
       "Could not save export text (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Export-format preset id (NICE-007). Stored as a bare string, mirroring
+// loadMapStyle — the value is a short id like "current" or "a4-portrait"
+// and JSON wrapping would only add quote noise. A missing or unreadable
+// value falls back to "current" so the first-time user gets the same
+// behaviour as CORE-012 / NICE-006 with no preset selected.
+export function loadExportFormat() {
+  try {
+    return localStorage.getItem(EXPORT_FORMAT_KEY) ?? DEFAULT_EXPORT_FORMAT;
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved export format could not be read; using default.");
+    return DEFAULT_EXPORT_FORMAT;
+  }
+}
+
+export function saveExportFormat(formatId) {
+  try {
+    localStorage.setItem(EXPORT_FORMAT_KEY, formatId);
+  } catch (err) {
+    console.error("failed to save export format:", err);
+    showError(
+      "Could not save export format preference. Choice will reset on refresh."
     );
   }
 }

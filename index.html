@@ -103,6 +103,24 @@
             autocomplete="off"
             spellcheck="false"
           />
+          <label for="export-format" class="visually-hidden"
+            >Export format</label
+          >
+          <!-- Preset id values are kept in sync with EXPORT_PRESETS in
+               js/export.js. Keep the option strings short — the cluster
+               sits next to the title/subtitle inputs and a long label
+               would push the Export button off-line on smaller windows. -->
+          <select
+            id="export-format"
+            class="export-format-select"
+            aria-label="Export format"
+          >
+            <option value="current">Current view</option>
+            <option value="square">Square 1:1 (1080×1080)</option>
+            <option value="16x9">16:9 (1920×1080)</option>
+            <option value="a4-portrait">A4 portrait (794×1123)</option>
+            <option value="a4-landscape">A4 landscape (1123×794)</option>
+          </select>
         </div>
         <button id="export-png" type="button" class="export-btn">
           Export PNG

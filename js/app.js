@@ -20,6 +20,8 @@ import {
   saveRouteVisible,
   loadExportText,
   saveExportText,
+  loadExportFormat,
+  saveExportFormat,
 } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
 import { initSearch } from "./search.js";
@@ -91,6 +93,7 @@ function init() {
   });
 
   initExportOptions();
+  initExportFormatSelector();
   initExportButton();
 }
 
@@ -115,6 +118,28 @@ function initExportOptions() {
 
   titleInput.addEventListener("input", persist);
   subtitleInput.addEventListener("input", persist);
+}
+
+// Hydrates the format selector from localStorage and persists every
+// change. The export pipeline reads the current value back out of the
+// DOM at click time (mirrors how export-title / export-subtitle are
+// read), so this function only owns persistence — it does not need to
+// notify any other module when the value flips.
+//
+// An unknown saved id (older app version, hand-edited storage) falls
+// through to the <select>'s first option, which the HTML pins to
+// "current" — so corruption degrades to the safe default.
+function initExportFormatSelector() {
+  const select = document.getElementById("export-format");
+  if (!select) return;
+
+  const saved = loadExportFormat();
+  const isKnown = Array.from(select.options).some((o) => o.value === saved);
+  if (isKnown) select.value = saved;
+
+  select.addEventListener("change", (event) => {
+    saveExportFormat(event.target.value);
+  });
 }
 
 // Reflects the persisted preference on the checkbox at boot and forwards

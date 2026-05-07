@@ -8,11 +8,36 @@ import { showError } from "./storage.js";
 // staying well under the user's patience for "I clicked Export."
 const TILE_WAIT_TIMEOUT_MS = 8000;
 
+// Preset exports resize the map to a brand-new viewport, which kicks off
+// a fresh wave of tile fetches plus a `cacheBust` re-download of every
+// already-loaded tile. The portrait/landscape A4 frames in particular can
+// need 2–3× the tile count of the on-screen map. 12 s buys those a fair
+// shot on slow connections without making a normal export feel sluggish
+// (it still resolves the moment all layers fire `load`).
+const TILE_WAIT_TIMEOUT_MS_PRESET = 12000;
+
 // CSS-pixel offset that pushes the export frame fully off any reasonable
 // viewport so the user never sees the wrap. Using `position: fixed` plus a
 // large negative left keeps it laid out (so dom-to-image-more can paint it)
 // while staying invisible.
 const OFFSCREEN_PX = -100000;
+
+// Preset id → {width, height} in CSS pixels for the exported PNG. `null`
+// means "Current view — capture the live map at its on-screen size".
+//
+// A4 dimensions use 96 dpi (794×1123 portrait, the inverse for landscape).
+// 300 dpi (2480×3508) was rejected as the v2 default: `cacheBust: true`
+// re-fetches every tile, so a 300-dpi export over a typical home connection
+// can take 10–20 s and produce a ~6 MB PNG. 96 dpi is print-acceptable on
+// most consumer printers and keeps the click-to-download time under a few
+// seconds. See NICE-007 task notes.
+export const EXPORT_PRESETS = {
+  current: null,
+  square: { width: 1080, height: 1080 },
+  "16x9": { width: 1920, height: 1080 },
+  "a4-portrait": { width: 794, height: 1123 },
+  "a4-landscape": { width: 1123, height: 794 },
+};
 
 /**
  * Capture the current map view and trigger a PNG download.
@@ -32,19 +57,27 @@ export async function exportMapAsPng(mapInstance) {
     const title = titleInput ? titleInput.value.trim() : "";
     const subtitle = subtitleInput ? subtitleInput.value.trim() : "";
 
-    await waitForTiles(mapInstance, TILE_WAIT_TIMEOUT_MS);
+    // Read the preset from the DOM, mirroring the title/subtitle reads
+    // above. Keeps storage out of this module's runtime path — the format
+    // selector's <option> values ARE the source of truth at click time.
+    const formatSelect = document.getElementById("export-format");
+    const presetId = formatSelect ? formatSelect.value : "current";
+    const preset = EXPORT_PRESETS[presetId] ?? null;
 
-    // No `filter` option on either branch — every descendant (tiles,
-    // markers, attribution control) must be captured. Stripping anything
-    // risks losing the OSM attribution, which the tile license requires.
+    // Fast path: no title strip, no resize → capture the live map element
+    // directly. Identical behaviour to CORE-012; preserved verbatim so a
+    // user who never touches the new options gets the original code path.
     let dataUrl;
-    if (!title && !subtitle) {
-      // Original CORE-012 path: capture the live map container as-is.
+    if (!title && !subtitle && !preset) {
+      await waitForTiles(mapInstance, TILE_WAIT_TIMEOUT_MS);
+      // No `filter` option — every descendant (tiles, markers, attribution
+      // control) must be captured. Stripping anything risks losing the
+      // OSM attribution, which the tile license requires.
       dataUrl = await window.domtoimage.toPng(mapInstance.getContainer(), {
         cacheBust: true,
       });
     } else {
-      dataUrl = await captureWithTitleStrip(mapInstance, title, subtitle);
+      dataUrl = await captureFramed(mapInstance, title, subtitle, preset);
     }
 
     triggerDownload(dataUrl, `city-pin-map-${todayStamp()}.png`);
@@ -54,18 +87,23 @@ export async function exportMapAsPng(mapInstance) {
   }
 }
 
-// Wraps the live map element in a transient `.export-frame` containing a
-// title strip, captures the wrapper, then restores the DOM exactly as it
-// was. The wrapper is positioned off-screen so the user never sees the
-// reparenting; Leaflet internals are untouched (no invalidateSize), and
-// the map's pixel dimensions are pinned for the duration of the capture
-// so the absolute-positioned map node doesn't collapse in its new parent.
-async function captureWithTitleStrip(mapInstance, title, subtitle) {
+// Single off-screen wrapper that handles both the title strip (NICE-006)
+// and the preset resize (NICE-007). One try/finally so any failure unwinds
+// the DOM and Leaflet state atomically.
+//
+// Off-screen technique: `position: fixed; left: -100000px; top: 0`. The
+// wrapper is in the document (so dom-to-image-more can paint it) but well
+// outside any reasonable viewport, so the user never sees the resized map
+// and the page does not scroll. This was the existing CORE-012/NICE-006
+// approach and it generalises cleanly to the larger preset sizes — Leaflet
+// reads container dimensions from getBoundingClientRect, which works the
+// same at negative coordinates.
+async function captureFramed(mapInstance, title, subtitle, preset) {
   const mapEl = mapInstance.getContainer();
 
-  // Snapshot everything we are about to mutate so we can replay it exactly
-  // — including empty strings (the natural inline-style state for most of
-  // these properties before this function ran).
+  // Snapshot every inline style we are about to mutate so we can replay
+  // it exactly — including empty strings, which are the natural state for
+  // most of these properties before this function ran.
   const originalParent = mapEl.parentNode;
   const originalNextSibling = mapEl.nextSibling;
   const rect = mapEl.getBoundingClientRect();
@@ -84,34 +122,73 @@ async function captureWithTitleStrip(mapInstance, title, subtitle) {
   wrapper.style.position = "fixed";
   wrapper.style.left = `${OFFSCREEN_PX}px`;
   wrapper.style.top = "0";
-  wrapper.style.width = `${rect.width}px`;
 
-  const titleStrip = buildTitleStrip(title, subtitle);
-  wrapper.appendChild(titleStrip);
+  const frameWidth = preset ? preset.width : rect.width;
+  wrapper.style.width = `${frameWidth}px`;
+  if (preset) {
+    // Pin the wrapper to the exact preset dims so dom-to-image-more's
+    // explicit width/height arguments line up with the rendered subtree
+    // and the PNG comes out byte-for-byte sized to the preset.
+    wrapper.style.height = `${preset.height}px`;
+  }
 
-  // Pin pixel dimensions so the map stays exactly the size it was on
-  // screen even after losing its `inset: 0` parent. Leaflet reads pixel
-  // size from the container, so matching the original keeps tile math
-  // stable — no reflow, no invalidateSize needed.
+  let titleStrip = null;
+  if (title || subtitle) {
+    titleStrip = buildTitleStrip(title, subtitle);
+    wrapper.appendChild(titleStrip);
+  }
+
+  // Strip the .app-map `inset: 0` positioning so the map sits as a normal
+  // block child of the wrapper. Without this, the map would still try to
+  // pin itself to the (now off-screen) viewport.
   mapEl.style.position = "relative";
   mapEl.style.top = "auto";
   mapEl.style.right = "auto";
   mapEl.style.bottom = "auto";
   mapEl.style.left = "auto";
-  mapEl.style.width = `${rect.width}px`;
+  mapEl.style.width = `${frameWidth}px`;
+  // Provisional height for the no-preset path; the preset branch below
+  // overwrites this once the title strip's real pixel height is known.
   mapEl.style.height = `${rect.height}px`;
 
   // Move the live map into the wrapper, then mount the wrapper itself.
-  // Order matters: appending the map to a not-yet-mounted wrapper avoids a
-  // brief layout where the map is parentless.
+  // Order matters: appending the map to a not-yet-mounted wrapper avoids
+  // a brief layout where the map is parentless.
   wrapper.appendChild(mapEl);
   document.body.appendChild(wrapper);
 
   try {
+    if (preset) {
+      // Now that the wrapper is in the DOM, the title strip (if any) has
+      // its real pixel height. The map fills the remainder so the captured
+      // frame is exactly preset.width × preset.height with the title band
+      // stacked above the map.
+      const titleHeight = titleStrip ? titleStrip.offsetHeight : 0;
+      const mapHeight = Math.max(0, preset.height - titleHeight);
+      mapEl.style.height = `${mapHeight}px`;
+
+      // Tell Leaflet the container is a different size now so it
+      // recomputes its viewport and starts loading the new tile set.
+      // animate:false — we don't want a zoom animation during export.
+      mapInstance.invalidateSize({ animate: false });
+
+      await waitForTiles(mapInstance, TILE_WAIT_TIMEOUT_MS_PRESET);
+
+      return await window.domtoimage.toPng(wrapper, {
+        cacheBust: true,
+        width: preset.width,
+        height: preset.height,
+      });
+    }
+
+    // Current-view preset with a title strip: keep the on-screen map
+    // dimensions intact, no Leaflet resize needed, capture the wrapper at
+    // its natural size (rect.width × (rect.height + titleStrip height)).
+    await waitForTiles(mapInstance, TILE_WAIT_TIMEOUT_MS);
     return await window.domtoimage.toPng(wrapper, { cacheBust: true });
   } finally {
-    // Replay snapshot in reverse: move the map back first (so any layout
-    // observers see it in its real home), then drop the wrapper.
+    // Replay the snapshot in reverse: move the map back first (so any
+    // layout observers see it in its real home), then drop the wrapper.
     if (originalNextSibling) {
       originalParent.insertBefore(mapEl, originalNextSibling);
     } else {
@@ -124,6 +201,14 @@ async function captureWithTitleStrip(mapInstance, title, subtitle) {
     mapEl.style.left = savedInline.left;
     mapEl.style.width = savedInline.width;
     mapEl.style.height = savedInline.height;
+    if (preset) {
+      // Force Leaflet back to the live container's true on-screen size so
+      // pan, zoom, and pin clicks behave exactly as before the export.
+      // Skipped for the no-preset path because we never touched Leaflet's
+      // own size in that branch — the container's pixel dimensions were
+      // re-pinned but stayed numerically equal to rect.width × rect.height.
+      mapInstance.invalidateSize({ animate: false });
+    }
     wrapper.remove();
   }
 }
