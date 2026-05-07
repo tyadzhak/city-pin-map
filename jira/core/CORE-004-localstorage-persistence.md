@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-004`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `CORE-003`                                  |
@@ -21,14 +21,14 @@ Wire `js/storage.js` to the pin store so any change is automatically saved to `l
 
 ## Acceptance criteria
 
-- [ ] On first load (no saved data), the app starts with an empty pin store and no errors.
-- [ ] After adding pins via the pin store API, refreshing the page restores the same pins (id, name, lat, lon, color, group, createdAt all intact).
-- [ ] Removing or updating a pin and refreshing reflects the change after reload.
-- [ ] Clearing `localStorage` for the site origin and reloading produces an empty pin set with no errors.
-- [ ] If saving to `localStorage` throws (e.g. quota exceeded), the user sees a visible error message; the in-memory state is still usable.
-- [ ] If saved JSON is malformed (manually corrupted), the app starts empty and shows a one-time warning rather than crashing.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console under normal operation.
+- [x] On first load (no saved data), the app starts with an empty pin store and no errors.
+- [x] After adding pins via the pin store API, refreshing the page restores the same pins (id, name, lat, lon, color, group, createdAt all intact).
+- [x] Removing or updating a pin and refreshing reflects the change after reload.
+- [x] Clearing `localStorage` for the site origin and reloading produces an empty pin set with no errors.
+- [x] If saving to `localStorage` throws (e.g. quota exceeded), the user sees a visible error message; the in-memory state is still usable.
+- [x] If saved JSON is malformed (manually corrupted), the app starts empty and shows a one-time warning rather than crashing.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console under normal operation.
 
 ## Files affected
 
