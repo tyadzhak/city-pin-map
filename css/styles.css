@@ -220,6 +220,88 @@ body {
   line-height: 1;
 }
 
+/* Two compact text inputs grouped right before the Export PNG button.
+   The cluster shares the same 32px row height as the rest of the toolbar so
+   the header stays a single visual band. Inputs are narrow on purpose —
+   most titles are short ("Italy 2024"), and a wide field would crowd the
+   right-aligned cluster. The user can still type past the visible width. */
+.export-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.export-options__input {
+  width: 140px;
+  height: 32px;
+  padding: 0 10px;
+  font: inherit;
+  color: inherit;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.export-options__input:hover {
+  background: #ffffff;
+}
+
+.export-options__input:focus {
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+/* === Capture-time only ============================================
+   .export-frame and .export-title-strip are NEVER visible to the user
+   in normal page flow — js/export.js builds and inserts them off-screen
+   only during a PNG capture, then removes them in a finally block.
+   Their styles exist so dom-to-image-more renders consistent typography
+   in the captured PNG.
+   ================================================================= */
+
+/* The transient parent that wraps the map during capture. Stacks the
+   title strip on top of the map element. Background is white so a
+   translucent strip reads cleanly against the page. */
+.export-frame {
+  background: #ffffff;
+  /* Georgia is shipped on macOS, Windows, and most Linux desktops, so the
+     captured PNG looks the same on every machine without a webfont. */
+  font-family: Georgia, "Times New Roman", serif;
+  color: #1f2933;
+}
+
+/* The title band that sits above the map in the captured image. Padding
+   gives the text room to breathe; text-align center reads as a poster
+   masthead. line-height tightened so a title + subtitle pair doesn't
+   leave too much air between them. */
+.export-title-strip {
+  padding: 24px 32px 20px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.export-title-strip__title {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* Margin-top only applies when the title is also rendered above it —
+   the buildTitleStrip helper omits the title element entirely when the
+   title is empty, so there's no extra gap to collapse. */
+.export-title-strip__subtitle {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 400;
+  font-style: italic;
+  color: #4b5563;
+}
+
 /* Sits to the right of the style picker. margin-left switches from `auto`
    to a fixed gap because .map-style-select now owns the auto push. Matches
    the search input's 32px / 6px-radius geometry to read as one toolbar; the
