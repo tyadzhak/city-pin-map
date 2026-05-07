@@ -1,5 +1,6 @@
 const STORAGE_KEY = "city-pin-map.pins.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
+const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
 const BANNER_TIMEOUT_MS = 6000;
 
 let bannerTimer = null;
@@ -57,6 +58,31 @@ export function saveMapStyle(styleId) {
     console.error("failed to save map style:", err);
     showError(
       "Could not save map style preference. Choice will reset on refresh."
+    );
+  }
+}
+
+// Route visibility preference. Stored as the literal "true" / "false" string
+// to mirror the bare-string convention used for map style (no JSON noise).
+// Anything other than "true" — including null on first load and a corrupt
+// value — is treated as `false` so the first-time experience is the plain
+// map without a line.
+export function loadRouteVisible() {
+  try {
+    return localStorage.getItem(ROUTE_VISIBLE_KEY) === "true";
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    return false;
+  }
+}
+
+export function saveRouteVisible(visible) {
+  try {
+    localStorage.setItem(ROUTE_VISIBLE_KEY, visible ? "true" : "false");
+  } catch (err) {
+    console.error("failed to save route visibility:", err);
+    showError(
+      "Could not save route preference. Choice will reset on refresh."
     );
   }
 }

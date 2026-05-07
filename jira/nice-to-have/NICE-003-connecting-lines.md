@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `NICE-003`                                  |
 | **Milestone**   | `Nice-to-have`                              |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-002`, `CORE-005`, `CORE-012`          |
@@ -23,17 +23,17 @@ The on/off state is a UI preference, persisted under its own `localStorage` key 
 
 ## Acceptance criteria
 
-- [ ] A "Show route" toggle (checkbox or labeled switch) is visible in the header.
-- [ ] When the toggle is on, a single polyline is drawn through every pin in `createdAt` ascending order. The line is colored distinctly from any pin marker (a sensible default like `#1d3557` is fine).
-- [ ] When the toggle is off, no polyline is shown and there are no leftover Leaflet layers attached to the map.
-- [ ] Adding a new pin while the route is on extends the polyline to include the new pin (at the end of the chain, since createdAt is now).
-- [ ] Removing a pin while the route is on removes that vertex from the polyline; the remaining points stay connected in order.
-- [ ] Moving a pin (NICE-001) while the route is on updates the polyline's vertex live.
-- [ ] With fewer than 2 pins, no line is drawn (a polyline needs at least two points).
-- [ ] The toggle state persists across reloads.
-- [ ] The exported PNG (CORE-012) captures the polyline if it is currently on, with the correct vertices.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] A "Show route" toggle (checkbox or labeled switch) is visible in the header.
+- [x] When the toggle is on, a single polyline is drawn through every pin in `createdAt` ascending order. The line is colored distinctly from any pin marker (a sensible default like `#1d3557` is fine).
+- [x] When the toggle is off, no polyline is shown and there are no leftover Leaflet layers attached to the map.
+- [x] Adding a new pin while the route is on extends the polyline to include the new pin (at the end of the chain, since createdAt is now).
+- [x] Removing a pin while the route is on removes that vertex from the polyline; the remaining points stay connected in order.
+- [x] Moving a pin (NICE-001) while the route is on updates the polyline's vertex live.
+- [x] With fewer than 2 pins, no line is drawn (a polyline needs at least two points).
+- [x] The toggle state persists across reloads.
+- [x] The exported PNG (CORE-012) captures the polyline if it is currently on, with the correct vertices.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 

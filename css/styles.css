@@ -171,6 +171,55 @@ body {
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
 }
 
+/* "Show route" toggle. Sits between the style picker and the export button
+   in the right-aligned header cluster. The wrapper <label> is the click
+   target so the whole "checkbox + text" reads as one control; we keep the
+   real <input type="checkbox"> in the layout (instead of a CSS-only switch)
+   so keyboard, screen reader, and form-validation behaviour all come for
+   free — only the visual chrome is project-specific. */
+.route-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  height: 32px;
+  padding: 0 10px;
+  color: #1f2933;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.route-toggle:hover {
+  background: #ffffff;
+}
+
+.route-toggle:focus-within {
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+.route-toggle__input {
+  /* Native checkbox sized to match the rest of the toolbar's optical weight.
+     accent-color tints the check mark to the same blue as the export button
+     so the checked state reads as "on" without a custom SVG. */
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #4c6ef5;
+  cursor: pointer;
+}
+
+.route-toggle__label {
+  font: inherit;
+  line-height: 1;
+}
+
 /* Sits to the right of the style picker. margin-left switches from `auto`
    to a fixed gap because .map-style-select now owns the auto push. Matches
    the search input's 32px / 6px-radius geometry to read as one toolbar; the
