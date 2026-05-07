@@ -55,4 +55,23 @@ Do not implement any of the tasks themselves. Your job is only to produce the pl
 
 ## Generated tasks
 
-*(This section is filled in by the agent after running the prompt above.)*
+Generated 2026-05-07. Listed in the recommended implementation order — lower-risk and lower-dependency first, with the two interrelated pairs (groups, export) kept adjacent so context isn't lost between them.
+
+1. **NICE-001 — Drag pins to fine-tune position.** Make existing markers draggable; on drop, persist new lat/lon via the pin store. Isolated to `js/map.js`.
+2. **NICE-002 — Multiple map styles with switcher.** Header dropdown of free, key-free tile providers (OSM, Carto Light, Carto Dark, Topographic). Persists choice and applies on reload.
+3. **NICE-003 — Connecting lines between pins.** Optional polyline drawn through all pins in `createdAt` order with a header toggle; updates live, included in PNG export.
+4. **NICE-004 — Group data model and management panel.** New group store + side-panel UI for create / rename / recolor / delete. Pins are not yet assigned (NICE-005). New `'city-pin-map.groups.v1'` storage key, separate from pins.
+5. **NICE-005 — Assign pins to groups and render with group color.** Per-pin group selector; effective marker / swatch color resolves through the group store; group deletion cascades pins back to ungrouped.
+6. **NICE-006 — Custom title and subtitle in exported image.** Two text inputs in an Export options panel; values are baked into the captured PNG above the map without altering the live view; persisted across reloads.
+7. **NICE-007 — Adjustable export dimensions and aspect ratio.** Format preset selector (Current view, Square, 16:9, A4 portrait/landscape) added to the Export options panel; resizes the capture target, waits for tiles, captures, then restores the on-screen map.
+
+Coverage check vs. PROJECT.md → "Nice-to-have":
+
+- Connecting lines between pins → **NICE-003**
+- Custom title and subtitle text rendered into the exported image → **NICE-006**
+- Multiple map styles with a switcher → **NICE-002**
+- Adjustable export dimensions and aspect ratio → **NICE-007**
+- Drag pins to fine-tune position → **NICE-001**
+- Group pins with per-group colors → **NICE-004** (groups) + **NICE-005** (assignment + rendering)
+
+All six Nice-to-have features are covered by exactly one or (for grouping) two tasks. No existing CDN dependency is added or swapped — all tasks stay within the `CLAUDE.md` → "Hard rules" boundary.
