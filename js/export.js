@@ -37,6 +37,8 @@ export const EXPORT_PRESETS = {
   "16x9": { width: 1920, height: 1080 },
   "a4-portrait": { width: 794, height: 1123 },
   "a4-landscape": { width: 1123, height: 794 },
+  "a3-portrait": { width: 1191, height: 1684 },
+  "a3-landscape": { width: 1684, height: 1191 },
 };
 
 /**

@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-006`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Low` (stretch)                             |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `NICE-007`                                  |
@@ -33,12 +33,12 @@ A3 at 96 dpi is `1191 × 1684` portrait, inverse for landscape. NICE-007 already
 
 ## Acceptance criteria
 
-- [ ] `EXPORT_PRESETS` in `js/export.js` includes `a3-portrait: { width: 1191, height: 1684 }` and `a3-landscape: { width: 1684, height: 1191 }`.
-- [ ] `index.html` has two new `<option>` rows below the A4 ones, with values matching the new preset ids and labels `"A3 portrait (1191×1684)"` and `"A3 landscape (1684×1191)"`.
-- [ ] Selecting either A3 preset and clicking Export PNG produces a PNG whose dimensions match within 1 px tolerance.
-- [ ] The chosen preset persists across reloads (already handled by `loadExportFormat` / `saveExportFormat`).
-- [ ] All previously shipped presets still work identically.
-- [ ] No errors in browser console.
+- [x] `EXPORT_PRESETS` in `js/export.js` includes `a3-portrait: { width: 1191, height: 1684 }` and `a3-landscape: { width: 1684, height: 1191 }`.
+- [x] `index.html` has two new `<option>` rows below the A4 ones, with values matching the new preset ids and labels `"A3 portrait (1191×1684)"` and `"A3 landscape (1684×1191)"`.
+- [x] Selecting either A3 preset and clicking Export PNG produces a PNG whose dimensions match within 1 px tolerance.
+- [x] The chosen preset persists across reloads (already handled by `loadExportFormat` / `saveExportFormat`).
+- [x] All previously shipped presets still work identically.
+- [x] No errors in browser console.
 
 ## Files affected
 
