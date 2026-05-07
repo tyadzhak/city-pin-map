@@ -194,6 +194,37 @@ body {
   /* Inset ring keeps light-colored swatches visible against the white panel
      without imposing a hard outer border that fights the pin's own color. */
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.18);
+  /* Swatch doubles as the "open color picker" button (CORE-011). Cursor
+     and the hover/focus rings below signal that affordance without adding
+     a separate icon. */
+  cursor: pointer;
+  outline: none;
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}
+
+.pin-list__swatch:hover {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.28),
+    0 0 0 2px rgba(76, 110, 245, 0.2);
+  transform: scale(1.1);
+}
+
+.pin-list__swatch:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.28),
+    0 0 0 3px rgba(76, 110, 245, 0.45);
+}
+
+/* Visually hidden but kept in the layout tree — some browsers won't open
+   the native picker for a fully `display: none` input. The swatch calls
+   .click() on this element to trigger the dialog. */
+.pin-list__color-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .pin-list__name {

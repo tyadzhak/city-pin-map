@@ -53,7 +53,39 @@ function buildRow(pin) {
   // Inline style is the right tool here: the color is per-pin data, not
   // a design token. CSS handles the size/shape; the value comes from state.
   swatch.style.background = pin.color;
-  swatch.setAttribute("aria-hidden", "true");
+  // Acts as a button that opens the native color picker. role + tabindex
+  // pair makes a non-button element keyboard-focusable and announced as
+  // a button by screen readers.
+  swatch.setAttribute("role", "button");
+  swatch.setAttribute("tabindex", "0");
+  swatch.setAttribute("aria-label", `Change color of pin ${pin.name}`);
+
+  // Hidden <input type="color"> sits next to the swatch and is opened
+  // programmatically. It always returns a 7-char #rrggbb string, which
+  // matches the pin store's color contract (CLAUDE.md → Pin data model)
+  // — no normalization needed.
+  const colorInput = document.createElement("input");
+  colorInput.type = "color";
+  colorInput.className = "pin-list__color-input";
+  colorInput.value = pin.color;
+  colorInput.tabIndex = -1;
+  colorInput.setAttribute("aria-hidden", "true");
+
+  const openPicker = () => colorInput.click();
+  swatch.addEventListener("click", openPicker);
+  swatch.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openPicker();
+    }
+  });
+  // `change` only fires when the user actually picks a color; cancelling
+  // the dialog (Escape, click-away) is silent — so no commit on cancel.
+  // updatePin → notify() fans out: this row re-renders with the new
+  // swatch color (CORE-008) and the marker recolors (CORE-005).
+  colorInput.addEventListener("change", () => {
+    updatePin(pin.id, { color: colorInput.value });
+  });
 
   const name = document.createElement("span");
   name.className = "pin-list__name";
@@ -75,6 +107,7 @@ function buildRow(pin) {
   remove.addEventListener("click", () => removePin(pin.id));
 
   row.appendChild(swatch);
+  row.appendChild(colorInput);
   row.appendChild(name);
   row.appendChild(edit);
   row.appendChild(remove);

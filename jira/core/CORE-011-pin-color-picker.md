@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-011`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `CORE-008`                                  |
@@ -21,13 +21,13 @@ The pin's `color` field is a hex string per `CLAUDE.md` → "Pin data model". Br
 
 ## Acceptance criteria
 
-- [ ] Each pin list row exposes a color picker control. Clicking the row's swatch (or a small dedicated button) opens the browser's native color picker.
-- [ ] Selecting a color in the picker updates the pin's color via `updatePin`. The swatch updates immediately, and the map marker recolors immediately.
-- [ ] The new color persists across page reloads.
-- [ ] The color picker is keyboard-accessible (Tab to focus, Enter/Space to open the native picker).
-- [ ] If the user opens the picker but cancels it, no change is committed.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Each pin list row exposes a color picker control. Clicking the row's swatch (or a small dedicated button) opens the browser's native color picker.
+- [x] Selecting a color in the picker updates the pin's color via `updatePin`. The swatch updates immediately, and the map marker recolors immediately.
+- [x] The new color persists across page reloads.
+- [x] The color picker is keyboard-accessible (Tab to focus, Enter/Space to open the native picker).
+- [x] If the user opens the picker but cancels it, no change is committed.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
