@@ -1,60 +1,79 @@
 # City Pin Map
 
-A locally-running web app for pinning cities on a world map and exporting the result as a PNG image — for personal use like printing, framing, gifting, or scrapbooking travel memories.
+A small web app for pinning cities on a world map and exporting the result as a PNG — for printing, framing, gifting, or scrapbooking travel memories.
 
-## What's in this repository
+Both planned milestones are shipped: search and pin cities, drag pins, recolor, group them, draw a route through them, switch basemap styles, and export to PNG (current view, square, 16:9, A4 portrait, A4 landscape) with an optional title and subtitle.
 
-```
-city-pin-map/
-├── README.md                       # This file — start here
-├── CLAUDE.md                       # Conventions for AI coding agents
-├── PROJECT.md                      # Full project scope and tech decisions
-└── jira/
-    ├── TASK_TEMPLATE.md            # Standard format every task must follow
-    ├── core/
-    │   ├── GENERATE_TASKS.md       # Prompt → run with an agent to create core tasks
-    │   └── *.md                    # Generated task files (CORE-001, CORE-002, …)
-    └── nice-to-have/
-        ├── GENERATE_TASKS.md       # Prompt → run with an agent to create v2 tasks
-        └── *.md                    # Generated task files (NICE-001, NICE-002, …)
-```
+## How to run it (non-technical version)
 
-## How to use this archive
+The app is just a folder of HTML, CSS, and JavaScript — there is nothing to install or build. But browsers refuse to load JavaScript modules from a `file://` path, so you need a tiny local web server. macOS already has one built in.
 
-The workflow is two-pass: first generate tasks, then implement them.
+### macOS
 
-### Step 1 — Generate tasks for a milestone
+1. Open the **Terminal** app (Spotlight → "Terminal").
+2. Drag the project folder onto the Terminal window. The path of the folder will appear after a `cd` you'll type next.
+3. Type `cd ` (with a trailing space), drag the folder onto the window again, press **Enter**.
+4. Type:
+   ```
+   python3 -m http.server 8000
+   ```
+   and press **Enter**. You'll see a line like `Serving HTTP on :: port 8000`.
+5. Open your browser and visit **http://localhost:8000**. The app loads.
+6. To stop the app, switch back to Terminal and press **Ctrl + C**, then close the window.
 
-Open a coding agent (Claude Code, Cursor, etc.) in this repo and run the prompt in `jira/core/GENERATE_TASKS.md`. The agent will read `PROJECT.md`, `CLAUDE.md`, and `TASK_TEMPLATE.md`, then create one `.md` file per task inside `jira/core/`.
+### Windows
 
-Repeat with `jira/nice-to-have/GENERATE_TASKS.md` once the core milestone is in good shape.
+1. Install [Python](https://www.python.org/downloads/) once. During install, tick **"Add Python to PATH"**.
+2. Open the **Command Prompt** (Start → type "cmd").
+3. Navigate to the project folder. Easiest: open the folder in File Explorer, click the address bar, type `cmd`, press Enter — a Command Prompt opens already inside the folder.
+4. Type:
+   ```
+   python -m http.server 8000
+   ```
+   and press **Enter**.
+5. Open your browser and visit **http://localhost:8000**.
+6. To stop the app, switch back to Command Prompt and press **Ctrl + C**.
 
-### Step 2 — Implement a task
+### What you can do in the app
 
-Open any generated task file (e.g. `jira/core/CORE-003-city-search.md`). At the bottom of every task is an **Implementation Prompt** section. Hand that prompt to your coding agent and it will do the work.
+- **Search a city** — type into the search box, click a result. A pin appears.
+- **Move a pin** — drag it on the map.
+- **Rename a pin** — click the pencil icon in the side panel.
+- **Recolor a pin** — click its color swatch in the side panel.
+- **Delete a pin** — click the **✕** in the side panel.
+- **Group pins** — open the Groups panel (top of the side panel), click "Add group", give it a name and color, then assign pins to the group via the dropdown next to each pin row.
+- **Show a route line** — tick **Show route** in the header. Pins are connected in the order they were added.
+- **Change map style** — header dropdown. Try Light or Dark for cleaner posters.
+- **Export to PNG** — fill in Title/Subtitle if you want them, pick a Format preset, click **Export PNG**. The image downloads to your usual Downloads folder.
 
-Update the task's `Status` field as you go: `Todo → In Progress → Done`.
+Everything you do is saved in the browser automatically. Closing the tab and reopening the app brings everything back. **Beware:** clearing your browser data wipes the pins. There is currently no built-in backup — that's planned for the next milestone.
 
-## Running the app locally
+## How to run it (developer version)
 
-Once tasks are implemented, the app runs in any modern browser with no build step:
+Any static server is fine:
 
 ```bash
-# from the project root
-python -m http.server 8000
+python3 -m http.server 8000
 # or
 npx serve .
 ```
 
-Then open `http://localhost:8000`.
+Open `http://localhost:8000`. No build step. Edits to `index.html` / `css/` / `js/` show up on reload.
 
-See `PROJECT.md` for the full tech stack and architectural decisions.
+## Where the source lives
 
-## Why this structure?
+```
+city-pin-map/
+├── index.html          # Single entry point
+├── css/styles.css
+├── js/                 # 11 ES modules — see CLAUDE.md for the layout
+└── jira/               # Per-task design docs (Core + Nice-to-have)
+    ├── core/           # CORE-001 → CORE-012, all Done
+    └── nice-to-have/   # NICE-001 → NICE-007, all Done
+```
 
-Splitting "scope → tasks → implementation" into three layers means:
+`PROJECT.md` is the original scope and tech-stack rationale. `CLAUDE.md` is the operating manual for AI coding agents working on the next milestone — read that before adding any feature.
 
-- You can review and reorder tasks before any code is written.
-- Each task is small enough to be implemented in one agent session.
-- Every task carries its own implementation prompt, so you don't need to re-explain context.
-- Milestones are independent, so you can ship core, use the app for a while, then come back for v2.
+## How tasks are added (next milestone)
+
+The repo uses a two-pass workflow: a `GENERATE_TASKS.md` prompt produces individual `TASK-NNN.md` files, each with its own implementation prompt, acceptance criteria, and `Status` field. To extend the project, add a new milestone folder under `jira/`, drop in a `GENERATE_TASKS.md`, and run it through a coding agent. See `jira/TASK_TEMPLATE.md` for the format.
