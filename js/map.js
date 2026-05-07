@@ -60,6 +60,14 @@ let activeTileLayer = null;
 // not destroyed on every change.
 const markers = new Map();
 
+// Single managed L.polyline for the optional connecting route (NICE-003).
+// Treat as private; renderRoute is the only legitimate caller. Null when
+// the route is hidden or there are <2 pins, so callers can read this as
+// "is the route currently on the map?". Color picked to read clearly on
+// both light and dark basemaps without colliding with the default pin red.
+const ROUTE_STYLE = { color: "#1d3557", weight: 3, opacity: 0.85 };
+let routePolyline = null;
+
 /**
  * Initialize the Leaflet map inside the given container element id.
  * Idempotent: calling twice returns the existing instance instead of
@@ -154,6 +162,50 @@ export function renderPins(pins) {
       markers.delete(id);
     }
   }
+}
+
+/**
+ * Synchronize the connecting-route polyline against `pins` and the toggle.
+ *
+ * Lives in its own function (rather than folded into renderPins) because
+ * the visibility toggle is orthogonal to the pin set: the route can change
+ * without pins changing (toggle on/off), and pins can change without the
+ * route's visibility changing (add/remove/drag). Two listeners on the pin
+ * store, each with one job, keeps the data flow legible.
+ *
+ * Behaviour:
+ * - When hidden, or fewer than 2 pins, the polyline is removed and the
+ *   ref is nulled so map._layers stays clean (acceptance criterion).
+ * - Otherwise, pins are sorted by createdAt ascending — that's the order
+ *   the user pinned cities, which is the natural travel-narrative order
+ *   (PROJECT.md → "documenting a multi-city trip").
+ * - The polyline instance is reused across updates via setLatLngs to keep
+ *   add-order stable; recreating it on every change would push it back on
+ *   top of the markers and force a fresh DOM node each time.
+ */
+export function renderRoute(pins, { visible }) {
+  if (!mapInstance) return;
+
+  if (!visible || pins.length < 2) {
+    if (routePolyline) {
+      routePolyline.remove();
+      routePolyline = null;
+    }
+    return;
+  }
+
+  const ordered = pins.slice().sort((a, b) => a.createdAt - b.createdAt);
+  const latLngs = ordered.map((p) => [p.lat, p.lon]);
+
+  if (routePolyline) {
+    routePolyline.setLatLngs(latLngs);
+  } else {
+    routePolyline = L.polyline(latLngs, ROUTE_STYLE).addTo(mapInstance);
+  }
+  // Markers are added to the map before this runs (renderPins is subscribed
+  // first), and Leaflet z-orders SVG overlays by add-time, not CSS z-index.
+  // Without bringToBack the line draws on top of the markers it connects.
+  routePolyline.bringToBack();
 }
 
 // Marker style: L.circleMarker. Picked over L.divIcon for simplicity and
