@@ -58,7 +58,7 @@ function gate() {
  *
  * @param {string} query - User-entered text. Empty/whitespace returns [].
  * @param {{ signal?: AbortSignal }} [options]
- * @returns {Promise<Array<{ displayName: string, lat: number, lon: number }>>}
+ * @returns {Promise<Array<{ displayName: string, lat: number, lon: number, address: object | null }>>}
  */
 export async function searchCities(query, { signal } = {}) {
   if (typeof query !== "string" || query.trim() === "") {
@@ -81,6 +81,11 @@ export async function searchCities(query, { signal } = {}) {
   url.searchParams.set("format", "json");
   url.searchParams.set("limit", "8");
   url.searchParams.set("accept-language", "en");
+  // addressdetails=1 makes Nominatim return a structured `address` object
+  // (city/town/village/country/etc.) alongside the flat display_name.
+  // search.js → shortName() uses this to default new pin names to a short
+  // "city, country" form. Single extra response field — no extra request.
+  url.searchParams.set("addressdetails", "1");
   url.searchParams.set("q", query);
 
   let res;
@@ -113,6 +118,10 @@ export async function searchCities(query, { signal } = {}) {
     displayName: r.display_name,
     lat: parseFloat(r.lat),
     lon: parseFloat(r.lon),
+    // Raw address object as Nominatim returned it. Keys vary by place type
+    // (city / town / village / hamlet / country / …). Callers should treat
+    // every key as optional. `null` when Nominatim didn't include `address`.
+    address: r.address ?? null,
   }));
 
   cache.set(query, results);

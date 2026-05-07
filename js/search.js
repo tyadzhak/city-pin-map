@@ -98,13 +98,14 @@ function renderResults(results) {
     li.textContent = "No matches.";
     listEl.append(li);
   } else {
-    for (const r of results) {
+    for (const [idx, r] of results.entries()) {
       const li = document.createElement("li");
       li.className = "search__row";
       li.setAttribute("role", "option");
-      li.dataset.lat = String(r.lat);
-      li.dataset.lon = String(r.lon);
-      li.dataset.name = r.displayName;
+      // Index into currentResults so the click handler can read the full
+      // result object — including the `address` block — without round-
+      // tripping through dataset attributes (which only carry strings).
+      li.dataset.idx = String(idx);
       li.textContent = r.displayName;
       listEl.append(li);
     }
@@ -127,9 +128,38 @@ function clearDropdown() {
   currentResults = [];
 }
 
+/**
+ * Build a short, readable default name for a newly-pinned city.
+ *
+ * Priority:
+ *   1. "${city}, ${country}" when Nominatim's address block supplies both,
+ *      where `city` is the first non-empty of:
+ *        city → town → village → municipality → county
+ *   2. Otherwise, the segment before the first comma of `displayName`,
+ *      followed by ", ${country}" when address.country is present.
+ *   3. Otherwise, `displayName` unchanged (never returns empty).
+ *
+ * @param {{ displayName: string, address: object | null }} result
+ * @returns {string}
+ */
+function shortName(result) {
+  const addr = result.address ?? {};
+  const country = addr.country;
+  const city =
+    addr.city ?? addr.town ?? addr.village ?? addr.municipality ?? addr.county;
+
+  if (city && country) return `${city}, ${country}`;
+
+  const head = result.displayName?.split(",")[0]?.trim();
+  if (head && country) return `${head}, ${country}`;
+  if (head) return head;
+
+  return result.displayName;
+}
+
 function selectResult(result) {
   addPin({
-    name: result.displayName,
+    name: shortName(result),
     lat: result.lat,
     lon: result.lon,
     color: DEFAULT_PIN_COLOR,
@@ -140,12 +170,10 @@ function selectResult(result) {
 
 function handleListClick(event) {
   const row = event.target.closest(".search__row");
-  if (!row || !row.dataset.lat) return;
-  selectResult({
-    displayName: row.dataset.name,
-    lat: parseFloat(row.dataset.lat),
-    lon: parseFloat(row.dataset.lon),
-  });
+  if (!row || row.dataset.idx === undefined) return;
+  const result = currentResults[Number(row.dataset.idx)];
+  if (!result) return;
+  selectResult(result);
 }
 
 function handleKeydown(event) {
