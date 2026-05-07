@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-001`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | None                                        |
@@ -21,14 +21,14 @@ Pinned versions matter: `CLAUDE.md` requires exact versions in `index.html` so t
 
 ## Acceptance criteria
 
-- [ ] Opening `index.html` directly in a browser shows the app shell (header, map area, side panel) with no console errors.
-- [ ] `index.html` loads `leaflet@1.9.x` CSS and JS from a CDN, and `html-to-image` (or `dom-to-image-more`) from a CDN, both at pinned versions.
-- [ ] `index.html` loads `js/app.js` as `<script type="module">`.
-- [ ] The directory tree matches the "File layout (target)" section of `CLAUDE.md` exactly: `css/styles.css`, `js/app.js`, `js/map.js`, `js/geocode.js`, `js/pins.js`, `js/storage.js`, `js/export.js`, `assets/`.
-- [ ] Each `js/*.js` file exists and exports at least one named placeholder so other modules can import without 404s.
-- [ ] Base CSS sets a sensible page reset, fills the viewport, and visually separates the three shell regions (header, map, side panel).
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Opening `index.html` directly in a browser shows the app shell (header, map area, side panel) with no console errors.
+- [x] `index.html` loads `leaflet@1.9.x` CSS and JS from a CDN, and `html-to-image` (or `dom-to-image-more`) from a CDN, both at pinned versions.
+- [x] `index.html` loads `js/app.js` as `<script type="module">`.
+- [x] The directory tree matches the "File layout (target)" section of `CLAUDE.md` exactly: `css/styles.css`, `js/app.js`, `js/map.js`, `js/geocode.js`, `js/pins.js`, `js/storage.js`, `js/export.js`, `assets/`.
+- [x] Each `js/*.js` file exists and exports at least one named placeholder so other modules can import without 404s.
+- [x] Base CSS sets a sensible page reset, fills the viewport, and visually separates the three shell regions (header, map, side panel).
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
