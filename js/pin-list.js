@@ -4,7 +4,7 @@
 // Remove buttons (CORE-009), inline rename (CORE-010), and color picker
 // (CORE-011) attach their controls to the rows produced here.
 
-import { subscribe, listPins } from "./pins.js";
+import { subscribe, listPins, removePin } from "./pins.js";
 
 /**
  * Wires the list to the pin store. Call once during bootstrap, after
@@ -57,7 +57,15 @@ function buildRow(pin) {
   // textContent (not innerHTML) — pin.name is user- or geocoder-provided.
   name.textContent = pin.name;
 
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "remove-pin";
+  remove.textContent = "✕";
+  remove.setAttribute("aria-label", `Remove pin ${pin.name}`);
+  remove.addEventListener("click", () => removePin(pin.id));
+
   row.appendChild(swatch);
   row.appendChild(name);
+  row.appendChild(remove);
   return row;
 }
