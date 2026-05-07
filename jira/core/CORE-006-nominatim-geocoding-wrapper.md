@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-006`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-001`                                  |
@@ -21,15 +21,15 @@ Splitting the wrapper from the UI lets the UI task focus on input handling and r
 
 ## Acceptance criteria
 
-- [ ] `js/geocode.js` exports a `searchCities(query)` async function that returns an array of result objects: `{ displayName, lat, lon }` (lat/lon are numbers).
-- [ ] Calling `searchCities` more than once per second from the same code path enforces a minimum 1-second gap by queueing — no two outbound requests are ever <1000 ms apart.
-- [ ] Calling `searchCities` with the same query twice in a row returns the cached result without a second network request (within a single session).
-- [ ] An empty or whitespace-only query resolves to `[]` immediately, with no network request.
-- [ ] An aborted-or-superseded query (a newer call before the previous resolved) does not produce stale UI updates — the wrapper supports cancellation, e.g. via `AbortSignal`.
-- [ ] On network failure or non-2xx response, the function rejects with an `Error` carrying a human-readable message; it does not silently swallow.
-- [ ] Outbound requests include a `User-Agent` substitute appropriate for browser fetch (the `Referer` header set by the browser is sufficient per Nominatim policy — verify a meaningful one is present, or document why this is acceptable).
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console under normal operation.
+- [x] `js/geocode.js` exports a `searchCities(query)` async function that returns an array of result objects: `{ displayName, lat, lon }` (lat/lon are numbers).
+- [x] Calling `searchCities` more than once per second from the same code path enforces a minimum 1-second gap by queueing — no two outbound requests are ever <1000 ms apart.
+- [x] Calling `searchCities` with the same query twice in a row returns the cached result without a second network request (within a single session).
+- [x] An empty or whitespace-only query resolves to `[]` immediately, with no network request.
+- [x] An aborted-or-superseded query (a newer call before the previous resolved) does not produce stale UI updates — the wrapper supports cancellation, e.g. via `AbortSignal`.
+- [x] On network failure or non-2xx response, the function rejects with an `Error` carrying a human-readable message; it does not silently swallow.
+- [x] Outbound requests include a `User-Agent` substitute appropriate for browser fetch (the `Referer` header set by the browser is sufficient per Nominatim policy — verify a meaningful one is present, or document why this is acceptable).
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console under normal operation.
 
 ## Files affected
 
