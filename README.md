@@ -10,16 +10,11 @@ The app is just a folder of HTML, CSS, and JavaScript — there is nothing to in
 
 ### macOS
 
-1. Open the **Terminal** app (Spotlight → "Terminal").
-2. Drag the project folder onto the Terminal window. The path of the folder will appear after a `cd` you'll type next.
-3. Type `cd ` (with a trailing space), drag the folder onto the window again, press **Enter**.
-4. Type:
-   ```
-   python3 -m http.server 8000
-   ```
-   and press **Enter**. You'll see a line like `Serving HTTP on :: port 8000`.
-5. Open your browser and visit **http://localhost:8000**. The app loads.
-6. To stop the app, switch back to Terminal and press **Ctrl + C**, then close the window.
+1. Double-click **`start.command`** in the project folder. A Terminal window opens, then your default browser opens at the app.
+2. **First time only:** macOS may pop up *"start.command can't be opened because it is from an unidentified developer."* Click **OK**, then right-click `start.command` → **Open** → **Open** in the confirmation dialog. macOS remembers the choice; future double-clicks just work.
+3. To stop the app, close the Terminal window. The server shuts down with it.
+
+If port 8000 is already in use, the launcher tries 8001, 8002, … up to 8010 and opens the browser at whichever it picks.
 
 ### Windows
 

@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-002`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `None`                                      |
@@ -25,15 +25,15 @@ The single-OS scope is deliberate: the actual non-technical user is on macOS. Bu
 
 ## Acceptance criteria
 
-- [ ] `start.command` exists in the project root and is marked executable (`chmod +x`).
-- [ ] Double-clicking the file in Finder opens a Terminal window AND, after a brief delay, opens the default browser at `http://localhost:8000` showing the app.
-- [ ] The script `cd`s to its own directory before starting the server, so the user can move the project folder anywhere on disk and the script still works.
-- [ ] If port 8000 is already in use, the script tries the next available port up to 8010 and uses the first one that binds; the browser is opened at the actual port chosen.
-- [ ] If `python3` is not on `PATH`, the Terminal window prints a clear, plain-English message: "Python 3 isn't installed. Install it from python.org and try again." and waits for the user to press a key before exiting.
-- [ ] Closing the Terminal window stops the server (no orphaned `python3` process).
-- [ ] The script is plain `bash`/`sh` — no extra binaries, no homebrew, no Node, no dependencies a vanilla macOS doesn't already have.
-- [ ] `README.md` is updated: the "How to run it (non-technical version)" macOS section now says "Double-click `start.command`. The first time, macOS may ask if you're sure — click Open." instead of the four-step Terminal walkthrough. The developer-version section keeps the manual command for reference.
-- [ ] No regressions in previously completed tasks.
+- [x] `start.command` exists in the project root and is marked executable (`chmod +x`).
+- [x] Double-clicking the file in Finder opens a Terminal window AND, after a brief delay, opens the default browser at `http://localhost:8000` showing the app.
+- [x] The script `cd`s to its own directory before starting the server, so the user can move the project folder anywhere on disk and the script still works.
+- [x] If port 8000 is already in use, the script tries the next available port up to 8010 and uses the first one that binds; the browser is opened at the actual port chosen.
+- [x] If `python3` is not on `PATH`, the Terminal window prints a clear, plain-English message: "Python 3 isn't installed. Install it from python.org and try again." and waits for the user to press a key before exiting.
+- [x] Closing the Terminal window stops the server (no orphaned `python3` process).
+- [x] The script is plain `bash`/`sh` — no extra binaries, no homebrew, no Node, no dependencies a vanilla macOS doesn't already have.
+- [x] `README.md` is updated: the "How to run it (non-technical version)" macOS section now says "Double-click `start.command`. The first time, macOS may ask if you're sure — click Open." instead of the four-step Terminal walkthrough. The developer-version section keeps the manual command for reference.
+- [x] No regressions in previously completed tasks.
 
 ## Files affected
 
