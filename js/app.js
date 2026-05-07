@@ -6,6 +6,7 @@ import { geocode } from "./geocode.js";
 import * as pinStore from "./pins.js";
 import { attachStorage } from "./storage.js";
 import { exportMapPng } from "./export.js";
+import { initSearch } from "./search.js";
 
 function init() {
   initMap("map");
@@ -17,6 +18,12 @@ function init() {
   // hydration (which fired notify() before we were listening).
   pinStore.subscribe(renderPins);
   renderPins(pinStore.listPins());
+
+  // Search wires the header input to the geocoder + pin store. It must run
+  // after the DOM is ready (we're already inside DOMContentLoaded) and
+  // doesn't depend on the map directly — pin additions flow through the
+  // store and reach the map via the subscription above.
+  initSearch();
 }
 
 document.addEventListener("DOMContentLoaded", init);

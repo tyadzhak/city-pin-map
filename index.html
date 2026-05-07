@@ -41,7 +41,29 @@
     <div class="app-shell">
       <header class="app-header" aria-label="Search">
         <h1 class="app-title">City Pin Map</h1>
-        <!-- Search input lives here (CORE-007). -->
+        <!-- Relatively-positioned wrapper so #search-results can be
+             absolutely positioned and overlay the map below the header. -->
+        <div class="search">
+          <label for="search-input" class="visually-hidden"
+            >Search a city</label
+          >
+          <input
+            id="search-input"
+            type="search"
+            class="search__input"
+            placeholder="Search a city…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-controls="search-results"
+            aria-autocomplete="list"
+          />
+          <ul
+            id="search-results"
+            class="search__results"
+            role="listbox"
+            hidden
+          ></ul>
+        </div>
       </header>
 
       <main class="app-map" aria-label="Map">

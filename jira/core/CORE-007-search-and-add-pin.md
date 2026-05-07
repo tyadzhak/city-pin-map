@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-007`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-005`, `CORE-006`                      |
@@ -21,16 +21,16 @@ CORE-006 provided the geocoding wrapper with rate limiting and caching. This tas
 
 ## Acceptance criteria
 
-- [ ] The header contains a search input with a placeholder like "Search a city…".
-- [ ] Typing into the input shows a dropdown of up to 8 candidate cities under the input within ~400 ms of the user stopping.
-- [ ] No requests are sent for queries shorter than 2 characters.
-- [ ] Clicking a candidate adds a new pin (`name` defaults to that candidate's `displayName`, lat/lon from the candidate, default color), the dropdown closes, and the input clears.
-- [ ] Pressing Enter with the dropdown open selects the first candidate (same effect as clicking it).
-- [ ] Pressing Escape closes the dropdown without adding a pin.
-- [ ] If the geocoder errors, the dropdown shows a single visible error row and the page-level error banner from CORE-004 displays the message.
-- [ ] Adding a pin via search reflects on the map immediately and persists across reload.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] The header contains a search input with a placeholder like "Search a city…".
+- [x] Typing into the input shows a dropdown of up to 8 candidate cities under the input within ~400 ms of the user stopping.
+- [x] No requests are sent for queries shorter than 2 characters.
+- [x] Clicking a candidate adds a new pin (`name` defaults to that candidate's `displayName`, lat/lon from the candidate, default color), the dropdown closes, and the input clears.
+- [x] Pressing Enter with the dropdown open selects the first candidate (same effect as clicking it).
+- [x] Pressing Escape closes the dropdown without adding a pin.
+- [x] If the geocoder errors, the dropdown shows a single visible error row and the page-level error banner from CORE-004 displays the message.
+- [x] Adding a pin via search reflects on the map immediately and persists across reload.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
