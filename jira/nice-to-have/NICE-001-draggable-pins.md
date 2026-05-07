@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `NICE-001`                                  |
 | **Milestone**   | `Nice-to-have`                              |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-002`, `CORE-003`, `CORE-005`          |
@@ -23,14 +23,14 @@ A subtle gotcha (called out in CORE-012's notes): `L.circleMarker` was chosen ov
 
 ## Acceptance criteria
 
-- [ ] On the map, the user can press-and-hold any pin marker and drag it to a new position. The marker visually follows the cursor in real time.
-- [ ] On release, the pin's `lat` and `lon` are updated via `updatePin`. The pin list row stays mapped to the same pin (id unchanged); only the position changes.
-- [ ] Refreshing the page restores the pin at its new dragged position (persistence via CORE-004 still works automatically).
-- [ ] Dragging does not pan the underlying map. (The map only pans when dragging starts on empty map space, not on a marker.)
-- [ ] The PNG export (CORE-012) still produces a clean image with all markers visible at their on-screen positions, including any that have been dragged.
-- [ ] Tooltip / label behavior from CORE-005 still works: hovering a pin still shows its name.
-- [ ] No regressions in previously completed tasks (search, rename, color picker, remove, export).
-- [ ] No errors in browser console.
+- [x] On the map, the user can press-and-hold any pin marker and drag it to a new position. The marker visually follows the cursor in real time.
+- [x] On release, the pin's `lat` and `lon` are updated via `updatePin`. The pin list row stays mapped to the same pin (id unchanged); only the position changes.
+- [x] Refreshing the page restores the pin at its new dragged position (persistence via CORE-004 still works automatically).
+- [x] Dragging does not pan the underlying map. (The map only pans when dragging starts on empty map space, not on a marker.)
+- [x] The PNG export (CORE-012) still produces a clean image with all markers visible at their on-screen positions, including any that have been dragged.
+- [x] Tooltip / label behavior from CORE-005 still works: hovering a pin still shows its name.
+- [x] No regressions in previously completed tasks (search, rename, color picker, remove, export).
+- [x] No errors in browser console.
 
 ## Files affected
 
