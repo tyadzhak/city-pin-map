@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `NICE-002`                                  |
 | **Milestone**   | `Nice-to-have`                              |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-002`, `CORE-004`, `CORE-012`          |
@@ -25,14 +25,14 @@ The selected style is a piece of UI preference, not pin data, so it is persisted
 
 ## Acceptance criteria
 
-- [ ] A clearly labeled style selector (e.g. `<select>` or a small button group) is visible in the header. It lists at least four styles: OSM Standard (default), Carto Positron (light), Carto Dark Matter (dark), and one additional distinct style (e.g. OpenTopoMap or CyclOSM).
-- [ ] Selecting a style swaps the visible tiles within ~1 second; markers, tooltips, and any other overlays remain in place at the same positions.
-- [ ] The current style is persisted to localStorage and restored on reload — opening the app applies the previously chosen style without flashing OSM first if possible (or with at most a brief flash that doesn't cause visible jank).
-- [ ] After a style change, the PNG export captures the newly chosen style. The correct attribution string for that style is visible in the exported image.
-- [ ] Switching styles does not throw, leak tile layers, or duplicate attribution lines.
-- [ ] The selector is keyboard-accessible (Tab to focus, arrow keys / Enter to choose).
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] A clearly labeled style selector (e.g. `<select>` or a small button group) is visible in the header. It lists at least four styles: OSM Standard (default), Carto Positron (light), Carto Dark Matter (dark), and one additional distinct style (e.g. OpenTopoMap or CyclOSM).
+- [x] Selecting a style swaps the visible tiles within ~1 second; markers, tooltips, and any other overlays remain in place at the same positions.
+- [x] The current style is persisted to localStorage and restored on reload — opening the app applies the previously chosen style without flashing OSM first if possible (or with at most a brief flash that doesn't cause visible jank).
+- [x] After a style change, the PNG export captures the newly chosen style. The correct attribution string for that style is visible in the exported image.
+- [x] Switching styles does not throw, leak tile layers, or duplicate attribution lines.
+- [x] The selector is keyboard-accessible (Tab to focus, arrow keys / Enter to choose).
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 

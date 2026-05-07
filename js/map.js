@@ -5,9 +5,54 @@
 // never has to touch `L` directly — they go through `getMap()`.
 
 import { updatePin } from "./pins.js";
+import { saveMapStyle } from "./storage.js";
+
+// Registry of available basemap styles. Single source of truth: js/app.js
+// reads this to populate the header <select>, so adding a style here is the
+// only change needed to expose it in the UI. All styles must be free and
+// key-free per CLAUDE.md → "Hard rules".
+export const MAP_STYLES = [
+  {
+    id: "osm",
+    label: "OSM Standard",
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution:
+      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  },
+  {
+    id: "carto-light",
+    label: "Light",
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+    attribution:
+      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 20,
+  },
+  {
+    id: "carto-dark",
+    label: "Dark",
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+    attribution:
+      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 20,
+  },
+  {
+    id: "topo",
+    label: "Topographic",
+    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attribution:
+      'Map data: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+    maxZoom: 17,
+  },
+];
+
+export const DEFAULT_MAP_STYLE_ID = "osm";
 
 // Module-scoped singleton. Treat as private; outside callers use getMap().
 let mapInstance = null;
+// Reference to the currently-mounted L.TileLayer. setMapStyle() swaps this
+// in place; null until initMap() runs setMapStyle() for the first time.
+let activeTileLayer = null;
 
 // pinId → Leaflet marker. Lets renderPins sync the visible markers against
 // the pin store in O(n), preserving marker identity across updates so any
@@ -19,21 +64,56 @@ const markers = new Map();
  * Initialize the Leaflet map inside the given container element id.
  * Idempotent: calling twice returns the existing instance instead of
  * re-binding (Leaflet throws "Map container is already initialized" otherwise).
+ *
+ * The initial tile layer is painted via setMapStyle so first-paint and later
+ * style swaps share one code path. Callers that want a non-default style on
+ * boot (e.g. restoring a saved preference) should call setMapStyle right
+ * after initMap, before any pins render.
  */
-export function initMap(containerId) {
+export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   if (mapInstance) return mapInstance;
 
   // Latitude 20 (not 0) keeps populated landmasses centered vertically;
   // zoom 2 fits the whole world on a typical desktop viewport.
   mapInstance = L.map(containerId).setView([20, 0], 2);
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(mapInstance);
+  setMapStyle(initialStyleId, { persist: false });
 
   return mapInstance;
+}
+
+/**
+ * Swap the active basemap to the style identified by `styleId`.
+ * Falls back to OSM (with a console.warn) if the id isn't in MAP_STYLES.
+ *
+ * `persist`: when true (the default) the choice is saved via storage. The
+ * initMap call passes `persist: false` so first-paint with a hydrated style
+ * doesn't write back the same value that was just loaded.
+ */
+export function setMapStyle(styleId, { persist = true } = {}) {
+  if (!mapInstance) return;
+
+  let style = MAP_STYLES.find((s) => s.id === styleId);
+  if (!style) {
+    console.warn(
+      `Unknown map style "${styleId}"; falling back to "${DEFAULT_MAP_STYLE_ID}".`
+    );
+    style = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
+  }
+
+  // Add-then-remove order: the new layer mounts on top, paints over the old
+  // tiles as it loads, then the old layer (with its attribution string) is
+  // removed in the same tick. The user sees a smooth fade rather than a
+  // grey flash. The old layer's attribution is dropped from Leaflet's
+  // attribution control on remove(), so no duplicate lines accumulate.
+  const previousLayer = activeTileLayer;
+  activeTileLayer = L.tileLayer(style.url, {
+    attribution: style.attribution,
+    maxZoom: style.maxZoom,
+  }).addTo(mapInstance);
+  if (previousLayer) previousLayer.remove();
+
+  if (persist) saveMapStyle(style.id);
 }
 
 /**
