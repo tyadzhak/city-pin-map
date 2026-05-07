@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-004`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `None`                                      |
@@ -23,17 +23,17 @@ Nominatim search results also expose `address` fields (`city`, `town`, `village`
 
 ## Acceptance criteria
 
-- [ ] After picking a search result, the new pin's `name` is in a short readable form. Examples:
+- [x] After picking a search result, the new pin's `name` is in a short readable form. Examples:
   - `"Lisboa, Portugal"` (not `"Lisboa, Lisbon, Lisbon Region, 1100-205, Portugal"`)
   - `"Tokyo, Japan"`
   - `"San Francisco, United States"`
-- [ ] If Nominatim returns a result with no recognizable city/town field (e.g. a feature, a building), fall back to: take everything before the first comma, plus the country if it's the last segment. Example: `"Eiffel Tower, France"` → `"Eiffel Tower, France"`.
-- [ ] If even the fallback fails (single-segment display name), use `display_name` as-is — never end up with an empty pin name.
-- [ ] The Nominatim request now includes `addressdetails=1`.
-- [ ] The dropdown of search results in the header continues to show the **full** `display_name` so the user can disambiguate ("Springfield, Illinois" vs "Springfield, Missouri"). Only the saved pin name is shortened.
-- [ ] Existing pins in storage are untouched. The shortening applies to **new** pins only.
-- [ ] No regressions: rename, recolor, drag, group assignment, route, export — all still work on the new short-name pins.
-- [ ] No errors in browser console.
+- [x] If Nominatim returns a result with no recognizable city/town field (e.g. a feature, a building), fall back to: take everything before the first comma, plus the country if it's the last segment. Example: `"Eiffel Tower, France"` → `"Eiffel Tower, France"`.
+- [x] If even the fallback fails (single-segment display name), use `display_name` as-is — never end up with an empty pin name.
+- [x] The Nominatim request now includes `addressdetails=1`.
+- [x] The dropdown of search results in the header continues to show the **full** `display_name` so the user can disambiguate ("Springfield, Illinois" vs "Springfield, Missouri"). Only the saved pin name is shortened.
+- [x] Existing pins in storage are untouched. The shortening applies to **new** pins only.
+- [x] No regressions: rename, recolor, drag, group assignment, route, export — all still work on the new short-name pins.
+- [x] No errors in browser console.
 
 ## Files affected
 
