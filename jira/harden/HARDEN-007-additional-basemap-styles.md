@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-007`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `None`                                      |
@@ -27,16 +27,16 @@ This task does **not** address the deeper "raster tiles look dated on retina" fe
 
 ## Acceptance criteria
 
-- [ ] `MAP_STYLES` in `js/map.js` includes three new entries with ids `esri-imagery`, `wikimedia`, and `carto-voyager`, each with the correct `url`, `attribution`, and `maxZoom`.
-- [ ] The header basemap `<select>` shows seven options in this order: OSM Standard, Light, Dark, Voyager, Wikimedia, Topographic, Satellite. (Group by family: OSM-derived first, then thematic, then Satellite as the visual outlier.)
-- [ ] Selecting **Satellite** loads Esri imagery tiles globally with no broken-tile placeholders at zoom levels 2–17.
-- [ ] Selecting **Wikimedia** loads OSM data with English labels.
-- [ ] Selecting **Voyager** loads the warm cream Carto style.
-- [ ] Each new style's attribution string appears in the Leaflet attribution control while that style is active and is removed when the user switches away (this is automatic via the existing `setMapStyle` add-then-remove pattern; the criterion is verifying it works).
-- [ ] The chosen style persists across reload (already handled by `saveMapStyle` / `loadMapStyle` — verify, don't re-implement).
-- [ ] Pin add, drag, route polyline, and PNG export all behave identically on every new style.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console, including no tile 404s in the network tab on any new style.
+- [x] `MAP_STYLES` in `js/map.js` includes three new entries with ids `esri-imagery`, `wikimedia`, and `carto-voyager`, each with the correct `url`, `attribution`, and `maxZoom`.
+- [x] The header basemap `<select>` shows seven options in this order: OSM Standard, Light, Dark, Voyager, Wikimedia, Topographic, Satellite. (Group by family: OSM-derived first, then thematic, then Satellite as the visual outlier.)
+- [x] Selecting **Satellite** loads Esri imagery tiles globally with no broken-tile placeholders at zoom levels 2–17.
+- [x] Selecting **Wikimedia** loads OSM data with English labels.
+- [x] Selecting **Voyager** loads the warm cream Carto style.
+- [x] Each new style's attribution string appears in the Leaflet attribution control while that style is active and is removed when the user switches away (this is automatic via the existing `setMapStyle` add-then-remove pattern; the criterion is verifying it works).
+- [x] The chosen style persists across reload (already handled by `saveMapStyle` / `loadMapStyle` — verify, don't re-implement).
+- [x] Pin add, drag, route polyline, and PNG export all behave identically on every new style.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console, including no tile 404s in the network tab on any new style.
 
 ## Files affected
 

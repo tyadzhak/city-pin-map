@@ -38,12 +38,38 @@ export const MAP_STYLES = [
     maxZoom: 20,
   },
   {
+    id: "carto-voyager",
+    label: "Voyager",
+    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+    attribution:
+      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 20,
+  },
+  {
+    id: "wikimedia",
+    label: "Wikimedia",
+    url: "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png",
+    attribution:
+      '<a href="https://wikimediafoundation.org/wiki/Maps_Terms_of_Use">Wikimedia maps</a> | © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  },
+  {
     id: "topo",
     label: "Topographic",
     url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
     attribution:
       'Map data: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
     maxZoom: 17,
+  },
+  {
+    id: "esri-imagery",
+    label: "Satellite",
+    // Esri's ArcGIS REST tile endpoint uses {z}/{y}/{x} ordering (y before x),
+    // the inverse of the OSM/Carto convention used elsewhere in this registry.
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      'Tiles © <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    maxZoom: 19,
   },
 ];
 
