@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-005`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Low`                                       |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `None`                                      |
@@ -31,12 +31,12 @@ The threat model for a personal-use app is low — there is no auth, no PII serv
 
 ## Acceptance criteria
 
-- [ ] The `dom-to-image-more@3.5.0` script tag in `index.html` has `integrity="sha384-..."` and `crossorigin="anonymous"` attributes.
-- [ ] The hash is computed against the actual file served at `https://unpkg.com/dom-to-image-more@3.5.0/dist/dom-to-image-more.min.js` and is recorded in the implementation prompt's verification step.
-- [ ] The app loads cleanly with the new attributes — PNG export still works.
-- [ ] If the integrity attribute is deliberately corrupted (test by changing one character), the browser refuses to execute the script and the export-button click surfaces the existing "dom-to-image-more not loaded" error via the banner.
-- [ ] No regressions in any other previously completed task.
-- [ ] No errors in the browser console under normal load.
+- [x] The `dom-to-image-more@3.5.0` script tag in `index.html` has `integrity="sha384-..."` and `crossorigin="anonymous"` attributes.
+- [x] The hash is computed against the actual file served at `https://unpkg.com/dom-to-image-more@3.5.0/dist/dom-to-image-more.min.js` and is recorded in the implementation prompt's verification step.
+- [x] The app loads cleanly with the new attributes — PNG export still works.
+- [x] If the integrity attribute is deliberately corrupted (test by changing one character), the browser refuses to execute the script and the export-button click surfaces the existing "dom-to-image-more not loaded" error via the banner.
+- [x] No regressions in any other previously completed task.
+- [x] No errors in the browser console under normal load.
 
 ## Files affected
 
@@ -103,3 +103,6 @@ When finished:
 ## Notes
 
 - The hash is committed alongside the version pin in `index.html`. Bumping the version in the future will require recomputing the hash; that's by design — the hash is the version's fingerprint.
+- Computed SHA-384 for `dom-to-image-more@3.5.0/dist/dom-to-image-more.min.js`:
+  `sha384-0PEs9VXKn6x/atQ5H1woMo0cQQnIz11UdqMzjvkDj+U+vxY4xwwj9J+gsbvLNcL9`
+  (via `curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A`)
