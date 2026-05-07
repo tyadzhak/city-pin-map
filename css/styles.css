@@ -410,15 +410,64 @@ body.dragging-pin * {
   overflow: hidden;
 }
 
-.pin-list__heading {
+/* Pins header bar (HARDEN-001). Mirrors .group-panel__header so the two
+   side-panel sections read as one design family. The wrapper owns the
+   padding and the bottom rule that the standalone heading used to carry,
+   leaving the heading itself free to flex-grow next to the backup buttons. */
+.pin-list__header {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 14px 16px 10px;
+  border-bottom: 1px solid #e4e7eb;
+}
+
+.pin-list__heading {
+  flex: 1 1 auto;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #4b5563;
-  border-bottom: 1px solid #e4e7eb;
+}
+
+/* Compact secondary buttons for JSON backup (HARDEN-001). Geometry
+   matches .group-panel__add — same height, font, radius — so the side
+   panel doesn't sprout a third button style. The pair sits right-aligned
+   in the Pins header bar and shares its own flex container so the gap
+   stays tight regardless of label width. */
+.backup-controls {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.backup-btn {
+  height: 26px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1f2933;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.backup-btn:hover {
+  background: #ffffff;
+  border-color: #9ca3af;
+}
+
+.backup-btn:focus-visible {
+  outline: none;
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
 }
 
 /* Groups panel (NICE-004). Sits above the pin list. Capped max-height +

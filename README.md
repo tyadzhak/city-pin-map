@@ -46,7 +46,7 @@ The app is just a folder of HTML, CSS, and JavaScript — there is nothing to in
 - **Change map style** — header dropdown. Try Light or Dark for cleaner posters.
 - **Export to PNG** — fill in Title/Subtitle if you want them, pick a Format preset, click **Export PNG**. The image downloads to your usual Downloads folder.
 
-Everything you do is saved in the browser automatically. Closing the tab and reopening the app brings everything back. **Beware:** clearing your browser data wipes the pins. There is currently no built-in backup — that's planned for the next milestone.
+Everything you do is saved in the browser automatically. Closing the tab and reopening the app brings everything back. Clearing your browser data still wipes pins, so use **Export JSON** in the side panel (next to the Pins heading) to download a backup file you can keep alongside your other documents — and **Import JSON** to restore it on another machine or after a wipe.
 
 ## How to run it (developer version)
 

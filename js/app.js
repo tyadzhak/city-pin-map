@@ -24,6 +24,7 @@ import {
   saveExportFormat,
 } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
+import { exportToJson, importFromJson } from "./backup.js";
 import { initSearch } from "./search.js";
 import { initPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
@@ -95,6 +96,7 @@ function init() {
   initExportOptions();
   initExportFormatSelector();
   initExportButton();
+  initBackupControls();
 }
 
 // Hydrates the title + subtitle inputs from localStorage and persists every
@@ -190,6 +192,33 @@ function initExportButton() {
     } finally {
       button.disabled = false;
     }
+  });
+}
+
+// Wires the side-panel Export JSON / Import JSON buttons (HARDEN-001).
+// Import uses an ad-hoc <input type="file"> that lives only for the picker
+// roundtrip — keeps the input element out of the DOM tree at rest, where it
+// would otherwise be a focus-trap snare and a tab-order surprise. The
+// picker's value never persists, so a user picking the same file twice
+// re-fires `change` cleanly without manual reset.
+function initBackupControls() {
+  const exportBtn = document.getElementById("export-json");
+  const importBtn = document.getElementById("import-json");
+  if (!exportBtn || !importBtn) return;
+
+  exportBtn.addEventListener("click", () => {
+    exportToJson();
+  });
+
+  importBtn.addEventListener("click", () => {
+    const picker = document.createElement("input");
+    picker.type = "file";
+    picker.accept = "application/json,.json";
+    picker.addEventListener("change", () => {
+      const file = picker.files && picker.files[0];
+      if (file) importFromJson(file);
+    });
+    picker.click();
   });
 }
 
