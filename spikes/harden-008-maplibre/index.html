@@ -1,0 +1,99 @@
+<!doctype html>
+<!--
+  HARDEN-008 spike — throwaway prototype.
+  See jira/harden/HARDEN-008-findings.md for the recommendation.
+
+  Stack: MapLibre GL JS 4.7.1 + OpenFreeMap "Liberty" style. No backend, no
+  build step, no API keys — same constraints as the production app.
+
+  preserveDrawingBuffer: true is REQUIRED on the MapLibre canvas for the
+  toDataURL() export path to return non-blank pixels. See main.js for the
+  trade-off note.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HARDEN-008 — MapLibre Spike</title>
+
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+    />
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .app {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 16px;
+        background: #1d3557;
+        color: #fff;
+      }
+      .toolbar h1 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .toolbar .hint {
+        flex: 1;
+        font-size: 13px;
+        opacity: 0.85;
+      }
+      .toolbar button {
+        background: #f1faee;
+        color: #1d3557;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .toolbar button:hover {
+        background: #e63946;
+        color: #fff;
+      }
+      #map {
+        flex: 1;
+      }
+      /* Title strip used by the export compositor. Not visible on screen —
+         the export reads the DOM node so a future refactor (e.g. user-edited
+         title) is a one-line change. */
+      .export-title {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="toolbar">
+        <h1>MapLibre Spike</h1>
+        <span class="hint"
+          >Click empty map to add a marker. Drag a marker to move it.</span
+        >
+        <button id="export-btn" type="button">Export PNG</button>
+      </header>
+      <div id="map"></div>
+    </div>
+
+    <span class="export-title" id="export-title">MapLibre Spike</span>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"
+    ></script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

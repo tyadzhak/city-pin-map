@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-008`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `HARDEN-007`                                |
@@ -44,13 +44,13 @@ The spike is done when the recommendation answers, with evidence, all of:
 
 ## Acceptance criteria
 
-- [ ] A throwaway prototype lives at `spikes/harden-008-maplibre/index.html` (or similar path under a `spikes/` directory at repo root). It is **not** wired into the main app.
-- [ ] The prototype loads MapLibre GL JS via CDN, renders an OpenFreeMap style, supports adding circle markers by clicking, and exports the visible map to PNG with a single fixed title bar above it.
-- [ ] PNG export from the prototype produces a correct image at the rendered viewport size, validated by opening the file.
-- [ ] A written recommendation lives at `jira/harden/HARDEN-008-findings.md` covering the five Goals above, with concrete numbers (KB, ms, hours estimate) — not just qualitative impressions.
-- [ ] The recommendation ends with one of: **Proceed** (with a list of follow-up task stubs to file), **Park** (with the specific reason it's not worth it right now), or **Escalate** (with the blocker).
-- [ ] No change to any file under `js/`, `css/`, `index.html`, or any other production path.
-- [ ] No regressions in the production app (trivially satisfied because no production files change — but verify the app still loads after the spike work).
+- [x] A throwaway prototype lives at `spikes/harden-008-maplibre/index.html` (or similar path under a `spikes/` directory at repo root). It is **not** wired into the main app.
+- [x] The prototype loads MapLibre GL JS via CDN, renders an OpenFreeMap style, supports adding circle markers by clicking, and exports the visible map to PNG with a single fixed title bar above it.
+- [x] PNG export from the prototype produces a correct image at the rendered viewport size, validated by opening the file.
+- [x] A written recommendation lives at `jira/harden/HARDEN-008-findings.md` covering the five Goals above, with concrete numbers (KB, ms, hours estimate) — not just qualitative impressions.
+- [x] The recommendation ends with one of: **Proceed** (with a list of follow-up task stubs to file), **Park** (with the specific reason it's not worth it right now), or **Escalate** (with the blocker).
+- [x] No change to any file under `js/`, `css/`, `index.html`, or any other production path.
+- [x] No regressions in the production app (trivially satisfied because no production files change — but verify the app still loads after the spike work).
 
 ## Files affected
 
