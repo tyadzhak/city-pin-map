@@ -1,5 +1,6 @@
-// App bootstrap. Imports module stubs so they're wired up; CORE-001 only logs.
-// Future tasks will call into these modules from init().
+// App bootstrap. Wires modules together once the DOM is ready.
+// Other modules reach the map via map.js → getMap(), so app.js doesn't
+// need to re-export it.
 import { initMap } from "./map.js";
 import { geocode } from "./geocode.js";
 import { createPinStore } from "./pins.js";
@@ -7,7 +8,7 @@ import { loadPins, savePins } from "./storage.js";
 import { exportMapPng } from "./export.js";
 
 function init() {
-  console.log("[city-pin-map] app started");
+  initMap("map");
 }
 
 document.addEventListener("DOMContentLoaded", init);

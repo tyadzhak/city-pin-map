@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-002`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `CORE-001`                                  |
@@ -21,13 +21,13 @@ All map setup belongs in `js/map.js` (CLAUDE.md → "File layout"). `js/app.js` 
 
 ## Acceptance criteria
 
-- [ ] Opening `index.html` shows a fully interactive world map filling the map area.
-- [ ] The user can pan by click-drag and zoom by mouse wheel, double-click, or the `+`/`−` buttons.
-- [ ] OpenStreetMap tiles render at the default zoom level showing the whole world or a sensible default region.
-- [ ] OSM attribution (e.g. "© OpenStreetMap contributors") is visible in the bottom-right of the map.
-- [ ] Resizing the browser window resizes the map without leaving grey regions.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Opening `index.html` shows a fully interactive world map filling the map area.
+- [x] The user can pan by click-drag and zoom by mouse wheel, double-click, or the `+`/`−` buttons.
+- [x] OpenStreetMap tiles render at the default zoom level showing the whole world or a sensible default region.
+- [x] OSM attribution (e.g. "© OpenStreetMap contributors") is visible in the bottom-right of the map.
+- [x] Resizing the browser window resizes the map without leaving grey regions.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
