@@ -1,4 +1,5 @@
 const STORAGE_KEY = "city-pin-map.pins.v1";
+const GROUPS_STORAGE_KEY = "city-pin-map.groups.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
 const BANNER_TIMEOUT_MS = 6000;
@@ -33,6 +34,42 @@ export function savePins(pins) {
     console.error("failed to save pins:", err);
     showError(
       "Could not save pins (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Group entities live under a separate key so each store's serialization
+// stays independent (NICE-004 notes). Same defensive shape as loadPins:
+// a missing key is "no groups", a corrupt key is logged, banner-flagged,
+// and treated as empty.
+export function loadGroups() {
+  let raw;
+  try {
+    raw = localStorage.getItem(GROUPS_STORAGE_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved groups could not be read; starting empty.");
+    return [];
+  }
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error("saved groups is not an array");
+    return parsed;
+  } catch (err) {
+    console.error("saved groups corrupt; ignoring:", err);
+    showError("Saved groups were corrupted and have been ignored.");
+    return [];
+  }
+}
+
+export function saveGroups(groups) {
+  try {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(groups));
+  } catch (err) {
+    console.error("failed to save groups:", err);
+    showError(
+      "Could not save groups (storage may be full). Changes are kept in memory only."
     );
   }
 }
@@ -93,6 +130,13 @@ export function saveRouteVisible(visible) {
 export function attachStorage(pinStore) {
   pinStore.replaceAll(loadPins());
   return pinStore.subscribe(savePins);
+}
+
+// Same hydrate-then-subscribe contract as attachStorage. Both stores use
+// the same shape so the call sites in app.js stay symmetric.
+export function attachGroupStorage(groupStore) {
+  groupStore.replaceAll(loadGroups());
+  return groupStore.subscribe(saveGroups);
 }
 
 export function showError(message) {

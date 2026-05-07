@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `NICE-004`                                  |
 | **Milestone**   | `Nice-to-have`                              |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-003`, `CORE-004`, `CORE-008`          |
@@ -31,17 +31,17 @@ Per `CLAUDE.md` → "What not to do", do not add any framework. The panel is pla
 
 ## Acceptance criteria
 
-- [ ] A "Groups" section is visible in the side panel above the existing pin list, with a clear heading and an "Add group" affordance.
-- [ ] Clicking "Add group" creates a new group with a default name (e.g. "Group 1", incrementing) and a sensible default color, and immediately renders it in the list.
-- [ ] Each group row shows the group's name, a color swatch / native color input, and remove and rename affordances.
-- [ ] Renaming a group updates the row label and persists across reloads.
-- [ ] Changing a group's color updates the swatch and persists across reloads.
-- [ ] Deleting a group removes the row and persists across reloads. (Pins continue to render unchanged — assignment isn't wired up yet.)
-- [ ] Refreshing the page restores the same set of groups in the same order (id, name, color, createdAt all intact).
-- [ ] Group names may be empty strings during editing but trimmed-empty names are rejected on commit (revert to previous, or to a default like `"Untitled group"`).
-- [ ] All controls in the panel are keyboard-accessible.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] A "Groups" section is visible in the side panel above the existing pin list, with a clear heading and an "Add group" affordance.
+- [x] Clicking "Add group" creates a new group with a default name (e.g. "Group 1", incrementing) and a sensible default color, and immediately renders it in the list.
+- [x] Each group row shows the group's name, a color swatch / native color input, and remove and rename affordances.
+- [x] Renaming a group updates the row label and persists across reloads.
+- [x] Changing a group's color updates the swatch and persists across reloads.
+- [x] Deleting a group removes the row and persists across reloads. (Pins continue to render unchanged — assignment isn't wired up yet.)
+- [x] Refreshing the page restores the same set of groups in the same order (id, name, color, createdAt all intact).
+- [x] Group names may be empty strings during editing but trimmed-empty names are rejected on commit (revert to previous, or to a default like `"Untitled group"`).
+- [x] All controls in the panel are keyboard-accessible.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
