@@ -203,7 +203,8 @@ body {
   text-overflow: ellipsis;
 }
 
-.remove-pin {
+.remove-pin,
+.edit-pin {
   flex: 0 0 auto;
   width: 22px;
   height: 22px;
@@ -229,7 +230,9 @@ body {
 }
 
 .pin-list__row:hover .remove-pin,
-.remove-pin:focus-visible {
+.pin-list__row:hover .edit-pin,
+.remove-pin:focus-visible,
+.edit-pin:focus-visible {
   opacity: 1;
 }
 
@@ -243,6 +246,42 @@ body {
   color: #b91c1c;
   border-color: #4c6ef5;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+.edit-pin:hover {
+  color: #1d4ed8;
+  background: #eef2ff;
+}
+
+.edit-pin:focus-visible {
+  outline: none;
+  color: #1d4ed8;
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+/* Rename input swaps in for the .pin-list__name span. Inherits font from
+   the row so character widths stay stable through the transition; only
+   the box (border, focus ring) signals the mode change. min-width: 0 is
+   required for an input inside a flex container to shrink past its
+   intrinsic size — without it, long names overflow the row. */
+.pin-list__rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  font: inherit;
+  color: inherit;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.pin-list__rename-input:focus {
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
 }
 
 .pin-list__empty {
