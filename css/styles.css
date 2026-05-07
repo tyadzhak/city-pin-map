@@ -180,6 +180,24 @@ body {
   inset: 0;
 }
 
+/* Drag affordance for the SVG circle markers (NICE-001). `.city-pin` is
+   added to `marker.getElement()` once the path is mounted. While a drag
+   is in progress, `.dragging-pin` on <body> wins via !important so the
+   grabbing cursor stays consistent even if the cursor briefly outpaces
+   the marker (and the user crosses the side panel / header). */
+.city-pin {
+  cursor: grab;
+}
+
+.city-pin--dragging {
+  cursor: grabbing;
+}
+
+body.dragging-pin,
+body.dragging-pin * {
+  cursor: grabbing !important;
+}
+
 .app-side {
   grid-area: side;
   display: flex;

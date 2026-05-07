@@ -4,6 +4,8 @@
 // the global `L`. This module wraps initialization so the rest of the app
 // never has to touch `L` directly — they go through `getMap()`.
 
+import { updatePin } from "./pins.js";
+
 // Module-scoped singleton. Treat as private; outside callers use getMap().
 let mapInstance = null;
 
@@ -80,17 +82,80 @@ export function renderPins(pins) {
 // only build / mutate the marker itself.
 
 function createMarker(pin) {
-  return L.circleMarker([pin.lat, pin.lon], {
+  const marker = L.circleMarker([pin.lat, pin.lon], {
     radius: 8,
     color: pin.color,
     fillColor: pin.color,
     fillOpacity: 0.9,
     weight: 2,
   }).bindTooltip(pin.name);
+
+  // The SVG element only exists after the marker is added to the map.
+  marker.on("add", () => {
+    const el = marker.getElement();
+    if (el) el.classList.add("city-pin");
+  });
+
+  attachDragHandlers(marker, pin.id);
+  return marker;
 }
 
 function updateMarker(marker, pin) {
   marker.setLatLng([pin.lat, pin.lon]);
   marker.setStyle({ color: pin.color, fillColor: pin.color });
   marker.setTooltipContent(pin.name);
+}
+
+// Manual drag for L.circleMarker (which has no built-in `draggable` option).
+// Listeners live on `document` rather than the map so the marker keeps
+// tracking the cursor when it leaves the map pane (e.g. into the side panel
+// or briefly out of the window). The store is updated only on release —
+// during the drag we mutate the marker directly so the visible position
+// stays smooth without one localStorage write per pixel.
+function attachDragHandlers(marker, pinId) {
+  marker.on("mousedown", (leafletEvent) => {
+    // Without this, the map's container-level drag handler also fires and
+    // the world pans alongside the marker.
+    L.DomEvent.stopPropagation(leafletEvent.originalEvent);
+    L.DomEvent.preventDefault(leafletEvent.originalEvent);
+
+    const map = mapInstance;
+    if (!map) return;
+
+    const container = map.getContainer();
+    const markerEl = marker.getElement();
+    let lastLatLng = marker.getLatLng();
+
+    map.dragging.disable();
+    if (markerEl) markerEl.classList.add("city-pin--dragging");
+    document.body.classList.add("dragging-pin");
+
+    function onMove(ev) {
+      const rect = container.getBoundingClientRect();
+      const point = L.point(ev.clientX - rect.left, ev.clientY - rect.top);
+      lastLatLng = map.containerPointToLatLng(point);
+      marker.setLatLng(lastLatLng);
+    }
+
+    function commit() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", commit);
+      document.removeEventListener("mouseleave", commit);
+
+      map.dragging.enable();
+      if (markerEl) markerEl.classList.remove("city-pin--dragging");
+      document.body.classList.remove("dragging-pin");
+
+      // Routing the new position through updatePin keeps storage and the
+      // pin list in sync; the resulting renderPins() call is a no-op for
+      // this marker because setLatLng matches lastLatLng we already set.
+      updatePin(pinId, { lat: lastLatLng.lat, lon: lastLatLng.lng });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", commit);
+    // Fires when the cursor leaves the document/window — without this a
+    // drag that ends outside the browser leaves listeners attached.
+    document.addEventListener("mouseleave", commit);
+  });
 }
