@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-010`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `CORE-008`                                  |
@@ -21,16 +21,16 @@ This task uses `updatePin` from CORE-003. The pin store fans out the change to b
 
 ## Acceptance criteria
 
-- [ ] Each pin list row exposes a way to enter rename mode (e.g. a small "Edit" button next to the delete control, or double-clicking the name text).
-- [ ] In rename mode, the row shows an input prefilled with the current name and the input is focused with text selected.
-- [ ] Pressing Enter or blurring the input commits the new name via `updatePin(id, { name })`.
-- [ ] Pressing Escape cancels rename mode and restores the original name.
-- [ ] An empty trimmed name is rejected — the rename is discarded and the original name remains. (The user-visible reason can be implicit; no error banner needed.)
-- [ ] After commit, the row text and the map marker tooltip both reflect the new name.
-- [ ] The new name persists across page reloads.
-- [ ] The rename control is keyboard-accessible (focusable, Enter/Space activates).
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Each pin list row exposes a way to enter rename mode (e.g. a small "Edit" button next to the delete control, or double-clicking the name text).
+- [x] In rename mode, the row shows an input prefilled with the current name and the input is focused with text selected.
+- [x] Pressing Enter or blurring the input commits the new name via `updatePin(id, { name })`.
+- [x] Pressing Escape cancels rename mode and restores the original name.
+- [x] An empty trimmed name is rejected — the rename is discarded and the original name remains. (The user-visible reason can be implicit; no error banner needed.)
+- [x] After commit, the row text and the map marker tooltip both reflect the new name.
+- [x] The new name persists across page reloads.
+- [x] The rename control is keyboard-accessible (focusable, Enter/Space activates).
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
