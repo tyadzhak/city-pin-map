@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-009`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `CORE-008`                                  |
@@ -21,13 +21,13 @@ The pin list panel from CORE-008 currently displays pins but is read-only. This 
 
 ## Acceptance criteria
 
-- [ ] Each pin list row has a visible delete control (e.g. a button labeled "✕" or "Delete") with an accessible label like "Remove pin {name}".
-- [ ] Clicking the delete control removes the pin from both the list and the map within one frame.
-- [ ] The removal persists — refreshing the page does not bring the pin back.
-- [ ] The delete control is keyboard-accessible: focusable via Tab, activatable via Enter or Space.
-- [ ] Removing every pin reveals the empty-state message from CORE-008.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Each pin list row has a visible delete control (e.g. a button labeled "✕" or "Delete") with an accessible label like "Remove pin {name}".
+- [x] Clicking the delete control removes the pin from both the list and the map within one frame.
+- [x] The removal persists — refreshing the page does not bring the pin back.
+- [x] The delete control is keyboard-accessible: focusable via Tab, activatable via Enter or Space.
+- [x] Removing every pin reveals the empty-state message from CORE-008.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
