@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `CORE-005`                                  |
 | **Milestone**   | `Core`                                      |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `CORE-002`, `CORE-003`                      |
@@ -21,14 +21,14 @@ The pin's `color` field controls marker appearance — this is the spec from `CL
 
 ## Acceptance criteria
 
-- [ ] Adding a pin via the pin store API immediately places a marker on the map at the correct lat/lon.
-- [ ] The marker visibly uses the pin's `color` field (e.g. a colored circle marker, divIcon, or tinted SVG — whatever is consistent and visible).
-- [ ] Hovering the marker shows a tooltip or label containing the pin's `name`.
-- [ ] Removing a pin from the store removes the corresponding marker from the map.
-- [ ] Updating a pin's `name` updates the tooltip; updating its `color` updates the marker color; updating `lat`/`lon` moves the marker.
-- [ ] After a page refresh, all persisted pins (CORE-004) appear on the map without further interaction.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Adding a pin via the pin store API immediately places a marker on the map at the correct lat/lon.
+- [x] The marker visibly uses the pin's `color` field (e.g. a colored circle marker, divIcon, or tinted SVG — whatever is consistent and visible).
+- [x] Hovering the marker shows a tooltip or label containing the pin's `name`.
+- [x] Removing a pin from the store removes the corresponding marker from the map.
+- [x] Updating a pin's `name` updates the tooltip; updating its `color` updates the marker color; updating `lat`/`lon` moves the marker.
+- [x] After a page refresh, all persisted pins (CORE-004) appear on the map without further interaction.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
