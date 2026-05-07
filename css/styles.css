@@ -134,6 +134,41 @@ body {
   background: #fdecea;
 }
 
+/* Pushed to the right edge of the header by margin-left:auto so the search
+   field keeps its natural width and the export button anchors opposite the
+   title. Matches the search input's 32px / 6px-radius geometry to read as
+   one toolbar; the filled blue signals the primary action. */
+.export-btn {
+  margin-left: auto;
+  height: 32px;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 500;
+  color: #ffffff;
+  background: #4c6ef5;
+  border: 1px solid #4c6ef5;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, box-shadow 120ms ease,
+    border-color 120ms ease;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: #3b5bdb;
+  border-color: #3b5bdb;
+}
+
+.export-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.35);
+}
+
+.export-btn:disabled {
+  background: #a5b4fc;
+  border-color: #a5b4fc;
+  cursor: progress;
+}
+
 .app-map {
   grid-area: map;
   position: relative;
