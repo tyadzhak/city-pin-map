@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `NICE-006`                                  |
 | **Milestone**   | `Nice-to-have`                              |
-| **Status**      | `In Progress`                               |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-004`, `CORE-012`                      |
@@ -23,18 +23,18 @@ The title and subtitle inputs are user preferences that should survive a page re
 
 ## Acceptance criteria
 
-- [ ] An "Export options" area in the header (or a small expandable panel near the Export PNG button) contains a title text input and a subtitle text input. Both are visible without extra clicks once revealed.
-- [ ] Typing into title or subtitle does NOT change the live map view — the text is for export only.
-- [ ] Clicking "Export PNG" produces a PNG that contains the live map view PLUS the title and subtitle rendered above (or in a clearly defined band — top is the natural choice).
-- [ ] The OSM/tile attribution remains visible in the exported image (per `PROJECT.md` → "Risks and mitigations"); it is not displaced or covered by the title strip.
-- [ ] If both title and subtitle are empty, the exported image looks identical to a CORE-012 export (no empty strip, no whitespace band, no behavior change).
-- [ ] If only title is set, the strip renders only the title; if only subtitle is set, the strip renders only the subtitle. Neither shows a phantom empty line.
-- [ ] Title and subtitle persist across reloads.
-- [ ] Title and subtitle are typographically presentable: a clean serif or sans-serif, comfortably sized (e.g. ~28–36 px title, ~16–20 px subtitle for the default export resolution), with sensible line-height and color contrast against a plain background band (white or matching the chosen map style).
-- [ ] After export completes (or fails), the live map view is unchanged — no leftover DOM nodes, no shifted viewport, no broken Leaflet sizing.
-- [ ] The text inputs are keyboard-accessible.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] An "Export options" area in the header (or a small expandable panel near the Export PNG button) contains a title text input and a subtitle text input. Both are visible without extra clicks once revealed.
+- [x] Typing into title or subtitle does NOT change the live map view — the text is for export only.
+- [x] Clicking "Export PNG" produces a PNG that contains the live map view PLUS the title and subtitle rendered above (or in a clearly defined band — top is the natural choice).
+- [x] The OSM/tile attribution remains visible in the exported image (per `PROJECT.md` → "Risks and mitigations"); it is not displaced or covered by the title strip.
+- [x] If both title and subtitle are empty, the exported image looks identical to a CORE-012 export (no empty strip, no whitespace band, no behavior change).
+- [x] If only title is set, the strip renders only the title; if only subtitle is set, the strip renders only the subtitle. Neither shows a phantom empty line.
+- [x] Title and subtitle persist across reloads.
+- [x] Title and subtitle are typographically presentable: a clean serif or sans-serif, comfortably sized (e.g. ~28–36 px title, ~16–20 px subtitle for the default export resolution), with sensible line-height and color contrast against a plain background band (white or matching the chosen map style).
+- [x] After export completes (or fails), the live map view is unchanged — no leftover DOM nodes, no shifted viewport, no broken Leaflet sizing.
+- [x] The text inputs are keyboard-accessible.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
