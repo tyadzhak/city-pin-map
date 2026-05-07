@@ -93,6 +93,21 @@
       </main>
 
       <aside class="app-side" aria-label="Pinned cities">
+        <!-- Groups panel (NICE-004). Sits above the pins list per the
+             implementation prompt; the section is its own scroll context
+             so a long group list never starves the pins list below. -->
+        <section class="group-panel" aria-label="Groups">
+          <div class="group-panel__header">
+            <h2 class="group-panel__heading">Groups</h2>
+            <button id="add-group" type="button" class="group-panel__add">
+              Add group
+            </button>
+          </div>
+          <ul id="group-list" class="group-list"></ul>
+          <p id="group-list-empty" class="group-list__empty">
+            No groups yet — click "Add group" to create one.
+          </p>
+        </section>
         <h2 class="pin-list__heading">Pins</h2>
         <ul id="pin-list" class="pin-list"></ul>
         <p id="pin-list-empty" class="pin-list__empty">

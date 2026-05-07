@@ -11,8 +11,10 @@ import {
   DEFAULT_MAP_STYLE_ID,
 } from "./map.js";
 import * as pinStore from "./pins.js";
+import * as groupStore from "./groups.js";
 import {
   attachStorage,
+  attachGroupStorage,
   loadMapStyle,
   loadRouteVisible,
   saveRouteVisible,
@@ -20,6 +22,7 @@ import {
 import { exportMapAsPng } from "./export.js";
 import { initSearch } from "./search.js";
 import { initPinList } from "./pin-list.js";
+import { initGroupPanel } from "./group-panel.js";
 
 function init() {
   // Resolve the initial style before initMap so the map's first paint is
@@ -34,6 +37,10 @@ function init() {
   initMap("map", initialStyleId);
   initMapStyleSelector(initialStyleId);
   attachStorage(pinStore);
+  // Hydrate the group store BEFORE initGroupPanel — same rationale as
+  // attachStorage above: the panel's first render must reflect persisted
+  // groups, and reversing the order would write `[]` straight back to disk.
+  attachGroupStorage(groupStore);
 
   // Route visibility lives as a closure variable so the pin-store
   // subscription and the toggle's change handler share one source of
@@ -53,6 +60,10 @@ function init() {
   // Side-panel pin list. Subscribes internally and runs an initial render
   // to backfill the hydration notify() that fired during attachStorage.
   initPinList();
+
+  // Groups panel: spec orders this AFTER initPinList so the side-panel
+  // heading order stays predictable (NICE-004 implementation prompt).
+  initGroupPanel();
 
   // Search wires the header input to the geocoder + pin store. It must run
   // after the DOM is ready (we're already inside DOMContentLoaded) and

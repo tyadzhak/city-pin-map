@@ -305,6 +305,209 @@ body.dragging-pin * {
   border-bottom: 1px solid #e4e7eb;
 }
 
+/* Groups panel (NICE-004). Sits above the pin list. Capped max-height +
+   internal scroll keeps the pin list visible no matter how many groups
+   the user creates; min-height: 0 on the inner <ul> is the standard
+   flex-shrink-past-content fix that lets overflow-y: auto actually kick
+   in inside a flex column. */
+.group-panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  border-bottom: 4px solid #e4e7eb;
+}
+
+/* Header row holds the section heading and the "Add group" button on
+   one line. Slightly tighter vertical padding than the pin list heading
+   so the button doesn't make the header feel disproportionate. */
+.group-panel__header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid #e4e7eb;
+}
+
+.group-panel__heading {
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4b5563;
+}
+
+/* Compact secondary button. Distinguishable from the header's primary
+   "Export PNG" by its lighter weight — Add group is a frequent, low-risk
+   action that doesn't deserve a saturated colour. */
+.group-panel__add {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1f2933;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.group-panel__add:hover {
+  background: #ffffff;
+  border-color: #9ca3af;
+}
+
+.group-panel__add:focus-visible {
+  outline: none;
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+.group-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+/* Group rows use a different background tint and a slightly larger gap
+   than pin rows so the user can tell the two lists apart at a glance,
+   while still sharing the basic row geometry. */
+.group-list__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  min-height: 32px;
+  background: #fafbfc;
+}
+
+.group-list__row + .group-list__row {
+  border-top: 1px solid #f1f3f5;
+}
+
+/* Native color input rendered as a small square. Padding/border are
+   browser defaults that vary noticeably across engines; we strip them
+   and rely on a subtle ring + the user-picked colour itself. */
+.group-list__color {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.group-list__color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.group-list__color::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.group-list__color::-moz-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.group-list__color:focus-visible {
+  outline: none;
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+/* Always-on text input. Border is deliberately faint at rest so the row
+   doesn't read as a busy form; focus state pops it forward. min-width:0
+   is the flex shrink fix — without it long names would push the Remove
+   button out of the row. */
+.group-list__name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  font: inherit;
+  color: inherit;
+  background: #ffffff;
+  border: 1px solid #e4e7eb;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.group-list__name-input:hover {
+  border-color: #d1d5db;
+}
+
+.group-list__name-input:focus {
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+/* Remove button mirrors .remove-pin's hover-reveal behaviour for visual
+   consistency with the pin list, but the cluster of always-visible
+   inputs already differentiates the row enough. */
+.remove-group {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: #6b7280;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease,
+    border-color 120ms ease;
+}
+
+.group-list__row:hover .remove-group,
+.remove-group:focus-visible {
+  opacity: 1;
+}
+
+.remove-group:hover {
+  color: #b91c1c;
+  background: #fdecea;
+}
+
+.remove-group:focus-visible {
+  outline: none;
+  color: #b91c1c;
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+.group-list__empty {
+  flex: 0 0 auto;
+  padding: 10px 16px 12px;
+  color: #6b7280;
+  font-style: italic;
+  font-size: 13px;
+}
+
 .pin-list {
   flex: 1 1 auto;
   margin: 0;
