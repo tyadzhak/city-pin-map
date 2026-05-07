@@ -83,6 +83,27 @@
           />
           <span class="route-toggle__label">Show route</span>
         </label>
+        <!-- Export options live in their own panel so future controls
+             (NICE-007 dimensions / aspect ratio) can be added in the same
+             slot without further header gymnastics. -->
+        <div class="export-options" aria-label="Export options">
+          <input
+            id="export-title"
+            type="text"
+            class="export-options__input"
+            placeholder="Title (optional)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <input
+            id="export-subtitle"
+            type="text"
+            class="export-options__input"
+            placeholder="Subtitle (optional)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
         <button id="export-png" type="button" class="export-btn">
           Export PNG
         </button>

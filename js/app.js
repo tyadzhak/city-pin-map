@@ -18,6 +18,8 @@ import {
   loadMapStyle,
   loadRouteVisible,
   saveRouteVisible,
+  loadExportText,
+  saveExportText,
 } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
 import { initSearch } from "./search.js";
@@ -88,7 +90,31 @@ function init() {
     },
   });
 
+  initExportOptions();
   initExportButton();
+}
+
+// Hydrates the title + subtitle inputs from localStorage and persists every
+// keystroke. We read both inputs on every event so the saved object stays
+// consistent if the user is mid-edit on one field while the other is
+// already filled.
+function initExportOptions() {
+  const titleInput = document.getElementById("export-title");
+  const subtitleInput = document.getElementById("export-subtitle");
+  if (!titleInput || !subtitleInput) return;
+
+  const saved = loadExportText();
+  titleInput.value = saved.title;
+  subtitleInput.value = saved.subtitle;
+
+  const persist = () =>
+    saveExportText({
+      title: titleInput.value,
+      subtitle: subtitleInput.value,
+    });
+
+  titleInput.addEventListener("input", persist);
+  subtitleInput.addEventListener("input", persist);
 }
 
 // Reflects the persisted preference on the checkbox at boot and forwards

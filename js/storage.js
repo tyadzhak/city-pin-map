@@ -2,7 +2,9 @@ const STORAGE_KEY = "city-pin-map.pins.v1";
 const GROUPS_STORAGE_KEY = "city-pin-map.groups.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
+const EXPORT_TEXT_KEY = "city-pin-map.export-text.v1";
 const BANNER_TIMEOUT_MS = 6000;
+const EMPTY_EXPORT_TEXT = Object.freeze({ title: "", subtitle: "" });
 
 let bannerTimer = null;
 
@@ -120,6 +122,50 @@ export function saveRouteVisible(visible) {
     console.error("failed to save route visibility:", err);
     showError(
       "Could not save route preference. Choice will reset on refresh."
+    );
+  }
+}
+
+// Export title / subtitle. Same defensive shape as loadPins/loadGroups: a
+// missing key returns the empty defaults; a corrupt value (non-object, or
+// JSON parse error) is logged + banner-flagged and treated as empty. Each
+// returned object is a fresh copy so callers can safely mutate it.
+export function loadExportText() {
+  let raw;
+  try {
+    raw = localStorage.getItem(EXPORT_TEXT_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved export text could not be read; starting empty.");
+    return { ...EMPTY_EXPORT_TEXT };
+  }
+  if (raw === null) return { ...EMPTY_EXPORT_TEXT };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("saved export text is not an object");
+    }
+    return {
+      title: typeof parsed.title === "string" ? parsed.title : "",
+      subtitle: typeof parsed.subtitle === "string" ? parsed.subtitle : "",
+    };
+  } catch (err) {
+    console.error("saved export text corrupt; ignoring:", err);
+    showError("Saved export text was corrupted and has been ignored.");
+    return { ...EMPTY_EXPORT_TEXT };
+  }
+}
+
+export function saveExportText({ title, subtitle }) {
+  try {
+    localStorage.setItem(
+      EXPORT_TEXT_KEY,
+      JSON.stringify({ title: title ?? "", subtitle: subtitle ?? "" })
+    );
+  } catch (err) {
+    console.error("failed to save export text:", err);
+    showError(
+      "Could not save export text (storage may be full). Changes are kept in memory only."
     );
   }
 }

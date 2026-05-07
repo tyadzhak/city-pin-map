@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `NICE-006`                                  |
 | **Milestone**   | `Nice-to-have`                              |
-| **Status**      | `Todo`                                      |
+| **Status**      | `In Progress`                               |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `CORE-004`, `CORE-012`                      |
