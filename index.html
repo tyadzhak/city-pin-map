@@ -64,6 +64,17 @@
             hidden
           ></ul>
         </div>
+        <label for="map-style-select" class="visually-hidden"
+          >Map style</label
+        >
+        <!-- Options are populated at runtime from MAP_STYLES (js/map.js) so
+             the registry stays the single source of truth. Keep the element
+             empty here — js/app.js fills it on init. -->
+        <select
+          id="map-style-select"
+          class="map-style-select"
+          aria-label="Map style"
+        ></select>
         <button id="export-png" type="button" class="export-btn">
           Export PNG
         </button>

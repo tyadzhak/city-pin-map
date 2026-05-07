@@ -1,4 +1,5 @@
 const STORAGE_KEY = "city-pin-map.pins.v1";
+const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const BANNER_TIMEOUT_MS = 6000;
 
 let bannerTimer = null;
@@ -31,6 +32,31 @@ export function savePins(pins) {
     console.error("failed to save pins:", err);
     showError(
       "Could not save pins (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Map-style preference. Stored as a bare string (not JSON) — the value is a
+// short id like "osm" or "carto-light" and JSON.stringify/parse would only
+// add quote-wrapping noise to the stored value. Returns `null` when nothing
+// is saved or the read fails, so callers can fall back to a default.
+export function loadMapStyle() {
+  try {
+    return localStorage.getItem(MAP_STYLE_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved map style could not be read; using default.");
+    return null;
+  }
+}
+
+export function saveMapStyle(styleId) {
+  try {
+    localStorage.setItem(MAP_STYLE_KEY, styleId);
+  } catch (err) {
+    console.error("failed to save map style:", err);
+    showError(
+      "Could not save map style preference. Choice will reset on refresh."
     );
   }
 }

@@ -1,15 +1,32 @@
 // App bootstrap. Wires modules together once the DOM is ready.
 // Other modules reach the map via map.js → getMap(), so app.js doesn't
 // need to re-export it.
-import { initMap, renderPins, getMap } from "./map.js";
+import {
+  initMap,
+  renderPins,
+  getMap,
+  setMapStyle,
+  MAP_STYLES,
+  DEFAULT_MAP_STYLE_ID,
+} from "./map.js";
 import * as pinStore from "./pins.js";
-import { attachStorage } from "./storage.js";
+import { attachStorage, loadMapStyle } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
 import { initSearch } from "./search.js";
 import { initPinList } from "./pin-list.js";
 
 function init() {
-  initMap("map");
+  // Resolve the initial style before initMap so the map's first paint is
+  // the user's chosen style — no OSM-flash, no extra tile fetches. An
+  // unknown saved id (older app version, hand-edited storage) is treated
+  // as "no preference" and falls back to the default.
+  const savedStyleId = loadMapStyle();
+  const initialStyleId = MAP_STYLES.some((s) => s.id === savedStyleId)
+    ? savedStyleId
+    : DEFAULT_MAP_STYLE_ID;
+
+  initMap("map", initialStyleId);
+  initMapStyleSelector(initialStyleId);
   attachStorage(pinStore);
 
   // Render once with hydrated state, then keep markers in sync with every
@@ -30,6 +47,27 @@ function init() {
   initSearch();
 
   initExportButton();
+}
+
+// Build the <option> list from MAP_STYLES so adding a style in js/map.js
+// flows through without an HTML edit. Initial selected value matches the
+// style initMap just painted, keeping the dropdown and the visible tiles
+// in sync on first render.
+function initMapStyleSelector(initialStyleId) {
+  const select = document.getElementById("map-style-select");
+  if (!select) return;
+
+  for (const style of MAP_STYLES) {
+    const option = document.createElement("option");
+    option.value = style.id;
+    option.textContent = style.label;
+    select.appendChild(option);
+  }
+  select.value = initialStyleId;
+
+  select.addEventListener("change", (event) => {
+    setMapStyle(event.target.value);
+  });
 }
 
 // Disabling the button across the await prevents double-clicks during the

@@ -134,12 +134,49 @@ body {
   background: #fdecea;
 }
 
-/* Pushed to the right edge of the header by margin-left:auto so the search
-   field keeps its natural width and the export button anchors opposite the
-   title. Matches the search input's 32px / 6px-radius geometry to read as
-   one toolbar; the filled blue signals the primary action. */
-.export-btn {
+/* Sits between the search field and the export button. margin-left:auto
+   pushes it (and everything after it) to the right edge of the header, so
+   the search keeps its natural width on the left while the style picker +
+   Export form a right-aligned cluster. Geometry mirrors .search__input so
+   the three controls read as one toolbar; the chevron is a tiny inline
+   SVG so we don't depend on system-default <select> styling, which differs
+   noticeably between Chrome / Firefox / Safari. */
+.map-style-select {
   margin-left: auto;
+  height: 32px;
+  padding: 0 30px 0 10px;
+  font: inherit;
+  color: inherit;
+  background-color: #f5f7fa;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M1 1l4 4 4-4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.map-style-select:hover {
+  background-color: #ffffff;
+}
+
+.map-style-select:focus-visible {
+  border-color: #4c6ef5;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+/* Sits to the right of the style picker. margin-left switches from `auto`
+   to a fixed gap because .map-style-select now owns the auto push. Matches
+   the search input's 32px / 6px-radius geometry to read as one toolbar; the
+   filled blue signals the primary action. */
+.export-btn {
+  margin-left: 8px;
   height: 32px;
   padding: 0 14px;
   font: inherit;
