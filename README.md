@@ -2,7 +2,7 @@
 
 A small web app for pinning cities on a world map and exporting the result as a PNG — for printing, framing, gifting, or scrapbooking travel memories.
 
-Both planned milestones are shipped: search and pin cities, drag pins, recolor, group them, draw a route through them, switch basemap styles, and export to PNG (current view, square, 16:9, A4 portrait, A4 landscape) with an optional title and subtitle.
+All three milestones are shipped: search and pin cities, drag pins, recolor, group them, draw a route through them, switch basemap styles, back the whole set up to a JSON file, and export to PNG (current view, square, 16:9, A4 portrait/landscape, A3 portrait/landscape) with an optional title and subtitle.
 
 ## How to run it (non-technical version)
 
@@ -62,13 +62,14 @@ city-pin-map/
 ├── index.html          # Single entry point
 ├── css/styles.css
 ├── js/                 # 11 ES modules — see CLAUDE.md for the layout
-└── jira/               # Per-task design docs (Core + Nice-to-have)
+└── jira/               # Per-task design docs (Core + Nice-to-have + Hardening)
     ├── core/           # CORE-001 → CORE-012, all Done
-    └── nice-to-have/   # NICE-001 → NICE-007, all Done
+    ├── nice-to-have/   # NICE-001 → NICE-007, all Done
+    └── harden/         # HARDEN-001 → HARDEN-006, all Done
 ```
 
 `PROJECT.md` is the original scope and tech-stack rationale. `CLAUDE.md` is the operating manual for AI coding agents working on the next milestone — read that before adding any feature.
 
-## How tasks are added (next milestone)
+## How tasks are added (future milestones)
 
 The repo uses a two-pass workflow: a `GENERATE_TASKS.md` prompt produces individual `TASK-NNN.md` files, each with its own implementation prompt, acceptance criteria, and `Status` field. To extend the project, add a new milestone folder under `jira/`, drop in a `GENERATE_TASKS.md`, and run it through a coding agent. See `jira/TASK_TEMPLATE.md` for the format.

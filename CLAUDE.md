@@ -8,15 +8,17 @@ A single-page, no-backend web app that lets the user pin cities on a world map a
 
 ## What's shipped (as of 2026-05-07)
 
-Both Core (CORE-001 → CORE-012) and Nice-to-have (NICE-001 → NICE-007) milestones are `Done`. The app supports:
+All three milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 → NICE-007), and Hardening (HARDEN-001 → HARDEN-006) — are `Done`. The app supports:
 
 - Leaflet map with 4 basemap styles (OSM, Carto Light/Dark, OpenTopoMap), switchable from the header.
-- Nominatim search with debounce, ≥1 req/sec gating, per-tab cache, and abort-on-newer-keystroke.
+- Nominatim search with debounce, ≥1 req/sec gating, per-tab cache, and abort-on-newer-keystroke. New pins default to a short `"city, country"` label derived from `addressdetails` (HARDEN-004); the user can still rename freely.
 - Pin CRUD: add (via search), drag, inline rename, per-pin color picker, delete.
 - Groups (NICE-004/005): independent store with name + color, assignable per pin. Group color overrides the pin's own color while assigned. Deleting a group cascades `pin.group → null`.
 - Optional connecting polyline ordered by `createdAt` (header toggle).
-- PNG export with optional title/subtitle band and 5 size presets (Current view, 1080² square, 1920×1080, A4 portrait, A4 landscape — all 96 dpi).
+- PNG export with optional title/subtitle band, an inline progress indicator (HARDEN-003), and 7 size presets (Current view, 1080² square, 1920×1080, A4 portrait/landscape, A3 portrait/landscape — all 96 dpi).
+- JSON backup and restore (HARDEN-001) via Export/Import buttons in the side panel. The file holds only `pins` and `groups`; UI preferences are intentionally excluded.
 - Persistence: every preference (pins, groups, map style, route toggle, export text, export format) lives in its own `localStorage` key prefixed `city-pin-map.…v1`.
+- macOS double-clickable launcher (`start.command`, HARDEN-002) running `python3 -m http.server` from the project folder, with port fallback 8000 → 8010.
 
 ## Hard rules
 
@@ -31,17 +33,19 @@ Both Core (CORE-001 → CORE-012) and Nice-to-have (NICE-001 → NICE-007) miles
 ```
 city-pin-map/
 ├── index.html          # Single entry point
+├── start.command       # macOS double-clickable launcher (HARDEN-002)
 ├── css/styles.css      # All styles
 ├── js/
 │   ├── app.js          # Bootstrap + glue: wires modules in DOMContentLoaded
 │   ├── map.js          # Leaflet init, basemap registry, marker render, drag, route, effectiveColor()
-│   ├── geocode.js      # Nominatim wrapper: rate-limit gate, in-tab cache
-│   ├── search.js       # Search input → debounced geocode → addPin
+│   ├── geocode.js      # Nominatim wrapper: rate-limit gate, in-tab cache, addressdetails fetch
+│   ├── search.js       # Search input → debounced geocode → addPin (with short "city, country" name)
 │   ├── pins.js         # Pin store: pub/sub, add/remove/update/replaceAll/list
 │   ├── pin-list.js     # Side-panel pin list (rename, color, group selector, delete)
 │   ├── groups.js       # Group store (mirrors pins.js shape)
 │   ├── group-panel.js  # Side-panel group list (always-on rename + color, delete cascades to pins)
 │   ├── storage.js      # All localStorage keys + the showError() banner helper
+│   ├── backup.js       # JSON export/import for pins + groups (HARDEN-001)
 │   └── export.js       # PNG capture, title strip, dimension presets, off-screen render trick
 └── assets/             # Reserved for icons/marker images; currently empty
 ```
@@ -72,7 +76,7 @@ Every pin must conform to:
 ```js
 {
   id: string,           // crypto.randomUUID()
-  name: string,         // user-facing label, defaults to Nominatim display_name
+  name: string,         // user-facing label, defaults to short "city, country" derived from Nominatim addressdetails (HARDEN-004)
   lat: number,
   lon: number,
   color: string,        // hex like "#e63946" — overridden visually by group color when grouped
@@ -102,7 +106,7 @@ Tasks that touch pins or groups must preserve these shapes. If a task needs a ne
 
 ## Task workflow
 
-1. Pick a task file from `jira/core/` or `jira/nice-to-have/` whose `Status` is `Todo` and whose dependencies are all `Done`.
+1. Pick a task file from any milestone folder under `jira/` (e.g. `jira/core/`, `jira/nice-to-have/`, `jira/harden/`) whose `Status` is `Todo` and whose dependencies are all `Done`.
 2. Set `Status` to `In Progress`.
 3. Execute the **Implementation Prompt** at the bottom of the task.
 4. Verify against the **Acceptance Criteria** checklist — tick boxes as you go.

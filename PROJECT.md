@@ -42,6 +42,17 @@ Quality-of-life and aesthetic upgrades after the MVP is in daily use:
 - Drag pins to fine-tune position.
 - Group pins (e.g. by trip or theme), with a different color per group.
 
+### Hardening (v3)
+
+Reliability, polish, and friendly-handoff work after daily use revealed the rough edges:
+
+- JSON backup and restore so a browser-data wipe or machine switch doesn't cost the user their pins.
+- A double-clickable macOS launcher so the non-technical user never has to open a terminal.
+- Visible export progress feedback during the multi-second framed-PNG path.
+- Short, readable default pin names (`"City, Country"`) instead of Nominatim's full address string.
+- Subresource Integrity hash on the second CDN library, matching the existing Leaflet tag.
+- A3 portrait and A3 landscape export presets alongside A4.
+
 ## Out of scope
 
 - User accounts, login, cloud sync.
