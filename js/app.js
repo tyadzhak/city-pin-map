@@ -23,6 +23,7 @@ import {
   saveExportText,
   loadExportFormat,
   saveExportFormat,
+  showError,
 } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
 import { exportToJson, importFromJson } from "./backup.js";
@@ -43,9 +44,24 @@ function init() {
   // unknown saved id (older app version, hand-edited storage) is treated
   // as "no preference" and falls back to the default.
   const savedStyleId = loadMapStyle();
-  const initialStyleId = MAP_STYLES.some((s) => s.id === savedStyleId)
-    ? savedStyleId
-    : DEFAULT_MAP_STYLE_ID;
+  const savedEntry = MAP_STYLES.find((s) => s.id === savedStyleId);
+  let initialStyleId;
+  if (!savedEntry) {
+    initialStyleId = DEFAULT_MAP_STYLE_ID;
+  } else if (
+    savedEntry.requiresToken &&
+    !settings.isProviderUnlocked(savedEntry.requiresToken)
+  ) {
+    // The persisted choice requires a token whose key isn't set anymore.
+    // Fall back to the default so the boot path is always paintable. Show
+    // a banner so the user knows why their preferred style isn't loading.
+    showError(
+      `${savedEntry.label} needs a ${savedEntry.requiresToken} API key. Open Settings (⚙ in side panel) to add one.`
+    );
+    initialStyleId = DEFAULT_MAP_STYLE_ID;
+  } else {
+    initialStyleId = savedStyleId;
+  }
 
   initMap("map", initialStyleId);
   const pickerHandle = initStylePicker({
