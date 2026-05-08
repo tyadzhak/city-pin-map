@@ -213,6 +213,13 @@ function buildStyleErrorMessage(entry, status) {
 // swap; null until then means "whatever initMap painted".
 let currentRenderedStyleId = null;
 
+// Tracks the in-flight style swap's cleanup so a later setMapStyle call
+// can cancel a prior pending swap. Without this, stale onError listeners
+// from a swap that's still loading can fire on a later swap's events
+// (e.g. user clicks Style A then Style B mid-load — A's error handler
+// would otherwise survive and could revert B with a spurious banner).
+let activeSwapCleanup = null;
+
 const STYLE_LOAD_TIMEOUT_MS = 5000;
 
 /**
@@ -234,6 +241,14 @@ export function setMapStyle(styleId, { persist = true } = {}) {
       `Unknown map style "${styleId}"; falling back to "${DEFAULT_MAP_STYLE_ID}".`
     );
     entry = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
+  }
+
+  // Cancel any in-flight prior swap before starting a new one. cleanup()
+  // detaches its specific listeners by reference and clears its timer —
+  // it does NOT show a banner or trigger a revert.
+  if (activeSwapCleanup) {
+    activeSwapCleanup();
+    activeSwapCleanup = null;
   }
 
   // Snapshot of the style we'll revert to if the swap fails.
@@ -278,7 +293,14 @@ export function setMapStyle(styleId, { persist = true } = {}) {
   const cleanup = () => {
     mapInstance.off("styledata", onSuccess);
     mapInstance.off("error", onError);
+    // Safe even when cleanup() is called from inside onError() because the
+    // timer fired: clearTimeout() on an already-fired timer is a no-op.
     if (timer) clearTimeout(timer);
+    // Clear the module pointer ONLY if it still references this cleanup;
+    // a later setMapStyle may have replaced it (in which case we leave it).
+    if (activeSwapCleanup === cleanup) {
+      activeSwapCleanup = null;
+    }
   };
   const timer = setTimeout(
     () => onError({ error: { status: 0 } }),
@@ -291,6 +313,7 @@ export function setMapStyle(styleId, { persist = true } = {}) {
   mapInstance.on("error", onError);
 
   mapInstance.setStyle(resolved, { diff: false });
+  activeSwapCleanup = cleanup;
 }
 
 /** Returns the live map instance, or null if initMap() hasn't run yet. */
