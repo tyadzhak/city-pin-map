@@ -4,6 +4,7 @@ const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
 const EXPORT_TEXT_KEY = "city-pin-map.export-text.v1";
 const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
+const HIDE_LABELS_KEY = "city-pin-map.hide-labels.v1";
 
 // API keys for free-tier basemap providers (Stadia / MapTiler / Thunderforest).
 // Stored as bare strings — same convention as MAP_STYLE_KEY. Never inlined in
@@ -208,6 +209,30 @@ export function saveExportFormat(formatId) {
     console.error("failed to save export format:", err);
     showError(
       "Could not save export format preference. Choice will reset on refresh."
+    );
+  }
+}
+
+// Hide-labels preference (PO-001). Same bare-string "true" / "false"
+// convention as loadRouteVisible — anything other than "true" (including
+// null on first load) is treated as `false` so the first-time experience
+// keeps every basemap's native labels.
+export function loadHideLabels() {
+  try {
+    return localStorage.getItem(HIDE_LABELS_KEY) === "true";
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    return false;
+  }
+}
+
+export function saveHideLabels(value) {
+  try {
+    localStorage.setItem(HIDE_LABELS_KEY, value ? "true" : "false");
+  } catch (err) {
+    console.error("failed to save hide-labels preference:", err);
+    showError(
+      "Could not save hide-labels preference. Choice will reset on refresh."
     );
   }
 }

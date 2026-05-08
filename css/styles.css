@@ -171,6 +171,71 @@ body {
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
 }
 
+/* "Hide map labels" toggle (PO-001). Geometry mirrors .route-toggle so the
+   header reads as one toolbar; the inline notice next to it stays out of
+   layout when hidden. */
+.hide-labels-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  height: 32px;
+  padding: 0 10px;
+  color: #1f2933;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.hide-labels-toggle:hover {
+  background: #ffffff;
+}
+
+.hide-labels-toggle:focus-within {
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+.hide-labels-toggle__input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #4c6ef5;
+  cursor: pointer;
+}
+
+.hide-labels-toggle__label {
+  font: inherit;
+  line-height: 1;
+}
+
+/* Inline notice shown next to the hide-labels toggle when the active
+   basemap is raster (labels baked into tiles). Quiet styling — italic +
+   muted — so it reads as ambient feedback, not a second action. The
+   [hidden] attribute drops it from layout entirely at rest, so the header
+   geometry is unchanged when the notice doesn't apply. */
+.hide-labels-notice {
+  margin-left: 8px;
+  max-width: 260px;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.3;
+  color: #7a4a00;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.hide-labels-notice[hidden] {
+  display: none;
+}
+
 /* "Show route" toggle. Sits between the style picker and the export button
    in the right-aligned header cluster. The wrapper <label> is the click
    target so the whole "checkbox + text" reads as one control; we keep the
@@ -1134,6 +1199,58 @@ body.dragging-pin * {
 .picker__row.is-locked .picker__row-label::after {
   content: " 🔒";
   font-size: 0.85em;
+}
+
+/* PO-001: disabled state for raster entries while "Hide map labels" is on.
+   The row stays in the list (discoverability matters) but reads as
+   non-interactive: dimmed text, not-allowed cursor, no hover background.
+   The active row keeps its is-active-key highlight even while disabled,
+   so the user can see what they're currently using. */
+.picker__row.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.picker__row.is-disabled:hover {
+  background: transparent;
+}
+
+.picker__row.is-disabled.is-active-key:hover {
+  background: #f1f5f9;
+}
+
+/* Floating info popup anchored to a disabled row. Translated -100% so the
+   `left` value above can be set to the popover's right edge — keeps the
+   anchoring math simple regardless of popup width. The triangle pseudo-
+   element points back at the row. */
+.picker__disabled-popup[hidden] {
+  display: none;
+}
+
+.picker__disabled-popup {
+  position: absolute;
+  width: 220px;
+  padding: 0.5rem 0.65rem;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.25);
+  z-index: 250;
+  pointer-events: auto;
+}
+
+.picker__disabled-popup::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: -6px;
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-right: 6px solid #1f2937;
 }
 
 .picker__empty {

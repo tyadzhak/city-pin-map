@@ -100,6 +100,27 @@
             </footer>
           </div>
         </div>
+        <!-- Hide-labels toggle (PO-001). Sits between the basemap picker
+             and the route toggle so it reads as a basemap-side preference.
+             The inline notice next to it appears only when the toggle is ON
+             AND the active basemap is raster (labels baked into tiles). -->
+        <label class="hide-labels-toggle">
+          <input
+            id="hide-labels-toggle"
+            type="checkbox"
+            class="hide-labels-toggle__input"
+          />
+          <span class="hide-labels-toggle__label">Hide map labels</span>
+        </label>
+        <span
+          id="hide-labels-notice"
+          class="hide-labels-notice"
+          role="status"
+          aria-live="polite"
+          hidden
+          >Labels are baked into raster tiles for this style. Pick a vector
+          style to hide them.</span
+        >
         <label class="route-toggle">
           <input
             id="route-toggle"

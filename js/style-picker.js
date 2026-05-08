@@ -13,8 +13,12 @@
 // Keyboard nav: Arrows traverse rows; Enter selects; Tab focuses search;
 // Escape closes; click-outside closes.
 
-import { MAP_STYLES } from "./map.js";
+import { MAP_STYLES, isRasterStyleEntry } from "./map.js";
 import * as settings from "./settings.js";
+import { loadHideLabels } from "./storage.js";
+
+const DISABLED_POPUP_MESSAGE =
+  "Labels can't be hidden on raster basemaps because they're baked into the tile image. Pick a vector style to hide labels.";
 
 const PROVIDER_ORDER = [
   "openfreemap",
@@ -63,6 +67,18 @@ let onSelectCb = null;
 let onOpenSettingsCb = null;
 let isOpen = false;
 
+// PO-001: when true, every entry that fails isRasterStyleEntry() renders
+// disabled and routes its activation to the info popup instead of selecting.
+// Read once at init time, refreshed by the picker handle's setHideLabels.
+let hideLabelsActive = false;
+
+// Single floating element reused across rows. Lazily created on first show
+// to keep the DOM clean at rest. Anchored to whichever row triggered it
+// (hover, focus, click, Enter on a disabled row); dismissed on Escape,
+// click-outside, blur, or pointer leaving the row.
+let popupEl = null;
+let popupAnchorRow = null;
+
 export function initStylePicker({
   getCurrentStyleId,
   onSelect,
@@ -85,7 +101,7 @@ export function initStylePicker({
     !listEl ||
     !manageKeysBtn
   ) {
-    return { setActive: () => {} };
+    return { setActive: () => {}, setHideLabels: () => {} };
   }
 
   onSelectCb = onSelect;
@@ -93,6 +109,11 @@ export function initStylePicker({
 
   // Reveal the picker (it's hidden in markup until JS attaches handlers).
   pickerEl.hidden = false;
+
+  // Hydrate the disabled-row state from storage so a reload paints the
+  // picker correctly on first open without waiting for app.js to push the
+  // value through setHideLabels.
+  hideLabelsActive = loadHideLabels();
 
   // Initial active id + trigger label.
   setActive(getCurrentStyleId());
@@ -114,7 +135,16 @@ export function initStylePicker({
     if (isOpen) renderRows();
   });
 
-  return { setActive };
+  return { setActive, setHideLabels };
+}
+
+// Called by app.js whenever the hide-labels toggle flips. We re-render
+// only when the popover is open — the next open() will pick up the new
+// value via renderRows() on its own otherwise.
+function setHideLabels(value) {
+  hideLabelsActive = Boolean(value);
+  if (!hideLabelsActive) hideDisabledPopup();
+  if (isOpen) renderRows();
 }
 
 function setActive(styleId) {
@@ -150,6 +180,7 @@ function close() {
   pickerEl.dataset.pickerState = "closed";
   searchEl.value = "";
   currentSearch = "";
+  hideDisabledPopup();
 }
 
 function onDocumentClick(e) {
@@ -161,6 +192,13 @@ function onDocumentClick(e) {
 function onDocumentKeydown(e) {
   if (!isOpen) return;
   if (e.key === "Escape") {
+    // Two-stage Escape: if the disabled-row popup is showing, dismiss it
+    // first and leave the picker open; second Escape closes the picker.
+    // Matches the behaviour of nested popovers in macOS / Windows menus.
+    if (popupEl && !popupEl.hidden) {
+      hideDisabledPopup();
+      return;
+    }
     close();
     triggerEl.focus();
   }
@@ -249,7 +287,16 @@ function renderRow(entry) {
 
   const locked =
     entry.requiresToken && !settings.isProviderUnlocked(entry.requiresToken);
+  // PO-001: rows mapping to raster entries are disabled when the toggle is
+  // ON. Disabled and locked are independent flags; locked still wins on
+  // visuals (the lock icon) so the user sees that swap is blocked AND
+  // (if applicable) why labels can't be hidden on it.
+  const disabled = hideLabelsActive && isRasterStyleEntry(entry);
   if (locked) li.classList.add("is-locked");
+  if (disabled) {
+    li.classList.add("is-disabled");
+    li.setAttribute("aria-disabled", "true");
+  }
   if (entry.id === activeStyleId) {
     li.classList.add("is-active-key");
     li.setAttribute("aria-selected", "true");
@@ -265,7 +312,15 @@ function renderRow(entry) {
   label.textContent = entry.label;
   li.appendChild(label);
 
-  li.addEventListener("click", () => {
+  li.addEventListener("click", (e) => {
+    if (disabled) {
+      // Stop propagation so onDocumentClick (capture-phase) doesn't close
+      // the picker as a "click outside the popup" — the popup IS the
+      // intended outcome of clicking the disabled row.
+      e.stopPropagation();
+      showDisabledPopup(li);
+      return;
+    }
     if (locked) {
       close();
       if (onOpenSettingsCb) onOpenSettingsCb(entry.requiresToken);
@@ -275,14 +330,34 @@ function renderRow(entry) {
     close();
     if (onSelectCb) onSelectCb(entry.id);
   });
-  li.addEventListener("keydown", (e) => onRowKeydown(e, li));
+  li.addEventListener("mouseenter", () => {
+    if (disabled) showDisabledPopup(li);
+  });
+  li.addEventListener("mouseleave", (e) => {
+    if (!disabled) return;
+    // Don't dismiss if the cursor moved into the popup itself — letting
+    // the user mouse over to read the message comfortably.
+    if (popupEl && popupEl.contains(e.relatedTarget)) return;
+    hideDisabledPopup();
+  });
+  li.addEventListener("focus", () => {
+    if (disabled) showDisabledPopup(li);
+  });
+  li.addEventListener("blur", () => {
+    if (disabled) hideDisabledPopup();
+  });
+  li.addEventListener("keydown", (e) => onRowKeydown(e, li, disabled));
 
   return li;
 }
 
-function onRowKeydown(e, li) {
+function onRowKeydown(e, li, disabled = false) {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
+    if (disabled) {
+      showDisabledPopup(li);
+      return;
+    }
     li.click();
   } else if (e.key === "ArrowDown") {
     e.preventDefault();
@@ -309,4 +384,49 @@ function onRowKeydown(e, li) {
       prev.focus();
     }
   }
+}
+
+// ---- Disabled-row info popup ------------------------------------------
+
+function ensurePopup() {
+  if (popupEl) return popupEl;
+  popupEl = document.createElement("div");
+  popupEl.className = "picker__disabled-popup";
+  popupEl.setAttribute("role", "tooltip");
+  popupEl.setAttribute("aria-live", "polite");
+  popupEl.hidden = true;
+  popupEl.textContent = DISABLED_POPUP_MESSAGE;
+  // Living inside .picker keeps the popup absolutely-positioned relative
+  // to the picker's coordinate system, so the row's offset math below
+  // doesn't have to compensate for arbitrary ancestor positioning.
+  pickerEl.appendChild(popupEl);
+  return popupEl;
+}
+
+function showDisabledPopup(rowEl) {
+  const el = ensurePopup();
+  // No-op if the same row is already showing the popup — avoids flicker
+  // from rapid mouseenter/focus pairs on the same row.
+  if (popupAnchorRow === rowEl && !el.hidden) return;
+  popupAnchorRow = rowEl;
+  el.hidden = false;
+
+  // Anchor via bounding rects so the math is immune to the list's
+  // internal scroll position. Computing offsets via offsetTop/offsetLeft
+  // would yield the row's position in the un-scrolled list, which can
+  // be hundreds of pixels off after the user scrolls down to a raster
+  // entry deep in the list. The popup is absolutely-positioned inside
+  // .picker (the closest positioned ancestor), so subtracting picker
+  // rect from row rect gives the right local-space coordinates.
+  const rowRect = rowEl.getBoundingClientRect();
+  const pickerRect = pickerEl.getBoundingClientRect();
+  const popoverRect = popoverEl.getBoundingClientRect();
+  el.style.top = `${rowRect.top - pickerRect.top}px`;
+  el.style.left = `${popoverRect.right - pickerRect.left + 8}px`;
+}
+
+function hideDisabledPopup() {
+  if (!popupEl) return;
+  popupEl.hidden = true;
+  popupAnchorRow = null;
 }
