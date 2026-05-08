@@ -1,36 +1,26 @@
-// PNG export via dom-to-image-more (loaded as a global from index.html CDN).
-// Library choice is fixed in index.html — do not switch to html-to-image.
+// PNG export via native HTML5 Canvas. Composites the MapLibre WebGL canvas
+// + an optional title strip into an off-screen 2D canvas, then toDataURL.
+//
+// Markers and the route line are layers inside the WebGL canvas (see
+// js/map.js — Option B GeoJSONSource + circle/line layers), so they are
+// captured automatically by getCanvas(). No post-composite step is needed.
 
 import { showError } from "./storage.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
-// 8s comfortably covers a slow first paint over a flaky connection while
-// staying well under the user's patience for "I clicked Export."
+// Same budgets the previous Leaflet impl used; MapLibre's `idle` event
+// has slightly different semantics (it includes GPU painting) but the
+// wall-clock budget translates cleanly enough.
 const TILE_WAIT_TIMEOUT_MS = 8000;
-
-// Preset exports resize the map to a brand-new viewport, which kicks off
-// a fresh wave of tile fetches plus a `cacheBust` re-download of every
-// already-loaded tile. The portrait/landscape A4 frames in particular can
-// need 2–3× the tile count of the on-screen map. 12 s buys those a fair
-// shot on slow connections without making a normal export feel sluggish
-// (it still resolves the moment all layers fire `load`).
 const TILE_WAIT_TIMEOUT_MS_PRESET = 12000;
 
 // CSS-pixel offset that pushes the export frame fully off any reasonable
-// viewport so the user never sees the wrap. Using `position: fixed` plus a
-// large negative left keeps it laid out (so dom-to-image-more can paint it)
-// while staying invisible.
+// viewport. Same value the Leaflet pipeline used.
 const OFFSCREEN_PX = -100000;
 
-// Preset id → {width, height} in CSS pixels for the exported PNG. `null`
-// means "Current view — capture the live map at its on-screen size".
-//
-// A4 dimensions use 96 dpi (794×1123 portrait, the inverse for landscape).
-// 300 dpi (2480×3508) was rejected as the v2 default: `cacheBust: true`
-// re-fetches every tile, so a 300-dpi export over a typical home connection
-// can take 10–20 s and produce a ~6 MB PNG. 96 dpi is print-acceptable on
-// most consumer printers and keeps the click-to-download time under a few
-// seconds. See NICE-007 task notes.
+// Preset id → { width, height } in CSS pixels for the exported PNG.
+// `null` means "Current view — capture the live map at its on-screen size".
+// 96 dpi for A-series; see NICE-007 notes.
 export const EXPORT_PRESETS = {
   current: null,
   square: { width: 1080, height: 1080 },
@@ -41,43 +31,54 @@ export const EXPORT_PRESETS = {
   "a3-landscape": { width: 1684, height: 1191 },
 };
 
+// Title strip layout — matches css/styles.css .export-title-strip so the
+// exported PNG looks the same as the previous DOM-walk capture.
+const TITLE_STRIP = {
+  background: "#ffffff",
+  textColor: "#1f2933",
+  subtitleColor: "#4b5563",
+  // Georgia ships on macOS / Windows / most Linux desktops, so the PNG
+  // looks the same on every machine. Same fontstack as the previous CSS.
+  fontFamily: 'Georgia, "Times New Roman", serif',
+  titleSize: 32,
+  titleWeight: 700,
+  subtitleSize: 18,
+  subtitleStyle: "italic",
+  subtitleWeight: 400,
+  paddingTop: 24,
+  paddingBottom: 20,
+  paddingX: 32,
+  titleSubtitleGap: 6,
+  lineHeightMultiplier: 1.2,
+};
+
 /**
  * Capture the current map view and trigger a PNG download.
- * Waits for in-flight tiles before capturing so the image has no grey gaps.
- * On any failure, surfaces a user-visible message via the page error banner
- * and keeps the app usable (no re-throw).
+ * On any failure, surfaces a user-visible message via showError() and keeps
+ * the app usable (no re-throw).
  */
 export async function exportMapAsPng(mapInstance) {
   try {
     if (!mapInstance) throw new Error("map instance not provided");
-    if (typeof window.domtoimage === "undefined") {
-      throw new Error("dom-to-image-more not loaded");
-    }
 
     const titleInput = document.getElementById("export-title");
     const subtitleInput = document.getElementById("export-subtitle");
     const title = titleInput ? titleInput.value.trim() : "";
     const subtitle = subtitleInput ? subtitleInput.value.trim() : "";
 
-    // Read the preset from the DOM, mirroring the title/subtitle reads
-    // above. Keeps storage out of this module's runtime path — the format
-    // selector's <option> values ARE the source of truth at click time.
     const formatSelect = document.getElementById("export-format");
     const presetId = formatSelect ? formatSelect.value : "current";
     const preset = EXPORT_PRESETS[presetId] ?? null;
 
-    // Fast path: no title strip, no resize → capture the live map element
-    // directly. Identical behaviour to CORE-012; preserved verbatim so a
-    // user who never touches the new options gets the original code path.
     let dataUrl;
     if (!title && !subtitle && !preset) {
-      await waitForTiles(mapInstance, TILE_WAIT_TIMEOUT_MS);
-      // No `filter` option — every descendant (tiles, markers, attribution
-      // control) must be captured. Stripping anything risks losing the
-      // OSM attribution, which the tile license requires.
-      dataUrl = await window.domtoimage.toPng(mapInstance.getContainer(), {
-        cacheBust: true,
-      });
+      // Fast path: live map, no title strip, no resize. Capture the
+      // canvas as-is. triggerRepaint + once('render') ensures the
+      // framebuffer reflects the current state before we read it.
+      await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
+      mapInstance.triggerRepaint();
+      await waitForRender(mapInstance);
+      dataUrl = mapInstance.getCanvas().toDataURL("image/png");
     } else {
       dataUrl = await captureFramed(mapInstance, title, subtitle, preset);
     }
@@ -89,23 +90,12 @@ export async function exportMapAsPng(mapInstance) {
   }
 }
 
-// Single off-screen wrapper that handles both the title strip (NICE-006)
-// and the preset resize (NICE-007). One try/finally so any failure unwinds
-// the DOM and Leaflet state atomically.
-//
-// Off-screen technique: `position: fixed; left: -100000px; top: 0`. The
-// wrapper is in the document (so dom-to-image-more can paint it) but well
-// outside any reasonable viewport, so the user never sees the resized map
-// and the page does not scroll. This was the existing CORE-012/NICE-006
-// approach and it generalises cleanly to the larger preset sizes — Leaflet
-// reads container dimensions from getBoundingClientRect, which works the
-// same at negative coordinates.
+// Single off-screen wrapper that handles both the title strip and the
+// preset resize. One try/finally so any failure unwinds the DOM and the
+// MapLibre container atomically.
 async function captureFramed(mapInstance, title, subtitle, preset) {
   const mapEl = mapInstance.getContainer();
 
-  // Snapshot every inline style we are about to mutate so we can replay
-  // it exactly — including empty strings, which are the natural state for
-  // most of these properties before this function ran.
   const originalParent = mapEl.parentNode;
   const originalNextSibling = mapEl.nextSibling;
   const rect = mapEl.getBoundingClientRect();
@@ -120,77 +110,53 @@ async function captureFramed(mapInstance, title, subtitle, preset) {
   };
 
   const wrapper = document.createElement("div");
-  wrapper.className = "export-frame";
   wrapper.style.position = "fixed";
   wrapper.style.left = `${OFFSCREEN_PX}px`;
   wrapper.style.top = "0";
+  wrapper.style.background = TITLE_STRIP.background;
 
   const frameWidth = preset ? preset.width : rect.width;
+
+  // Pre-compute the title strip metrics so we know its exact pixel height
+  // before the map is resized.
+  const titleHeight =
+    title || subtitle ? measureTitleStrip({ title, subtitle }) : 0;
+
+  const frameHeight = preset ? preset.height : rect.height + titleHeight;
+
   wrapper.style.width = `${frameWidth}px`;
-  if (preset) {
-    // Pin the wrapper to the exact preset dims so dom-to-image-more's
-    // explicit width/height arguments line up with the rendered subtree
-    // and the PNG comes out byte-for-byte sized to the preset.
-    wrapper.style.height = `${preset.height}px`;
-  }
+  wrapper.style.height = `${frameHeight}px`;
 
-  let titleStrip = null;
-  if (title || subtitle) {
-    titleStrip = buildTitleStrip(title, subtitle);
-    wrapper.appendChild(titleStrip);
-  }
-
-  // Strip the .app-map `inset: 0` positioning so the map sits as a normal
-  // block child of the wrapper. Without this, the map would still try to
-  // pin itself to the (now off-screen) viewport.
+  // Strip .app-map's inset:0 positioning so the map sits as a normal
+  // child of the off-screen wrapper.
   mapEl.style.position = "relative";
   mapEl.style.top = "auto";
   mapEl.style.right = "auto";
   mapEl.style.bottom = "auto";
   mapEl.style.left = "auto";
   mapEl.style.width = `${frameWidth}px`;
-  // Provisional height for the no-preset path; the preset branch below
-  // overwrites this once the title strip's real pixel height is known.
-  mapEl.style.height = `${rect.height}px`;
+  mapEl.style.height = `${frameHeight - titleHeight}px`;
 
-  // Move the live map into the wrapper, then mount the wrapper itself.
-  // Order matters: appending the map to a not-yet-mounted wrapper avoids
-  // a brief layout where the map is parentless.
   wrapper.appendChild(mapEl);
   document.body.appendChild(wrapper);
 
   try {
-    if (preset) {
-      // Now that the wrapper is in the DOM, the title strip (if any) has
-      // its real pixel height. The map fills the remainder so the captured
-      // frame is exactly preset.width × preset.height with the title band
-      // stacked above the map.
-      const titleHeight = titleStrip ? titleStrip.offsetHeight : 0;
-      const mapHeight = Math.max(0, preset.height - titleHeight);
-      mapEl.style.height = `${mapHeight}px`;
+    // Tell MapLibre the container is a different size. animate:false is
+    // implicit — `resize()` doesn't animate.
+    mapInstance.resize();
+    await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS_PRESET);
+    mapInstance.triggerRepaint();
+    await waitForRender(mapInstance);
 
-      // Tell Leaflet the container is a different size now so it
-      // recomputes its viewport and starts loading the new tile set.
-      // animate:false — we don't want a zoom animation during export.
-      mapInstance.invalidateSize({ animate: false });
-
-      await waitForTiles(mapInstance, TILE_WAIT_TIMEOUT_MS_PRESET);
-
-      return await window.domtoimage.toPng(wrapper, {
-        cacheBust: true,
-        width: preset.width,
-        height: preset.height,
-      });
-    }
-
-    // Current-view preset with a title strip: keep the on-screen map
-    // dimensions intact, no Leaflet resize needed, capture the wrapper at
-    // its natural size (rect.width × (rect.height + titleStrip height)).
-    await waitForTiles(mapInstance, TILE_WAIT_TIMEOUT_MS);
-    return await window.domtoimage.toPng(wrapper, { cacheBust: true });
+    return composite({
+      mapCanvas: mapInstance.getCanvas(),
+      mapWidthCss: frameWidth,
+      mapHeightCss: frameHeight - titleHeight,
+      titleStrip: { title, subtitle, height: titleHeight, width: frameWidth },
+      outputWidth: frameWidth,
+      outputHeight: frameHeight,
+    });
   } finally {
-    // Replay the snapshot in reverse: move the map back first (so any
-    // layout observers see it in its real home), then drop the wrapper.
     if (originalNextSibling) {
       originalParent.insertBefore(mapEl, originalNextSibling);
     } else {
@@ -203,90 +169,134 @@ async function captureFramed(mapInstance, title, subtitle, preset) {
     mapEl.style.left = savedInline.left;
     mapEl.style.width = savedInline.width;
     mapEl.style.height = savedInline.height;
-    if (preset) {
-      // Force Leaflet back to the live container's true on-screen size so
-      // pan, zoom, and pin clicks behave exactly as before the export.
-      // Skipped for the no-preset path because we never touched Leaflet's
-      // own size in that branch — the container's pixel dimensions were
-      // re-pinned but stayed numerically equal to rect.width × rect.height.
-      mapInstance.invalidateSize({ animate: false });
-    }
+    mapInstance.resize();
     wrapper.remove();
   }
 }
 
-// Builds the title-strip element rendered above the map in the captured
-// image. Returns a single <div class="export-title-strip"> containing one
-// or both of <h2 class="export-title-strip__title"> and
-// <p class="export-title-strip__subtitle">. If a field is empty, omit
-// that element entirely — no phantom blank line in the PNG.
-//
-// Use textContent (not innerHTML) when injecting user input: the title
-// and subtitle come straight from the DOM <input>s, and a curious user
-// typing `<script>` should appear as literal characters in the PNG, not
-// as injected markup at capture time.
-function buildTitleStrip(title, subtitle) {
-  const strip = document.createElement("div");
-  strip.className = "export-title-strip";
+// Returns the title strip's exact pixel height for the given inputs.
+// Width is unused for the simple single-line layout we draw — long titles
+// are clipped, matching the old CSS's white-space behaviour.
+function measureTitleStrip({ title, subtitle }) {
+  const titleLineHeight = title
+    ? Math.ceil(TITLE_STRIP.titleSize * TITLE_STRIP.lineHeightMultiplier)
+    : 0;
+  const subtitleLineHeight = subtitle
+    ? Math.ceil(TITLE_STRIP.subtitleSize * TITLE_STRIP.lineHeightMultiplier)
+    : 0;
+  const gap = title && subtitle ? TITLE_STRIP.titleSubtitleGap : 0;
+
+  return (
+    TITLE_STRIP.paddingTop +
+    titleLineHeight +
+    gap +
+    subtitleLineHeight +
+    TITLE_STRIP.paddingBottom
+  );
+}
+
+// Composite the map canvas + title strip into one output canvas and
+// return its data URL. The output canvas is sized in CSS pixels to match
+// what dom-to-image-more produced — same on-disk dimensions as the
+// previous pipeline, no surprise size change for the user.
+function composite({
+  mapCanvas,
+  mapWidthCss,
+  mapHeightCss,
+  titleStrip,
+  outputWidth,
+  outputHeight,
+}) {
+  const out = document.createElement("canvas");
+  out.width = outputWidth;
+  out.height = outputHeight;
+  const ctx = out.getContext("2d");
+
+  // Solid background under everything — covers the title strip area and
+  // any margin if the map is letterboxed.
+  ctx.fillStyle = TITLE_STRIP.background;
+  ctx.fillRect(0, 0, outputWidth, outputHeight);
+
+  if (titleStrip.height > 0) {
+    drawTitleStrip(ctx, titleStrip);
+  }
+
+  // Map canvas drawn below the title strip, scaled to CSS pixel dims.
+  // mapCanvas.width/.height are device pixels (CSS × dpr); drawImage's
+  // 9-arg form rescales to the destination rect.
+  ctx.drawImage(
+    mapCanvas,
+    0,
+    0,
+    mapCanvas.width,
+    mapCanvas.height,
+    0,
+    titleStrip.height,
+    mapWidthCss,
+    mapHeightCss
+  );
+
+  return out.toDataURL("image/png");
+}
+
+function drawTitleStrip(ctx, { title, subtitle, height, width }) {
+  ctx.fillStyle = TITLE_STRIP.background;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+
+  let cursorY = TITLE_STRIP.paddingTop;
 
   if (title) {
-    const h = document.createElement("h2");
-    h.className = "export-title-strip__title";
-    h.textContent = title;
-    strip.appendChild(h);
+    ctx.fillStyle = TITLE_STRIP.textColor;
+    ctx.font = `${TITLE_STRIP.titleWeight} ${TITLE_STRIP.titleSize}px ${TITLE_STRIP.fontFamily}`;
+    const lineHeight = Math.ceil(
+      TITLE_STRIP.titleSize * TITLE_STRIP.lineHeightMultiplier
+    );
+    // textBaseline alphabetic + cursorY+lineHeight*0.85 visually centers
+    // the cap-height row in the line-height box. Matches the apparent
+    // baseline the CSS engine produces with line-height: 1.2.
+    ctx.fillText(title, width / 2, cursorY + lineHeight * 0.85);
+    cursorY += lineHeight;
+    if (subtitle) cursorY += TITLE_STRIP.titleSubtitleGap;
   }
 
   if (subtitle) {
-    const p = document.createElement("p");
-    p.className = "export-title-strip__subtitle";
-    p.textContent = subtitle;
-    strip.appendChild(p);
+    ctx.fillStyle = TITLE_STRIP.subtitleColor;
+    ctx.font = `${TITLE_STRIP.subtitleStyle} ${TITLE_STRIP.subtitleWeight} ${TITLE_STRIP.subtitleSize}px ${TITLE_STRIP.fontFamily}`;
+    const lineHeight = Math.ceil(
+      TITLE_STRIP.subtitleSize * TITLE_STRIP.lineHeightMultiplier
+    );
+    ctx.fillText(subtitle, width / 2, cursorY + lineHeight * 0.85);
   }
-
-  return strip;
 }
 
-// Resolves when every active tile layer has fired `load` (or after the
-// timeout, whichever comes first). Resolves synchronously when nothing is
-// pending so a click on a fully-rendered map doesn't add latency.
-function waitForTiles(mapInstance, timeoutMs) {
-  const tileLayers = [];
-  mapInstance.eachLayer((layer) => {
-    if (layer instanceof L.TileLayer) tileLayers.push(layer);
-  });
-  if (tileLayers.length === 0) return Promise.resolve();
-
-  // _loading is undocumented but stable across Leaflet 1.x and is what
-  // Leaflet's own plugins read. If every layer is already idle, no need
-  // to attach listeners.
-  const pending = tileLayers.filter((layer) => layer._loading);
-  if (pending.length === 0) return Promise.resolve();
-
+// Resolves when MapLibre fires `idle` (all tiles loaded + nothing pending
+// to render) or after the timeout, whichever comes first. If the map is
+// already idle, `once('idle')` resolves on the next tick.
+function waitForIdle(mapInstance, timeoutMs) {
   return new Promise((resolve) => {
-    let remaining = pending.length;
     let settled = false;
-
     const finish = () => {
       if (settled) return;
       settled = true;
+      mapInstance.off("idle", finish);
       clearTimeout(timer);
-      pending.forEach((layer) => layer.off("load", onLayerLoad));
       resolve();
     };
-
-    const onLayerLoad = () => {
-      remaining -= 1;
-      if (remaining <= 0) finish();
-    };
-
-    pending.forEach((layer) => layer.on("load", onLayerLoad));
+    mapInstance.once("idle", finish);
     const timer = setTimeout(finish, timeoutMs);
   });
 }
 
-// Programmatic download via a one-shot anchor. The element must be in the
-// DOM for the click to take effect in Firefox; appending and removing in the
-// same tick is enough.
+// Resolves on the next render frame. Used after triggerRepaint() so that
+// getCanvas().toDataURL() reads pixels that match the current state, not
+// the previous frame's framebuffer.
+function waitForRender(mapInstance) {
+  return new Promise((resolve) => mapInstance.once("render", resolve));
+}
+
 function triggerDownload(dataUrl, filename) {
   const a = document.createElement("a");
   a.href = dataUrl;

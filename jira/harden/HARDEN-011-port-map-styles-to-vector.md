@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-011`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Low`                                       |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `HARDEN-008` (PROCEED decision); `HARDEN-009` |
@@ -39,11 +39,11 @@ The hybrid path is technically straightforward in MapLibre (it natively supports
 
 ## Acceptance criteria
 
-- [ ] `MAP_STYLES` registry entries point at vector or hybrid sources per the chosen strategy.
-- [ ] Header `<select>` continues to populate dynamically from the registry (no `index.html` change needed for entries; `app.js` loop should still work).
-- [ ] Persisted style id round-trips across reload (existing `saveMapStyle` / `loadMapStyle` should not need changes; verify, don't re-implement).
-- [ ] Switching styles preserves markers and route (HARDEN-009's `setStyle()` rebuild must re-add sources/layers in the `styledata` handler).
-- [ ] Attribution control updates correctly when switching between OpenFreeMap and any retained raster providers (legal requirement, not polite touch).
+- [x] `MAP_STYLES` registry entries point at vector or hybrid sources per the chosen strategy.
+- [x] Header `<select>` continues to populate dynamically from the registry (no `index.html` change needed for entries; `app.js` loop should still work).
+- [x] Persisted style id round-trips across reload (existing `saveMapStyle` / `loadMapStyle` should not need changes; verify, don't re-implement).
+- [x] Switching styles preserves markers and route (HARDEN-009's `setStyle()` rebuild must re-add sources/layers in the `styledata` handler).
+- [x] Attribution control updates correctly when switching between OpenFreeMap and any retained raster providers (legal requirement, not polite touch).
 
 ## Files affected
 
@@ -59,4 +59,20 @@ The hybrid path is technically straightforward in MapLibre (it natively supports
 
 ## Implementation prompt
 
-To be drafted at PROCEED time, after the pure-vector vs hybrid call is made. That decision needs the user, not the spike — it's a "what styles do you want to keep?" question, not a technical one.
+Executed via `docs/superpowers/plans/2026-05-08-maplibre-cutover.md`. Strategy choice: **hybrid registry**. All 7 HARDEN-007 styles preserved.
+
+- **Vector entries (4)** — `style` is a hosted style URL string:
+  - `osm` → `https://tiles.openfreemap.org/styles/liberty`
+  - `carto-light` → `https://tiles.openfreemap.org/styles/positron`
+  - `carto-dark` → `https://tiles.openfreemap.org/styles/dark`
+  - `carto-voyager` → `https://tiles.openfreemap.org/styles/bright`
+- **Raster entries (3)** — `style` is an inline MapLibre style object built by the local `rasterStyle({tiles, maxzoom, attribution})` helper. Each wraps the original tile URL pattern from HARDEN-007 in a `version: 8` style with one `raster` source + one `raster` layer:
+  - `wikimedia` → `https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png`
+  - `topo` → OpenTopoMap a/b/c subdomains
+  - `esri-imagery` → Esri ArcGIS World_Imagery (with the inverse `{z}/{y}/{x}` ordering)
+- **`setMapStyle`**: passes `style.style` to `map.setStyle()` regardless of whether it's a string URL or inline object — MapLibre accepts both, no consumer-side branching needed.
+- **Attribution**: each raster style carries its `attribution` field on the source so MapLibre's built-in attribution control (added in `initMap`) merges legal text correctly. Vector entries inherit attribution from the OpenFreeMap-hosted style JSON.
+
+Done as part of the same `js/map.js` rewrite as HARDEN-009 (the registry would be empty/non-functional split apart from the consumer code).
+
+Verification: Playwright-driven smoke test confirmed style swaps Light → Satellite → OSM → Wikimedia all preserved markers + route through the `styledata` re-add path; attribution updated to match the active provider in each case.

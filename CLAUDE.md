@@ -8,14 +8,15 @@ A single-page, no-backend web app that lets the user pin cities on a world map a
 
 ## What's shipped (as of 2026-05-08)
 
-All three milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 → NICE-007), and Hardening (HARDEN-001 → HARDEN-007) — are `Done`. The app supports:
+All four milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 → NICE-007), and Hardening (HARDEN-001 → HARDEN-012) — are `Done`. The app supports:
 
-- Leaflet map with 7 basemap styles (OSM, Carto Light/Dark/Voyager, Wikimedia, OpenTopoMap, Esri Satellite — HARDEN-007), switchable from the header.
+- MapLibre GL JS map with 7 basemap styles via a hybrid registry (HARDEN-009/011): 4 vector styles from OpenFreeMap (Liberty/Positron/Dark/Bright) and 3 raster providers retained from HARDEN-007 (Wikimedia, OpenTopoMap, Esri Satellite — wrapped as MapLibre raster-source styles). Switchable from the header; markers and the route polyline are preserved across style swaps via a `styledata` re-add.
+- Markers as a WebGL layer (GeoJSON source + circle layer). Group color override is materialized into each feature's properties at render time and read by the layer's paint expression — single source of truth, no per-marker imperative recolor.
 - Nominatim search with debounce, ≥1 req/sec gating, per-tab cache, and abort-on-newer-keystroke. New pins default to a short `"city, country"` label derived from `addressdetails` (HARDEN-004); the user can still rename freely.
-- Pin CRUD: add (via search), drag, inline rename, per-pin color picker, delete.
+- Pin CRUD: add (via search), drag (custom MapLibre `mousedown` wiring on the pin layer + document-level `mousemove`/`mouseup` commit), inline rename, per-pin color picker, delete.
 - Groups (NICE-004/005): independent store with name + color, assignable per pin. Group color overrides the pin's own color while assigned. Deleting a group cascades `pin.group → null`.
-- Optional connecting polyline ordered by `createdAt` (header toggle).
-- PNG export with optional title/subtitle band, an inline progress indicator (HARDEN-003), and 7 size presets (Current view, 1080² square, 1920×1080, A4 portrait/landscape, A3 portrait/landscape — all 96 dpi).
+- Optional connecting polyline ordered by `createdAt` (header toggle), rendered as a MapLibre line layer underneath the pins layer.
+- PNG export via native HTML5 Canvas (HARDEN-010): `map.getCanvas() → drawImage` into an off-screen 2D canvas + a title strip drawn via `ctx.fillText`. No external library, no DOM walk. 7 size presets (Current view, 1080² square, 1920×1080, A4 portrait/landscape, A3 portrait/landscape — all 96 dpi). Inline progress indicator (HARDEN-003) preserved.
 - JSON backup and restore (HARDEN-001) via Export/Import buttons in the side panel. The file holds only `pins` and `groups`; UI preferences are intentionally excluded.
 - Persistence: every preference (pins, groups, map style, route toggle, export text, export format) lives in its own `localStorage` key prefixed `city-pin-map.…v1`.
 - macOS double-clickable launcher (`start.command`, HARDEN-002) running `python3 -m http.server` from the project folder, with port fallback 8000 → 8010.
@@ -24,7 +25,7 @@ All three milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 �
 
 Decisions deliberately made and parked. Don't re-evaluate without a concrete trigger — re-litigating in a fresh context wastes hours and ends in the same place.
 
-- **MapLibre GL JS + OpenFreeMap (vector tiles).** HARDEN-008 spike, verdict **PARK**. Rewrite cost ~18 h (full rewrites of `js/map.js` and the load-bearing `js/export.js`); bundle delta +164 KB gz (~4×); MapLibre's HTML-overlay markers don't survive `getCanvas().toDataURL()` so the export pipeline needs a permanent post-compositing step. Wins are aesthetic interaction polish, not output-quality. See `jira/harden/HARDEN-008-findings.md` for the full reasoning, including the explicit signals that would flip this to PROCEED (specific user complaint about retina blur or pan jankiness that HARDEN-007's styles don't address; or OpenFreeMap announcing organizational backing).
+- **Leaflet + raster-only basemaps.** Replaced by MapLibre GL JS + a hybrid registry in HARDEN-009..012 (cutover authorized 2026-05-08). Reverting would lose: smooth fractional zoom, retina-crisp text on the 4 vector styles, the data-driven group-color paint expression on markers (currently a single layer-paint expression rather than per-marker imperative state), and the canvas-native export pipeline (replacing it with the previous `dom-to-image-more` DOM walk would re-introduce font-tainting risks and the SRI-pinning surface area HARDEN-005 had to mitigate). The previous Leaflet stack is preserved in `git log` and the closed task files HARDEN-001..007 for reference. Trigger to revisit: a real OpenFreeMap outage that exceeds tolerable downtime for personal use, with no quick swap to a peer keyless host (Stadia, MapTiler, etc.) that meets CLAUDE.md hard rule #3.
 
 ## Hard rules
 
@@ -43,7 +44,7 @@ city-pin-map/
 ├── css/styles.css      # All styles
 ├── js/
 │   ├── app.js          # Bootstrap + glue: wires modules in DOMContentLoaded
-│   ├── map.js          # Leaflet init, basemap registry, marker render, drag, route, effectiveColor()
+│   ├── map.js          # MapLibre init, basemap registry (hybrid vector+raster), marker layer, drag, route layer, effectiveColor()
 │   ├── geocode.js      # Nominatim wrapper: rate-limit gate, in-tab cache, addressdetails fetch
 │   ├── search.js       # Search input → debounced geocode → addPin (with short "city, country" name)
 │   ├── pins.js         # Pin store: pub/sub, add/remove/update/replaceAll/list
@@ -52,7 +53,7 @@ city-pin-map/
 │   ├── group-panel.js  # Side-panel group list (always-on rename + color, delete cascades to pins)
 │   ├── storage.js      # All localStorage keys + the showError() banner helper
 │   ├── backup.js       # JSON export/import for pins + groups (HARDEN-001)
-│   └── export.js       # PNG capture, title strip, dimension presets, off-screen render trick
+│   └── export.js       # Canvas-merge PNG: getCanvas() → drawImage + title strip via ctx.fillText, dimension presets, off-screen resize trick
 └── assets/             # Reserved for icons/marker images; currently empty
 ```
 
@@ -70,8 +71,8 @@ Keep modules small and focused. The largest files (`map.js`, `export.js`, `pin-l
 
 ## Libraries (load via CDN)
 
-- `leaflet@1.9.4` — map rendering. SRI hash pinned in `index.html`.
-- `dom-to-image-more@3.5.0` — PNG export. Locked in (see `index.html` head comment); do not switch to `html-to-image`.
+- `maplibre-gl@4.7.1` — map rendering. Loaded from jsdelivr. SRI hash is currently absent on this tag (HARDEN-009 cutover left it as a known follow-up parallel to HARDEN-005's pattern); re-add when the dependency is treated as production-stable.
+- (No PNG export library — native HTML5 Canvas in `js/export.js`. The previous `dom-to-image-more` dependency was retired in HARDEN-010.)
 
 Pin exact versions in `index.html`. Do not introduce new dependencies without a strong reason — note the reason in the task file.
 

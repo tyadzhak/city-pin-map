@@ -2,9 +2,10 @@
 <!--
   City Pin Map — single-page, no-backend web app.
 
-  PNG export library: dom-to-image-more (chosen over html-to-image for slightly
-  better Leaflet/canvas-tile compatibility; see jira/core/CORE-001 notes).
-  CORE-012 (PNG export) must use this same library — do not mix.
+  Map rendering: MapLibre GL JS (HARDEN-009 — replaced Leaflet).
+  PNG export: native HTML5 Canvas (HARDEN-010 — replaced dom-to-image-more).
+  Basemaps: hybrid registry — OpenFreeMap vector styles + retained raster
+  providers (HARDEN-011). See js/map.js MAP_STYLES.
 
   All third-party libraries are loaded via CDN at exact pinned versions.
   Do not change to "latest" or unpinned tags (CLAUDE.md → Hard rules).
@@ -15,26 +16,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>City Pin Map</title>
 
-    <!-- Leaflet 1.9.4 — map rendering -->
+    <!-- MapLibre GL JS 4.7.1 — map rendering (HARDEN-009 cutover) -->
     <link
       rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""
+      href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
     />
     <script
       defer
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-      crossorigin=""
-    ></script>
-
-    <!-- dom-to-image-more 3.5.0 — DOM → PNG export -->
-    <script
-      defer
-      src="https://unpkg.com/dom-to-image-more@3.5.0/dist/dom-to-image-more.min.js"
-      integrity="sha384-0PEs9VXKn6x/atQ5H1woMo0cQQnIz11UdqMzjvkDj+U+vxY4xwwj9J+gsbvLNcL9"
-      crossorigin="anonymous"
+      src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"
     ></script>
 
     <link rel="stylesheet" href="css/styles.css" />

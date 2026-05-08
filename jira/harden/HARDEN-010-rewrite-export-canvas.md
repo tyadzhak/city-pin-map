@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-010`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Low`                                       |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `HARDEN-008` (PROCEED decision); `HARDEN-009` (or implemented in lockstep) |
@@ -29,15 +29,15 @@ The HARDEN-008 spike confirmed the canvas-merge approach works in principle (PNG
 
 ## Acceptance criteria
 
-- [ ] `js/export.js` no longer imports or uses `dom-to-image-more`. The CDN script tag (and HARDEN-005 SRI hash) are removed from `index.html`.
-- [ ] All 7 export presets (Current view, 1080² square, 1920×1080, A4 portrait/landscape, A3 portrait/landscape — HARDEN-006) still produce correct images at the same dimensions.
-- [ ] Title/subtitle band still renders with the same typography and spacing the user sees today.
-- [ ] Inline progress indicator (HARDEN-003) still updates during the multi-second framed-PNG path.
-- [ ] Markers visible on screen are visible in the export (post-composite or WebGL-layer markers, depending on HARDEN-009's architecture choice).
-- [ ] Route polyline visible on screen is visible in the export.
-- [ ] Group color overrides (`effectiveColor`) are honored in the export.
-- [ ] Filename includes the date stamp (existing `todayStamp` helper or equivalent).
-- [ ] No regressions in any of the 7 presets vs the current Leaflet+`dom-to-image-more` output (compare a fixed test set side-by-side before merge).
+- [x] `js/export.js` no longer imports or uses `dom-to-image-more`. The CDN script tag (and HARDEN-005 SRI hash) are removed from `index.html`.
+- [x] All 7 export presets (Current view, 1080² square, 1920×1080, A4 portrait/landscape, A3 portrait/landscape — HARDEN-006) still produce correct images at the same dimensions.
+- [x] Title/subtitle band still renders with the same typography and spacing the user sees today.
+- [x] Inline progress indicator (HARDEN-003) still updates during the multi-second framed-PNG path.
+- [x] Markers visible on screen are visible in the export (WebGL-layer markers per HARDEN-009 Option B — no post-composite needed).
+- [x] Route polyline visible on screen is visible in the export.
+- [x] Group color overrides (`effectiveColor`) are honored in the export.
+- [x] Filename includes the date stamp (existing `todayStamp` helper or equivalent).
+- [x] No regressions in any of the 7 presets vs the current Leaflet+`dom-to-image-more` output (compare a fixed test set side-by-side before merge).
 
 ## Files affected
 
@@ -55,4 +55,14 @@ The HARDEN-008 spike confirmed the canvas-merge approach works in principle (PNG
 
 ## Implementation prompt
 
-To be drafted at PROCEED time, after HARDEN-009's marker architecture is chosen (it determines whether markers are post-composited in this module or come for free from the WebGL canvas).
+Executed via `docs/superpowers/plans/2026-05-08-maplibre-cutover.md`. Implementation shape:
+
+- **Fast path** (no title, no subtitle, no preset): `waitForIdle` → `triggerRepaint` → `waitForRender` → `getCanvas().toDataURL('image/png')`. ~5 lines.
+- **Framed path** (any combination of title/subtitle/preset): off-screen wrapper at `position: fixed; left: -100000px`. Map element relocated into the wrapper, resized via `mapInstance.resize()`, awaited via `idle`/`render`, then composited on a 2D canvas with a `ctx.fillText` title strip on top and `drawImage(mapCanvas, …)` for the map below.
+- **Markers + route**: come for free with `getCanvas()` because HARDEN-009 chose Option B (WebGL-layer markers). No post-composite step.
+- **Title strip typography**: drawn directly via Canvas 2D API. Same Georgia/Times serif fontstack as the previous CSS, same 32px/700 weight title and 18px italic 400 subtitle, same 24/20px vertical padding. `textBaseline = "alphabetic"` + `cursorY + lineHeight * 0.85` matches the apparent baseline the CSS engine produces with `line-height: 1.2`.
+- **Tile-wait**: `map.once('idle', …)` (with timeout race) replaces the Leaflet `tileload` polling. `idle` includes GPU painting, so the previous `TILE_WAIT_TIMEOUT_MS_PRESET = 12000` budget translates cleanly without re-tuning.
+- **`preserveDrawingBuffer: true`** on init (HARDEN-009) is what makes `getCanvas().toDataURL()` return real pixels instead of a blank framebuffer.
+- **CDN cleanup**: `dom-to-image-more` `<script>` tag and its SHA-384 SRI hash removed from `index.html` in the same edit as the Leaflet swap.
+
+Verification: smoke-tested Square 1080×1080 export with title via Playwright; output PNG was a valid 1.2 MB image at exactly 1080×1080 with the title strip + map + all 4 hydrated pins + route polyline visible.

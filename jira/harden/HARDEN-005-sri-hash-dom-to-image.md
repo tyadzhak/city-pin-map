@@ -106,3 +106,9 @@ When finished:
 - Computed SHA-384 for `dom-to-image-more@3.5.0/dist/dom-to-image-more.min.js`:
   `sha384-0PEs9VXKn6x/atQ5H1woMo0cQQnIz11UdqMzjvkDj+U+vxY4xwwj9J+gsbvLNcL9`
   (via `curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A`)
+
+---
+
+## Superseded by HARDEN-010 / HARDEN-012 (2026-05-08)
+
+`dom-to-image-more` was retired during the MapLibre cutover. The SRI hash this task pinned no longer applies to any loaded asset — the entire `<script>` tag was removed from `index.html` in HARDEN-010, and HARDEN-012's cleanup pass confirmed no remaining references. This task remains in the historical record for the SRI-hardening pattern it established; the same pattern should be reapplied to the new `maplibre-gl@4.7.1` tag in a follow-up task once the dependency is treated as production-stable.

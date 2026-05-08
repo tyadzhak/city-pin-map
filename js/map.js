@@ -1,129 +1,161 @@
-// Leaflet setup, tile layers, and pin → marker rendering.
+// MapLibre GL JS setup, basemap registry, marker + route rendering.
 //
-// Leaflet is loaded as a classic <script defer> in index.html and exposes
-// the global `L`. This module wraps initialization so the rest of the app
-// never has to touch `L` directly — they go through `getMap()`.
+// MapLibre is loaded as a classic <script defer> in index.html and exposes
+// the global `maplibregl`. This module wraps initialization so the rest of
+// the app never touches `maplibregl` directly — they go through getMap().
 
 import { updatePin } from "./pins.js";
 import { listGroups } from "./groups.js";
 import { saveMapStyle } from "./storage.js";
 
-// Registry of available basemap styles. Single source of truth: js/app.js
+// Registry of available basemap styles. Hybrid: 4 vector styles served by
+// OpenFreeMap (keyless), and 3 raster-only entries wrapped as inline
+// MapLibre styles so we don't lose Wikimedia / OpenTopoMap / Esri Satellite
+// (HARDEN-007 user-visible coverage). Single source of truth: js/app.js
 // reads this to populate the header <select>, so adding a style here is the
 // only change needed to expose it in the UI. All styles must be free and
 // key-free per CLAUDE.md → "Hard rules".
+//
+// `style` is either:
+//   - a string URL pointing at a hosted MapLibre style JSON (vector path), or
+//   - an inline style object `{ version, sources, layers }` (raster path).
+// `setMapStyle` passes the value to `map.setStyle()` either way — MapLibre
+// accepts both.
 export const MAP_STYLES = [
   {
     id: "osm",
     label: "OSM Standard",
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
+    style: "https://tiles.openfreemap.org/styles/liberty",
   },
   {
     id: "carto-light",
     label: "Light",
-    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
-    maxZoom: 20,
+    style: "https://tiles.openfreemap.org/styles/positron",
   },
   {
     id: "carto-dark",
     label: "Dark",
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
-    maxZoom: 20,
+    style: "https://tiles.openfreemap.org/styles/dark",
   },
   {
     id: "carto-voyager",
     label: "Voyager",
-    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
-    maxZoom: 20,
+    style: "https://tiles.openfreemap.org/styles/bright",
   },
   {
     id: "wikimedia",
     label: "Wikimedia",
-    url: "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png",
-    attribution:
-      '<a href="https://wikimediafoundation.org/wiki/Maps_Terms_of_Use">Wikimedia maps</a> | © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
+    style: rasterStyle({
+      tiles: ["https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"],
+      maxzoom: 19,
+      attribution:
+        '<a href="https://wikimediafoundation.org/wiki/Maps_Terms_of_Use">Wikimedia maps</a> | © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
   },
   {
     id: "topo",
     label: "Topographic",
-    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    attribution:
-      'Map data: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
-    maxZoom: 17,
+    style: rasterStyle({
+      tiles: [
+        "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
+        "https://b.tile.opentopomap.org/{z}/{x}/{y}.png",
+        "https://c.tile.opentopomap.org/{z}/{x}/{y}.png",
+      ],
+      maxzoom: 17,
+      attribution:
+        'Map data: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+    }),
   },
   {
     id: "esri-imagery",
     label: "Satellite",
-    // Esri's ArcGIS REST tile endpoint uses {z}/{y}/{x} ordering (y before x),
-    // the inverse of the OSM/Carto convention used elsewhere in this registry.
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution:
-      'Tiles © <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-    maxZoom: 19,
+    style: rasterStyle({
+      // Esri's ArcGIS REST tile endpoint uses {z}/{y}/{x} ordering (y before
+      // x), the inverse of the OSM/Carto convention used elsewhere here.
+      tiles: [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      ],
+      maxzoom: 19,
+      attribution:
+        'Tiles © <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    }),
   },
 ];
 
 export const DEFAULT_MAP_STYLE_ID = "osm";
 
+// Layer / source ids — kept in one place so the styledata re-add logic and
+// the render functions agree on naming. Prefix avoids collisions with any
+// layer id baked into the OpenFreeMap styles.
+const PINS_SOURCE_ID = "city-pin-map.pins";
+const PINS_LAYER_ID = "city-pin-map.pins-circles";
+const ROUTE_SOURCE_ID = "city-pin-map.route";
+const ROUTE_LAYER_ID = "city-pin-map.route-line";
+
 // Module-scoped singleton. Treat as private; outside callers use getMap().
 let mapInstance = null;
-// Reference to the currently-mounted L.TileLayer. setMapStyle() swaps this
-// in place; null until initMap() runs setMapStyle() for the first time.
-let activeTileLayer = null;
 
-// pinId → Leaflet marker. Lets renderPins sync the visible markers against
-// the pin store in O(n), preserving marker identity across updates so any
-// per-marker Leaflet state (open tooltips, future drag handles, etc.) is
-// not destroyed on every change.
-const markers = new Map();
+// Cached pin snapshot used to repaint markers after a basemap swap.
+// renderPins keeps this updated on every call; the styledata handler reads
+// it to re-add the source/layer with the same data after setStyle() blew
+// the previous style away.
+let lastPinsSnapshot = [];
+let lastRouteVisible = false;
 
-// Single managed L.polyline for the optional connecting route (NICE-003).
-// Treat as private; renderRoute is the only legitimate caller. Null when
-// the route is hidden or there are <2 pins, so callers can read this as
-// "is the route currently on the map?". Color picked to read clearly on
-// both light and dark basemaps without colliding with the default pin red.
-const ROUTE_STYLE = { color: "#1d3557", weight: 3, opacity: 0.85 };
-let routePolyline = null;
+// Drag state. Set when a mousedown on a pin starts a drag; cleared on
+// mouseup. The handlers live on `document` (not the map container) so a
+// drag that passes through the side panel or briefly leaves the window
+// doesn't desync.
+let dragState = null;
 
 /**
- * Initialize the Leaflet map inside the given container element id.
- * Idempotent: calling twice returns the existing instance instead of
- * re-binding (Leaflet throws "Map container is already initialized" otherwise).
+ * Initialize the MapLibre map inside the given container element id.
+ * Idempotent: calling twice returns the existing instance.
  *
- * The initial tile layer is painted via setMapStyle so first-paint and later
- * style swaps share one code path. Callers that want a non-default style on
- * boot (e.g. restoring a saved preference) should call setMapStyle right
- * after initMap, before any pins render.
+ * `preserveDrawingBuffer: true` is required for the export pipeline —
+ * without it, getCanvas().toDataURL() returns blank/black pixels. Costs
+ * ~5–15% FPS on sustained pan per MapLibre's own benchmarks; invisible at
+ * this app's scale.
  */
 export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   if (mapInstance) return mapInstance;
 
-  // Latitude 20 (not 0) keeps populated landmasses centered vertically;
-  // zoom 2 fits the whole world on a typical desktop viewport.
-  mapInstance = L.map(containerId).setView([20, 0], 2);
+  const initial =
+    MAP_STYLES.find((s) => s.id === initialStyleId) ??
+    MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
 
-  setMapStyle(initialStyleId, { persist: false });
+  // MapLibre uses [lon, lat]; our previous Leaflet code used [lat, lon].
+  // Center [0, 20] → 20° north, 0° east, matching the previous setView.
+  mapInstance = new maplibregl.Map({
+    container: containerId,
+    style: initial.style,
+    center: [0, 20],
+    zoom: 2,
+    preserveDrawingBuffer: true,
+  });
+
+  // The first style emits `load` once tiles + sprites + glyphs are ready.
+  // Re-add markers/route here so a hydrated pin set paints on first frame
+  // even though renderPins was called before the style was ready.
+  mapInstance.on("load", () => {
+    addPinAndRouteLayers();
+    renderPins(lastPinsSnapshot);
+    renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
+  });
+  attachPinInteractions();
 
   return mapInstance;
 }
 
 /**
  * Swap the active basemap to the style identified by `styleId`.
- * Falls back to OSM (with a console.warn) if the id isn't in MAP_STYLES.
+ * Falls back to the default (with a console.warn) if the id isn't known.
  *
- * `persist`: when true (the default) the choice is saved via storage. The
- * initMap call passes `persist: false` so first-paint with a hydrated style
- * doesn't write back the same value that was just loaded.
+ * MapLibre's `setStyle()` rebuilds the entire style object, dropping all
+ * sources and layers we previously added. The `styledata` one-shot below
+ * re-adds the markers + route once the new style finishes loading. We
+ * pass `diff: false` so the rebuild is unconditional — a custom raster
+ * style swapping into a vector style cannot be diffed safely.
  */
 export function setMapStyle(styleId, { persist = true } = {}) {
   if (!mapInstance) return;
@@ -136,201 +168,254 @@ export function setMapStyle(styleId, { persist = true } = {}) {
     style = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
   }
 
-  // Add-then-remove order: the new layer mounts on top, paints over the old
-  // tiles as it loads, then the old layer (with its attribution string) is
-  // removed in the same tick. The user sees a smooth fade rather than a
-  // grey flash. The old layer's attribution is dropped from Leaflet's
-  // attribution control on remove(), so no duplicate lines accumulate.
-  const previousLayer = activeTileLayer;
-  activeTileLayer = L.tileLayer(style.url, {
-    attribution: style.attribution,
-    maxZoom: style.maxZoom,
-  }).addTo(mapInstance);
-  if (previousLayer) previousLayer.remove();
+  mapInstance.setStyle(style.style, { diff: false });
+  // `styledata` fires once when the new style is ready. `once` is the
+  // documented MapLibre helper for this exact pattern.
+  mapInstance.once("styledata", () => {
+    addPinAndRouteLayers();
+    renderPins(lastPinsSnapshot);
+    renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
+  });
 
   if (persist) saveMapStyle(style.id);
 }
 
-/**
- * Returns the live map instance, or null if initMap() hasn't run yet.
- * Other modules (pins, export) will use this once they come online.
- */
+/** Returns the live map instance, or null if initMap() hasn't run yet. */
 export function getMap() {
   return mapInstance;
 }
 
 /**
- * Synchronize the rendered marker set with `pins`.
+ * Synchronize the rendered pins source against `pins`.
  *
- * - Pins newly present in the array → a marker is created and added.
- * - Pins still present → the existing marker is mutated in place.
- * - Markers whose pin is gone → removed from the map.
+ * Markers are GeoJSON features in a single `geojson` source. The circle
+ * layer paints them as filled circles with a white border. Group color
+ * override is materialized into each feature's `properties.color` — the
+ * layer's paint reads it via `['get', 'color']`.
  *
- * Safe to call on every pin-store change. No-op until initMap() has run.
+ * Safe to call on every pin-store change. No-op until the style is loaded
+ * (the source doesn't exist yet) — the `load` and `styledata` handlers
+ * call us back with the latest snapshot once the source is in place.
  */
 export function renderPins(pins) {
+  lastPinsSnapshot = pins.slice();
   if (!mapInstance) return;
-
-  const seen = new Set();
-  for (const pin of pins) {
-    seen.add(pin.id);
-    const existing = markers.get(pin.id);
-    if (existing) {
-      updateMarker(existing, pin);
-    } else {
-      const marker = createMarker(pin).addTo(mapInstance);
-      markers.set(pin.id, marker);
-    }
-  }
-
-  for (const [id, marker] of markers) {
-    if (!seen.has(id)) {
-      marker.remove();
-      markers.delete(id);
-    }
-  }
+  const source = mapInstance.getSource(PINS_SOURCE_ID);
+  if (!source) return;
+  source.setData(pinsToFeatureCollection(pins));
 }
 
 /**
- * Synchronize the connecting-route polyline against `pins` and the toggle.
+ * Synchronize the connecting-route line source against `pins` and the
+ * toggle. Same data flow as renderPins: a GeoJSON source + a line layer.
  *
- * Lives in its own function (rather than folded into renderPins) because
- * the visibility toggle is orthogonal to the pin set: the route can change
- * without pins changing (toggle on/off), and pins can change without the
- * route's visibility changing (add/remove/drag). Two listeners on the pin
- * store, each with one job, keeps the data flow legible.
- *
- * Behaviour:
- * - When hidden, or fewer than 2 pins, the polyline is removed and the
- *   ref is nulled so map._layers stays clean (acceptance criterion).
- * - Otherwise, pins are sorted by createdAt ascending — that's the order
- *   the user pinned cities, which is the natural travel-narrative order
- *   (PROJECT.md → "documenting a multi-city trip").
- * - The polyline instance is reused across updates via setLatLngs to keep
- *   add-order stable; recreating it on every change would push it back on
- *   top of the markers and force a fresh DOM node each time.
+ * Sorted by createdAt ascending so the line traces the user's pinning
+ * order — the natural travel-narrative order (PROJECT.md).
  */
 export function renderRoute(pins, { visible }) {
+  lastRouteVisible = visible;
   if (!mapInstance) return;
+  const source = mapInstance.getSource(ROUTE_SOURCE_ID);
+  if (!source) return;
 
   if (!visible || pins.length < 2) {
-    if (routePolyline) {
-      routePolyline.remove();
-      routePolyline = null;
-    }
+    source.setData(emptyLineFeatureCollection());
     return;
   }
 
   const ordered = pins.slice().sort((a, b) => a.createdAt - b.createdAt);
-  const latLngs = ordered.map((p) => [p.lat, p.lon]);
-
-  if (routePolyline) {
-    routePolyline.setLatLngs(latLngs);
-  } else {
-    routePolyline = L.polyline(latLngs, ROUTE_STYLE).addTo(mapInstance);
-  }
-  // Markers are added to the map before this runs (renderPins is subscribed
-  // first), and Leaflet z-orders SVG overlays by add-time, not CSS z-index.
-  // Without bringToBack the line draws on top of the markers it connects.
-  routePolyline.bringToBack();
+  source.setData({
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: ordered.map((p) => [p.lon, p.lat]),
+        },
+        properties: {},
+      },
+    ],
+  });
 }
 
-// Resolve the color a pin should render as. Group color wins when the pin
-// is assigned to a still-existing group; otherwise the pin's own color is
-// the source of truth. A pin whose `group` references a deleted group is
-// silently treated as ungrouped — render must never crash on stale data
-// (NICE-005 acceptance criterion).
-//
-// Re-reads the group list on every call. Cheap at v2 scale (handfuls of
-// groups) and avoids any caching concerns when groups are renamed/recolored.
+/**
+ * Resolve the color a pin should render as. Group color wins when the pin
+ * is assigned to a still-existing group; otherwise the pin's own color.
+ * A pin whose `group` references a deleted group is silently treated as
+ * ungrouped — render must never crash on stale data.
+ */
 export function effectiveColor(pin) {
   if (!pin.group) return pin.color;
   const group = listGroups().find((g) => g.id === pin.group);
   return group?.color ?? pin.color;
 }
 
-// Marker style: L.circleMarker. Picked over L.divIcon for simplicity and
-// because vector circles capture cleanly in the dom-to-image-more export
-// path (CORE-012). renderPins handles .addTo(map); these two functions
-// only build / mutate the marker itself.
+// ---- Internals --------------------------------------------------------
 
-function createMarker(pin) {
-  const color = effectiveColor(pin);
-  const marker = L.circleMarker([pin.lat, pin.lon], {
-    radius: 8,
-    color,
-    fillColor: color,
-    fillOpacity: 0.9,
-    weight: 2,
-  }).bindTooltip(pin.name);
+function rasterStyle({ tiles, maxzoom, attribution }) {
+  return {
+    version: 8,
+    sources: {
+      "raster-source": {
+        type: "raster",
+        tiles,
+        tileSize: 256,
+        maxzoom,
+        attribution,
+      },
+    },
+    layers: [
+      {
+        id: "raster-layer",
+        type: "raster",
+        source: "raster-source",
+      },
+    ],
+  };
+}
 
-  // The SVG element only exists after the marker is added to the map.
-  marker.on("add", () => {
-    const el = marker.getElement();
-    if (el) el.classList.add("city-pin");
+function pinsToFeatureCollection(pins) {
+  return {
+    type: "FeatureCollection",
+    features: pins.map((pin) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [pin.lon, pin.lat] },
+      properties: {
+        id: pin.id,
+        color: effectiveColor(pin),
+      },
+    })),
+  };
+}
+
+function emptyLineFeatureCollection() {
+  return { type: "FeatureCollection", features: [] };
+}
+
+function addPinAndRouteLayers() {
+  if (!mapInstance) return;
+
+  // Route source + layer first, so it draws underneath the pins (MapLibre
+  // z-orders by add-order within a layer type).
+  if (!mapInstance.getSource(ROUTE_SOURCE_ID)) {
+    mapInstance.addSource(ROUTE_SOURCE_ID, {
+      type: "geojson",
+      data: emptyLineFeatureCollection(),
+    });
+  }
+  if (!mapInstance.getLayer(ROUTE_LAYER_ID)) {
+    mapInstance.addLayer({
+      id: ROUTE_LAYER_ID,
+      type: "line",
+      source: ROUTE_SOURCE_ID,
+      paint: {
+        "line-color": "#1d3557",
+        "line-width": 3,
+        "line-opacity": 0.85,
+      },
+    });
+  }
+
+  if (!mapInstance.getSource(PINS_SOURCE_ID)) {
+    mapInstance.addSource(PINS_SOURCE_ID, {
+      type: "geojson",
+      data: pinsToFeatureCollection(lastPinsSnapshot),
+    });
+  }
+  if (!mapInstance.getLayer(PINS_LAYER_ID)) {
+    mapInstance.addLayer({
+      id: PINS_LAYER_ID,
+      type: "circle",
+      source: PINS_SOURCE_ID,
+      paint: {
+        "circle-radius": 8,
+        // ['get', 'color'] reads from feature.properties.color, which we
+        // bake from effectiveColor() at render time. So a group rename or
+        // recolor flows through renderPins → setData → repaint without
+        // touching this layer definition.
+        "circle-color": ["get", "color"],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#ffffff",
+        "circle-opacity": 0.9,
+      },
+    });
+  }
+}
+
+// Hover + drag wiring on the pin layer. Idempotent across style swaps:
+// MapLibre keeps `map.on(eventType, layerId, handler)` listeners through
+// setStyle() because they're attached to the map, not to layer instances.
+// We only register them once at init time.
+function attachPinInteractions() {
+  if (!mapInstance) return;
+
+  mapInstance.on("mouseenter", PINS_LAYER_ID, () => {
+    mapInstance.getCanvas().style.cursor = "grab";
+  });
+  mapInstance.on("mouseleave", PINS_LAYER_ID, () => {
+    if (!dragState) mapInstance.getCanvas().style.cursor = "";
   });
 
-  attachDragHandlers(marker, pin.id);
-  return marker;
-}
+  mapInstance.on("mousedown", PINS_LAYER_ID, (e) => {
+    if (e.originalEvent.button !== 0) return;
+    const feature = e.features?.[0];
+    if (!feature) return;
 
-function updateMarker(marker, pin) {
-  const color = effectiveColor(pin);
-  marker.setLatLng([pin.lat, pin.lon]);
-  marker.setStyle({ color, fillColor: color });
-  marker.setTooltipContent(pin.name);
-}
+    e.preventDefault();
+    e.originalEvent.stopPropagation();
 
-// Manual drag for L.circleMarker (which has no built-in `draggable` option).
-// Listeners live on `document` rather than the map so the marker keeps
-// tracking the cursor when it leaves the map pane (e.g. into the side panel
-// or briefly out of the window). The store is updated only on release —
-// during the drag we mutate the marker directly so the visible position
-// stays smooth without one localStorage write per pixel.
-function attachDragHandlers(marker, pinId) {
-  marker.on("mousedown", (leafletEvent) => {
-    // Without this, the map's container-level drag handler also fires and
-    // the world pans alongside the marker.
-    L.DomEvent.stopPropagation(leafletEvent.originalEvent);
-    L.DomEvent.preventDefault(leafletEvent.originalEvent);
-
-    const map = mapInstance;
-    if (!map) return;
-
-    const container = map.getContainer();
-    const markerEl = marker.getElement();
-    let lastLatLng = marker.getLatLng();
-
-    map.dragging.disable();
-    if (markerEl) markerEl.classList.add("city-pin--dragging");
+    mapInstance.dragPan.disable();
     document.body.classList.add("dragging-pin");
+    mapInstance.getCanvas().style.cursor = "grabbing";
 
-    function onMove(ev) {
-      const rect = container.getBoundingClientRect();
-      const point = L.point(ev.clientX - rect.left, ev.clientY - rect.top);
-      lastLatLng = map.containerPointToLatLng(point);
-      marker.setLatLng(lastLatLng);
-    }
+    dragState = {
+      pinId: feature.properties.id,
+      lastLngLat: e.lngLat,
+    };
 
-    function commit() {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", commit);
-      document.removeEventListener("mouseleave", commit);
-
-      map.dragging.enable();
-      if (markerEl) markerEl.classList.remove("city-pin--dragging");
-      document.body.classList.remove("dragging-pin");
-
-      // Routing the new position through updatePin keeps storage and the
-      // pin list in sync; the resulting renderPins() call is a no-op for
-      // this marker because setLatLng matches lastLatLng we already set.
-      updatePin(pinId, { lat: lastLatLng.lat, lon: lastLatLng.lng });
-    }
-
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", commit);
-    // Fires when the cursor leaves the document/window — without this a
-    // drag that ends outside the browser leaves listeners attached.
-    document.addEventListener("mouseleave", commit);
+    document.addEventListener("mousemove", onDocMove);
+    document.addEventListener("mouseup", onDocUp);
+    // mouseleave on document fires when the cursor exits the window —
+    // commit there so a drag ending off-screen doesn't leak listeners.
+    document.addEventListener("mouseleave", onDocUp);
   });
+}
+
+function onDocMove(ev) {
+  if (!dragState || !mapInstance) return;
+  const rect = mapInstance.getContainer().getBoundingClientRect();
+  const point = [ev.clientX - rect.left, ev.clientY - rect.top];
+  const lngLat = mapInstance.unproject(point);
+  dragState.lastLngLat = lngLat;
+
+  // Mutate the live source data so the dragged pin tracks the cursor.
+  // We re-use the cached snapshot, swap the dragged pin's coordinates,
+  // and re-set the source. Cheap at this app's scale (tens of pins).
+  const updated = lastPinsSnapshot.map((p) =>
+    p.id === dragState.pinId ? { ...p, lat: lngLat.lat, lon: lngLat.lng } : p
+  );
+  lastPinsSnapshot = updated;
+  const source = mapInstance.getSource(PINS_SOURCE_ID);
+  if (source) source.setData(pinsToFeatureCollection(updated));
+}
+
+function onDocUp() {
+  if (!dragState || !mapInstance) return;
+  const { pinId, lastLngLat } = dragState;
+  dragState = null;
+
+  document.removeEventListener("mousemove", onDocMove);
+  document.removeEventListener("mouseup", onDocUp);
+  document.removeEventListener("mouseleave", onDocUp);
+
+  mapInstance.dragPan.enable();
+  document.body.classList.remove("dragging-pin");
+  mapInstance.getCanvas().style.cursor = "";
+
+  // Routing the new position through updatePin keeps storage and the
+  // pin list in sync. The resulting renderPins call repaints the source
+  // with the same coordinates we already drew, so it's effectively a
+  // no-op for this pin.
+  updatePin(pinId, { lat: lastLngLat.lat, lon: lastLngLat.lng });
 }

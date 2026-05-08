@@ -66,10 +66,10 @@ Reliability, polish, and friendly-handoff work after daily use revealed the roug
 | Concern              | Choice                                    | Why                                                 |
 |----------------------|-------------------------------------------|-----------------------------------------------------|
 | Markup / scripting   | Plain HTML + ES modules                   | Zero build step. Open the file and it works.        |
-| Map rendering        | Leaflet.js                                | Free, mature, no API key, easy custom markers.      |
-| Map tiles            | OpenStreetMap (default) + Carto/Stamen    | Free, attribution-only. Carto Positron looks clean. |
+| Map rendering        | MapLibre GL JS 4.7.1                      | Free, mature, no API key, hardware-accelerated.     |
+| Map tiles            | OpenFreeMap (vector) + Wikimedia / OpenTopoMap / Esri (raster) | Hybrid: 4 vector + 3 raster, all keyless.           |
 | Geocoding            | Nominatim (OpenStreetMap)                 | Free, no key. Rate-limited to 1 req/sec.            |
-| PNG export           | `dom-to-image-more` or `html-to-image`    | Renders DOM/SVG to canvas → PNG. Works with Leaflet.|
+| PNG export           | Native HTML5 Canvas                       | `getCanvas() → drawImage()` + title strip via `ctx.fillText`. No external library. |
 | Persistence          | `localStorage`                            | No backend needed for personal use.                 |
 | Styling              | Plain CSS                                 | Project is too small to justify a framework.        |
 
@@ -78,7 +78,7 @@ Reliability, polish, and friendly-handoff work after daily use revealed the roug
 - The app is a single `index.html` plus a few small JS modules. See `CLAUDE.md` for the file layout.
 - State is held in memory in a single pin store. `localStorage` is a serializer at save/load points, not the source of truth during a session.
 - Geocoding is debounced and rate-limited to respect Nominatim's policy.
-- Exporting "the current view" means: capture the map element exactly as it appears on screen, including pan/zoom, pin positions, and labels. Tile attribution must remain visible per OSM's license.
+- Exporting "the current view" means: capture the map element exactly as it appears on screen, including pan/zoom, pin positions, and labels. Tile attribution must remain visible per OSM's license. Markers and the route line are layers inside the WebGL canvas (GeoJSON source + circle / line layers), so a single `getCanvas().toDataURL()` captures everything in one shot — no DOM walk, no post-compositing.
 
 ## Risks and mitigations
 

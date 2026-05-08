@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `HARDEN-009`                                |
 | **Milestone**   | `Hardening`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Low`                                       |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `HARDEN-008` (PROCEED decision)             |
@@ -27,15 +27,15 @@ HARDEN-008 measured the porting cost at ~6h for `map.js` alone (it's 336 LOC) an
 
 ## Acceptance criteria
 
-- [ ] `js/map.js` no longer imports or uses any `L.*` Leaflet APIs.
-- [ ] Public function signatures unchanged: `initMap`, `setMapStyle`, `getMap`, `renderPins`, `renderRoute`, `effectiveColor`. Callers don't need edits.
-- [ ] Marker drag still updates the pin store via `updatePin` on release (existing contract).
-- [ ] Route polyline renders ordered by `createdAt` ascending and toggles cleanly on header change.
-- [ ] Group color override semantics (group color wins over pin color when assigned; falls back on stale group reference) preserved exactly.
-- [ ] Basemap switching preserves markers + route (MapLibre `setStyle()` rebuilds the whole style — sources/layers must be re-added in the `styledata` handler).
-- [ ] No regressions in pin add, drag, rename (which goes through `updatePin`), or color picker.
-- [ ] No console errors on cold load or after style switch.
-- [ ] After `index.html` is updated to load MapLibre instead of Leaflet, the production app still loads and runs without `dom-to-image-more` (HARDEN-010 handles export; this task gates on it integrating cleanly).
+- [x] `js/map.js` no longer imports or uses any `L.*` Leaflet APIs.
+- [x] Public function signatures unchanged: `initMap`, `setMapStyle`, `getMap`, `renderPins`, `renderRoute`, `effectiveColor`. Callers don't need edits.
+- [x] Marker drag still updates the pin store via `updatePin` on release (existing contract).
+- [x] Route polyline renders ordered by `createdAt` ascending and toggles cleanly on header change.
+- [x] Group color override semantics (group color wins over pin color when assigned; falls back on stale group reference) preserved exactly.
+- [x] Basemap switching preserves markers + route (MapLibre `setStyle()` rebuilds the whole style — sources/layers must be re-added in the `styledata` handler).
+- [x] No regressions in pin add, drag, rename (which goes through `updatePin`), or color picker.
+- [x] No console errors on cold load or after style switch.
+- [x] After `index.html` is updated to load MapLibre instead of Leaflet, the production app still loads and runs without `dom-to-image-more` (HARDEN-010 handles export; this task gates on it integrating cleanly).
 
 ## Files affected
 
@@ -54,4 +54,12 @@ HARDEN-008 measured the porting cost at ~6h for `map.js` alone (it's 336 LOC) an
 
 ## Implementation prompt
 
-To be drafted at PROCEED time, after the marker-architecture choice (option 1 vs option 2 above) is locked in alongside HARDEN-010's export approach. Drafting an implementation prompt now is premature — the spike's findings doc is the current authoritative reference for the technical shape.
+Executed via `docs/superpowers/plans/2026-05-08-maplibre-cutover.md`. Design choices made by Claude per user authorization on 2026-05-08:
+
+- **Markers**: Option 2 — GeoJSON source + circle layer (the spike's "production-grade path"). Markers live inside the WebGL canvas, so PNG export captures them automatically without a `map.project()` post-composite step. Group color override is materialized into each Feature's `properties.color` at render time and read by the layer's `circle-color: ['get', 'color']` paint expression.
+- **Drag**: custom-wired against `map.on('mousedown', PINS_LAYER_ID, …)` + document-level `mousemove`/`mouseup`/`mouseleave`. Disables `map.dragPan` during a drag; commits via `updatePin` on release. Same drag-state semantics as the previous Leaflet impl.
+- **`setMapStyle`**: calls `map.setStyle(style, { diff: false })` and registers a one-shot `styledata` listener that re-adds the marker + route source/layer with the cached snapshot (`lastPinsSnapshot`, `lastRouteVisible`).
+- **MAP_STYLES**: hybrid registry. 4 OpenFreeMap URLs (Liberty/Positron/Dark/Bright) + 3 inline raster style objects (Wikimedia/OpenTopoMap/Esri Satellite). MapLibre's `setStyle` accepts both forms, so the consumer code (`setMapStyle`) doesn't branch on type.
+- **CDN swap**: `index.html` now loads `maplibre-gl@4.7.1` from jsdelivr; Leaflet tags removed. SRI hashes deliberately omitted from this swap (HARDEN-005 follow-up tracked in that task file).
+
+Verification: smoke test via Playwright MCP exercised cold load with hydrated pins, route toggle, two style swaps (vector→raster→vector), search→addPin, and export PNG (Square 1080×1080) end-to-end with zero console errors.
