@@ -95,9 +95,16 @@ I did not run a Fast-3G cold-cache trace because the spike's tool surface (Playw
 
 I considered escalating on the open question of "should we lose Satellite/Topographic to gain smooth zoom?" — that's a user-preference call I shouldn't make alone. But because the verdict from everything else is already PARK, the question doesn't need answering now. If a future decision flips this to PROCEED, the style-coverage trade-off is the first thing that needs the user's judgment, not the spike's.
 
-### No follow-up tasks filed
+### Follow-up task stubs filed (blocked on PROCEED)
 
-PROCEED would mean filing HARDEN-009 (port `map.js`), HARDEN-010 (port `export.js`), HARDEN-011 (port `MAP_STYLES` to vector), and HARDEN-012 (cutover + cleanup). Since the verdict is PARK, **none of these stubs are filed**. If this question reopens, the natural shape of the work is one task per concern in that order.
+The natural shape of the rewrite is captured as four blocked task stubs so a future PROCEED decision doesn't have to re-derive it from scratch:
+
+- **HARDEN-009** — `jira/harden/HARDEN-009-port-map-js-to-maplibre.md` — port `js/map.js` (markers, drag, route, basemap switcher) to MapLibre.
+- **HARDEN-010** — `jira/harden/HARDEN-010-rewrite-export-canvas.md` — rewrite `js/export.js` to canvas-merge + post-composited markers; retire `dom-to-image-more`.
+- **HARDEN-011** — `jira/harden/HARDEN-011-port-map-styles-to-vector.md` — port `MAP_STYLES` to OpenFreeMap; decide pure-vector vs hybrid (the "what to do about Satellite/Topographic/Wikimedia" question).
+- **HARDEN-012** — `jira/harden/HARDEN-012-maplibre-cutover-cleanup.md` — cutover, regression pass, doc refresh.
+
+All four have `Status: Todo` and `Depends on: HARDEN-008 PROCEED decision`. They are explicitly blocked — none should start until the PROCEED-trigger signals named above materialize. The verdict on this spike remains **PARK**; the stubs exist purely to pre-shape the work, not to commit to executing it.
 
 ## Appendix — exact dependencies tested
 
