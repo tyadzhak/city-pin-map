@@ -20,6 +20,7 @@ All four milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 →
 - JSON backup and restore (HARDEN-001) via Export/Import buttons in the side panel. The file holds only `pins` and `groups`; UI preferences are intentionally excluded.
 - Persistence: every preference (pins, groups, map style, route toggle, export text, export format) lives in its own `localStorage` key prefixed `city-pin-map.…v1`.
 - macOS double-clickable launcher (`start.command`, HARDEN-002) running `python3 -m http.server` from the project folder, with port fallback 8000 → 8010.
+- Expanded basemap registry (this milestone): 22 additional styles across three free-tier providers (Stadia for Stamen Watercolor/Toner family, MapTiler for the modern catalog incl. Satellite Hybrid, Thunderforest for cycling/transit/landscape). Native `<select>` replaced by a searchable popover picker (`js/style-picker.js`); per-provider API keys live in a settings modal (`js/settings-panel.js`) backed by a new pub/sub store (`js/settings.js`). Style swaps now route through `setStyleSafely()` which races `styledata` (success) vs `error` (failure) with a 5s timeout — failed swaps revert to the previously-rendered style without persisting the bad choice, so reload always boots into a known-working state.
 
 ## Considered and parked
 
@@ -31,7 +32,7 @@ Decisions deliberately made and parked. Don't re-evaluate without a concrete tri
 
 1. **No build step.** Plain HTML, CSS, and JavaScript only. No bundlers, no transpilers, no `npm run build`. Libraries are loaded via CDN `<script>` tags.
 2. **No backend.** Everything runs client-side. State persists via `localStorage`.
-3. **No paid APIs.** Use Leaflet + OpenStreetMap + Nominatim. None require an API key.
+3. **No paid APIs.** Use MapLibre GL JS + OpenStreetMap + Nominatim. Free-tier API keys (Stadia, MapTiler, Thunderforest) are allowed; no paid plans, ever. Keys live in `localStorage` per-user — never inlined in source, never committed to git, never included in JSON backup exports.
 4. **Respect Nominatim's usage policy.** Max 1 geocoding request per second, send a meaningful `User-Agent` or `Referer`, and debounce search input.
 5. **The app must run by opening `index.html` directly or with a trivial static server** (`python -m http.server`, `npx serve`). If a task requires more than that, stop and flag it.
 
