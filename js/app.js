@@ -12,6 +12,7 @@ import {
 } from "./map.js";
 import * as pinStore from "./pins.js";
 import * as groupStore from "./groups.js";
+import * as settings from "./settings.js";
 import {
   attachStorage,
   attachGroupStorage,
@@ -22,25 +23,56 @@ import {
   saveExportText,
   loadExportFormat,
   saveExportFormat,
+  showError,
 } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
 import { exportToJson, importFromJson } from "./backup.js";
 import { initSearch } from "./search.js";
 import { initPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
+import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
+import { initStylePicker } from "./style-picker.js";
 
 function init() {
+  // Settings store hydrates first so any consumer that reads keys during
+  // boot (token-required style guards, picker render) sees the persisted
+  // values. Before this line, getKey() returns "" for all providers.
+  settings.hydrate();
+
   // Resolve the initial style before initMap so the map's first paint is
   // the user's chosen style — no OSM-flash, no extra tile fetches. An
   // unknown saved id (older app version, hand-edited storage) is treated
   // as "no preference" and falls back to the default.
   const savedStyleId = loadMapStyle();
-  const initialStyleId = MAP_STYLES.some((s) => s.id === savedStyleId)
-    ? savedStyleId
-    : DEFAULT_MAP_STYLE_ID;
+  const savedEntry = MAP_STYLES.find((s) => s.id === savedStyleId);
+  let initialStyleId;
+  if (!savedEntry) {
+    initialStyleId = DEFAULT_MAP_STYLE_ID;
+  } else if (
+    savedEntry.requiresToken &&
+    !settings.isProviderUnlocked(savedEntry.requiresToken)
+  ) {
+    // The persisted choice requires a token whose key isn't set anymore.
+    // Fall back to the default so the boot path is always paintable. Show
+    // a banner so the user knows why their preferred style isn't loading.
+    showError(
+      `${savedEntry.label} needs a ${savedEntry.requiresToken} API key. Open Settings (⚙ in side panel) to add one.`
+    );
+    initialStyleId = DEFAULT_MAP_STYLE_ID;
+  } else {
+    initialStyleId = savedStyleId;
+  }
 
   initMap("map", initialStyleId);
-  initMapStyleSelector(initialStyleId);
+  const pickerHandle = initStylePicker({
+    getCurrentStyleId: () => initialStyleId,
+    onSelect: (id) => setMapStyle(id),
+    onOpenSettings: (provider) => {
+      // null provider = generic "Manage API keys" footer click; default
+      // to the first section (Stadia).
+      openSettingsScrolledTo(provider ?? "stadia");
+    },
+  });
   attachStorage(pinStore);
   // Hydrate the group store BEFORE initGroupPanel — same rationale as
   // attachStorage above: the panel's first render must reflect persisted
@@ -97,6 +129,7 @@ function init() {
   initExportFormatSelector();
   initExportButton();
   initBackupControls();
+  initSettingsPanel();
 }
 
 // Hydrates the title + subtitle inputs from localStorage and persists every
@@ -154,27 +187,6 @@ function initRouteToggle({ initialValue, onChange }) {
   checkbox.checked = initialValue;
   checkbox.addEventListener("change", (event) => {
     onChange(event.target.checked);
-  });
-}
-
-// Build the <option> list from MAP_STYLES so adding a style in js/map.js
-// flows through without an HTML edit. Initial selected value matches the
-// style initMap just painted, keeping the dropdown and the visible tiles
-// in sync on first render.
-function initMapStyleSelector(initialStyleId) {
-  const select = document.getElementById("map-style-select");
-  if (!select) return;
-
-  for (const style of MAP_STYLES) {
-    const option = document.createElement("option");
-    option.value = style.id;
-    option.textContent = style.label;
-    select.appendChild(option);
-  }
-  select.value = initialStyleId;
-
-  select.addEventListener("change", (event) => {
-    setMapStyle(event.target.value);
   });
 }
 

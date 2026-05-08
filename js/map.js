@@ -6,7 +6,8 @@
 
 import { updatePin } from "./pins.js";
 import { listGroups } from "./groups.js";
-import { saveMapStyle } from "./storage.js";
+import { saveMapStyle, showError } from "./storage.js";
+import * as settings from "./settings.js";
 
 // Registry of available basemap styles. Hybrid: 4 vector styles served by
 // OpenFreeMap (keyless), and 3 raster-only entries wrapped as inline
@@ -25,26 +26,31 @@ export const MAP_STYLES = [
   {
     id: "osm",
     label: "OSM Standard",
+    provider: "openfreemap",
     style: "https://tiles.openfreemap.org/styles/liberty",
   },
   {
     id: "carto-light",
     label: "Light",
+    provider: "openfreemap",
     style: "https://tiles.openfreemap.org/styles/positron",
   },
   {
     id: "carto-dark",
     label: "Dark",
+    provider: "openfreemap",
     style: "https://tiles.openfreemap.org/styles/dark",
   },
   {
     id: "carto-voyager",
     label: "Voyager",
+    provider: "openfreemap",
     style: "https://tiles.openfreemap.org/styles/bright",
   },
   {
     id: "wikimedia",
     label: "Wikimedia",
+    provider: "wikimedia",
     style: rasterStyle({
       tiles: ["https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"],
       maxzoom: 19,
@@ -55,6 +61,7 @@ export const MAP_STYLES = [
   {
     id: "topo",
     label: "Topographic",
+    provider: "opentopomap",
     style: rasterStyle({
       tiles: [
         "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
@@ -69,6 +76,7 @@ export const MAP_STYLES = [
   {
     id: "esri-imagery",
     label: "Satellite",
+    provider: "esri",
     style: rasterStyle({
       // Esri's ArcGIS REST tile endpoint uses {z}/{y}/{x} ordering (y before
       // x), the inverse of the OSM/Carto convention used elsewhere here.
@@ -78,6 +86,209 @@ export const MAP_STYLES = [
       maxzoom: 19,
       attribution:
         'Tiles © <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    }),
+  },
+
+  // Stadia Maps — token-required vector styles. Free tier: 200K req/mo.
+  {
+    id: "stadia-stamen-watercolor",
+    label: "Stamen Watercolor",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/stamen_watercolor.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-stamen-toner",
+    label: "Stamen Toner",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/stamen_toner.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-stamen-toner-lite",
+    label: "Stamen Toner Lite",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/stamen_toner_lite.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-stamen-terrain",
+    label: "Stamen Terrain",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/stamen_terrain.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-alidade-smooth",
+    label: "Alidade Smooth",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/alidade_smooth.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-alidade-smooth-dark",
+    label: "Alidade Smooth Dark",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key={api_key}",
+  },
+
+  // MapTiler — token-required vector styles. Free tier: 100K req/mo.
+  {
+    id: "maptiler-streets",
+    label: "Streets",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style:
+      "https://api.maptiler.com/maps/streets-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-outdoor",
+    label: "Outdoor",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style:
+      "https://api.maptiler.com/maps/outdoor-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-winter",
+    label: "Winter",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style:
+      "https://api.maptiler.com/maps/winter-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-backdrop",
+    label: "Backdrop",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style:
+      "https://api.maptiler.com/maps/backdrop/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-pastel",
+    label: "Pastel",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/pastel/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-bright",
+    label: "Bright",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/bright-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-dataviz",
+    label: "Dataviz",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/dataviz/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-topo",
+    label: "Topo",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/topo-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-hybrid",
+    label: "Satellite Hybrid",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/hybrid/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-aquarelle",
+    label: "Aquarelle",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/aquarelle/style.json?key={api_key}",
+  },
+
+  // Thunderforest — token-required raster styles. Free tier: 150K req/mo.
+  // Wrapped via rasterStyle() so they ride the existing raster path; the
+  // `{api_key}` placeholder in the tiles URL is substituted by
+  // resolveStyleUrl() at swap time.
+  {
+    id: "tf-cycle",
+    label: "OpenCycleMap",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/cycle/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-transport",
+    label: "Transport",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/transport/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-landscape",
+    label: "Landscape",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/landscape/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-atlas",
+    label: "Atlas",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/atlas/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-outdoors",
+    label: "Outdoors",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-pioneer",
+    label: "Pioneer",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/pioneer/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }),
   },
 ];
@@ -148,36 +359,171 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
 }
 
 /**
- * Swap the active basemap to the style identified by `styleId`.
- * Falls back to the default (with a console.warn) if the id isn't known.
+ * Resolve a MAP_STYLES entry's `style` value with any `{api_key}`
+ * placeholder substituted from the settings store. Returns the value
+ * MapLibre's `setStyle()` accepts directly — either a URL string or an
+ * inline raster style object.
  *
- * MapLibre's `setStyle()` rebuilds the entire style object, dropping all
- * sources and layers we previously added. The `styledata` one-shot below
- * re-adds the markers + route once the new style finishes loading. We
- * pass `diff: false` so the rebuild is unconditional — a custom raster
- * style swapping into a vector style cannot be diffed safely.
+ * Three input shapes:
+ *   - String URL with no placeholder (existing keyless vector entries)
+ *   - String URL with `{api_key}` (Stadia, MapTiler vector entries)
+ *   - Inline raster object whose `sources.<id>.tiles[]` may contain
+ *     `{api_key}` (Thunderforest raster entries)
+ *
+ * Throws if `requiresToken` is set on the entry but the key is empty —
+ * caller (setMapStyle) translates the throw into a user-visible banner
+ * via showError() and aborts the swap.
+ */
+function resolveStyleUrl(entry) {
+  const apiKey = entry.requiresToken
+    ? settings.getKey(entry.requiresToken)
+    : "";
+  if (entry.requiresToken && !apiKey) {
+    const provider =
+      entry.requiresToken.charAt(0).toUpperCase() + entry.requiresToken.slice(1);
+    throw new Error(`${provider} API key not set`);
+  }
+
+  if (typeof entry.style === "string") {
+    return apiKey ? entry.style.replaceAll("{api_key}", apiKey) : entry.style;
+  }
+
+  // Inline style object — deep clone before substitution so MAP_STYLES
+  // entries stay immutable across swaps.
+  const resolved = JSON.parse(JSON.stringify(entry.style));
+  if (apiKey) {
+    for (const source of Object.values(resolved.sources || {})) {
+      if (Array.isArray(source.tiles)) {
+        source.tiles = source.tiles.map((url) =>
+          url.replaceAll("{api_key}", apiKey)
+        );
+      }
+    }
+  }
+  return resolved;
+}
+
+function buildStyleErrorMessage(entry, status) {
+  const provider = entry.provider
+    ? entry.provider.charAt(0).toUpperCase() + entry.provider.slice(1)
+    : "Map style";
+  if (status === 401 || status === 403) {
+    return `${provider} rejected the API key. Verify it in Settings.`;
+  }
+  if (status === 429) {
+    return `${provider} free-tier quota exceeded. Try again later.`;
+  }
+  // status === 0 means our timeout fired or a generic network error.
+  return `Failed to load style. Check your connection.`;
+}
+
+// Track the currently-rendered style id so a failed swap can revert.
+// Different from the user's last *click*: this updates only on the
+// `styledata` success path. Initialized lazily on the first successful
+// swap; null until then means "whatever initMap painted".
+let currentRenderedStyleId = null;
+
+// Tracks the in-flight style swap's cleanup so a later setMapStyle call
+// can cancel a prior pending swap. Without this, stale onError listeners
+// from a swap that's still loading can fire on a later swap's events
+// (e.g. user clicks Style A then Style B mid-load — A's error handler
+// would otherwise survive and could revert B with a spurious banner).
+let activeSwapCleanup = null;
+
+const STYLE_LOAD_TIMEOUT_MS = 5000;
+
+/**
+ * Swap the active basemap to the style identified by `styleId`, with
+ * resilience: races styledata (success) against error (failure) and a
+ * 5s timeout. On failure, reverts to the previously-rendered style and
+ * surfaces a banner via showError(). The persisted style id (saveMapStyle)
+ * only updates on success — reload is guaranteed to boot into a known-
+ * working style.
+ *
+ * Falls back to the default with a console.warn if the id isn't known.
  */
 export function setMapStyle(styleId, { persist = true } = {}) {
   if (!mapInstance) return;
 
-  let style = MAP_STYLES.find((s) => s.id === styleId);
-  if (!style) {
+  let entry = MAP_STYLES.find((s) => s.id === styleId);
+  if (!entry) {
     console.warn(
       `Unknown map style "${styleId}"; falling back to "${DEFAULT_MAP_STYLE_ID}".`
     );
-    style = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
+    entry = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
   }
 
-  mapInstance.setStyle(style.style, { diff: false });
-  // `styledata` fires once when the new style is ready. `once` is the
-  // documented MapLibre helper for this exact pattern.
-  mapInstance.once("styledata", () => {
+  // Cancel any in-flight prior swap before starting a new one. cleanup()
+  // detaches its specific listeners by reference and clears its timer —
+  // it does NOT show a banner or trigger a revert.
+  if (activeSwapCleanup) {
+    activeSwapCleanup();
+    activeSwapCleanup = null;
+  }
+
+  // Snapshot of the style we'll revert to if the swap fails.
+  const previousId = currentRenderedStyleId ?? DEFAULT_MAP_STYLE_ID;
+
+  let resolved;
+  try {
+    resolved = resolveStyleUrl(entry);
+  } catch (err) {
+    // Pre-flight error (missing token). Don't touch the map — leave the
+    // current style in place. The picker should already reflect this
+    // since locked rows route to settings, but defensive belt+braces.
+    showError(`${err.message}. Open Settings (⚙ in side panel) to add one.`);
+    return;
+  }
+
+  // First-event-wins race: styledata = success, error = failure, timeout
+  // = treat as failure. Detach all listeners + clear timer when one fires.
+  let settled = false;
+  const onSuccess = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    currentRenderedStyleId = entry.id;
     addPinAndRouteLayers();
     renderPins(lastPinsSnapshot);
     renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
-  });
+    if (persist) saveMapStyle(entry.id);
+  };
+  const onError = (err) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    const status = err && err.error && err.error.status;
+    showError(buildStyleErrorMessage(entry, status));
+    // Revert to the previously-rendered style. Pass persist:false so a
+    // failed swap can never overwrite the persisted preference.
+    if (previousId && previousId !== entry.id) {
+      setMapStyle(previousId, { persist: false });
+    }
+  };
+  const cleanup = () => {
+    mapInstance.off("styledata", onSuccess);
+    mapInstance.off("error", onError);
+    // Safe even when cleanup() is called from inside onError() because the
+    // timer fired: clearTimeout() on an already-fired timer is a no-op.
+    if (timer) clearTimeout(timer);
+    // Clear the module pointer ONLY if it still references this cleanup;
+    // a later setMapStyle may have replaced it (in which case we leave it).
+    if (activeSwapCleanup === cleanup) {
+      activeSwapCleanup = null;
+    }
+  };
+  const timer = setTimeout(
+    () => onError({ error: { status: 0 } }),
+    STYLE_LOAD_TIMEOUT_MS
+  );
 
-  if (persist) saveMapStyle(style.id);
+  mapInstance.once("styledata", onSuccess);
+  // `once` is wrong for error — many errors can fire during a single
+  // failing load; we want the FIRST one. Use on() and rely on `settled`.
+  mapInstance.on("error", onError);
+
+  mapInstance.setStyle(resolved, { diff: false });
+  activeSwapCleanup = cleanup;
 }
 
 /** Returns the live map instance, or null if initMap() hasn't run yet. */

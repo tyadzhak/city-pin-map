@@ -55,17 +55,51 @@
             hidden
           ></ul>
         </div>
-        <label for="map-style-select" class="visually-hidden"
-          >Map style</label
-        >
-        <!-- Options are populated at runtime from MAP_STYLES (js/map.js) so
-             the registry stays the single source of truth. Keep the element
-             empty here — js/app.js fills it on init. -->
-        <select
-          id="map-style-select"
-          class="map-style-select"
-          aria-label="Map style"
-        ></select>
+        <!-- Map-style picker (Task 8 swap from <select>). Built from
+             MAP_STYLES (js/map.js) so the registry stays the single source
+             of truth. js/style-picker.js reveals it on init. -->
+        <!-- New picker — Task 6, hidden until Task 8 takes over from <select>. -->
+        <div id="map-style-picker" class="picker" data-picker-state="closed" hidden>
+          <button
+            id="map-style-trigger"
+            type="button"
+            class="picker__trigger"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-controls="map-style-popover"
+          >
+            <span class="picker__trigger-prefix">Map:</span>
+            <span class="picker__trigger-label" id="map-style-trigger-label">…</span>
+            <span class="picker__chevron" aria-hidden="true">▾</span>
+          </button>
+          <div
+            id="map-style-popover"
+            class="picker__popover"
+            role="listbox"
+            aria-labelledby="map-style-trigger"
+            hidden
+          >
+            <input
+              type="search"
+              id="map-style-search"
+              class="picker__search"
+              placeholder="Search styles…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Search styles"
+            />
+            <ul id="map-style-list" class="picker__list" role="presentation"></ul>
+            <footer class="picker__footer">
+              <button
+                type="button"
+                class="picker__manage-keys"
+                id="picker-manage-keys"
+              >
+                ⚙ Manage API keys
+              </button>
+            </footer>
+          </div>
+        </div>
         <label class="route-toggle">
           <input
             id="route-toggle"
@@ -157,6 +191,15 @@
         <div class="pin-list__header">
           <h2 class="pin-list__heading">Pins</h2>
           <div class="backup-controls">
+            <button
+              id="open-settings"
+              type="button"
+              class="backup-btn backup-btn--icon"
+              aria-label="Open settings"
+              title="API keys and preferences"
+            >
+              ⚙
+            </button>
             <button id="export-json" type="button" class="backup-btn">
               Export JSON
             </button>
@@ -179,6 +222,135 @@
       aria-live="polite"
       hidden
     ></div>
+
+    <!-- Settings modal (closed by default). Wired in js/settings-panel.js.
+         Three sections, one per free-tier provider. Inputs persist on blur;
+         no explicit Save button. -->
+    <div
+      id="settings-modal"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-modal-title"
+      hidden
+    >
+      <div class="modal__backdrop" data-settings-close></div>
+      <div class="modal__panel" role="document">
+        <header class="modal__header">
+          <h2 id="settings-modal-title" class="modal__title">Settings</h2>
+          <button
+            type="button"
+            class="modal__close"
+            aria-label="Close settings"
+            data-settings-close
+          >
+            ×
+          </button>
+        </header>
+
+        <p class="modal__intro">
+          Free-tier API keys for additional basemap styles. Keys are stored only
+          in your browser's local storage — never inlined in source, never
+          included in JSON backup exports.
+        </p>
+
+        <section class="settings-section" data-provider="stadia">
+          <header class="settings-section__header">
+            <h3 class="settings-section__title">Stadia Maps</h3>
+            <span class="status-pill" data-status-for="stadia">Not set</span>
+          </header>
+          <p class="settings-section__desc">
+            Hosts the Stamen artistic styles (Watercolor, Toner) and Alidade
+            Smooth.
+            <a href="https://stadiamaps.com/" target="_blank" rel="noopener">Get a free key →</a>
+          </p>
+          <label class="settings-section__field">
+            <span class="visually-hidden">Stadia API key</span>
+            <input
+              type="password"
+              class="settings-section__input"
+              data-key-input="stadia"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Paste your Stadia API key"
+            />
+            <button
+              type="button"
+              class="settings-section__reveal"
+              data-reveal-for="stadia"
+              aria-label="Show or hide key"
+              title="Show/hide key"
+            >
+              👁
+            </button>
+          </label>
+        </section>
+
+        <section class="settings-section" data-provider="maptiler">
+          <header class="settings-section__header">
+            <h3 class="settings-section__title">MapTiler</h3>
+            <span class="status-pill" data-status-for="maptiler">Not set</span>
+          </header>
+          <p class="settings-section__desc">
+            Wide modern catalog — Streets, Outdoor, Winter, Backdrop, Satellite
+            Hybrid, and more.
+            <a href="https://www.maptiler.com/cloud/" target="_blank" rel="noopener">Get a free key →</a>
+          </p>
+          <label class="settings-section__field">
+            <span class="visually-hidden">MapTiler API key</span>
+            <input
+              type="password"
+              class="settings-section__input"
+              data-key-input="maptiler"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Paste your MapTiler API key"
+            />
+            <button
+              type="button"
+              class="settings-section__reveal"
+              data-reveal-for="maptiler"
+              aria-label="Show or hide key"
+              title="Show/hide key"
+            >
+              👁
+            </button>
+          </label>
+        </section>
+
+        <section class="settings-section" data-provider="thunderforest">
+          <header class="settings-section__header">
+            <h3 class="settings-section__title">Thunderforest</h3>
+            <span class="status-pill" data-status-for="thunderforest">Not set</span>
+          </header>
+          <p class="settings-section__desc">
+            Specialized themes — OpenCycleMap, Transport, Landscape, Atlas,
+            Outdoors, Pioneer.
+            <a href="https://www.thunderforest.com/" target="_blank" rel="noopener">Get a free key →</a>
+          </p>
+          <label class="settings-section__field">
+            <span class="visually-hidden">Thunderforest API key</span>
+            <input
+              type="password"
+              class="settings-section__input"
+              data-key-input="thunderforest"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Paste your Thunderforest API key"
+            />
+            <button
+              type="button"
+              class="settings-section__reveal"
+              data-reveal-for="thunderforest"
+              aria-label="Show or hide key"
+              title="Show/hide key"
+            >
+              👁
+            </button>
+          </label>
+        </section>
+      </div>
+    </div>
 
     <script type="module" src="js/app.js"></script>
   </body>
