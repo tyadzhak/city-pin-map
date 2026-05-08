@@ -6,7 +6,8 @@
 
 import { updatePin } from "./pins.js";
 import { listGroups } from "./groups.js";
-import { saveMapStyle } from "./storage.js";
+import { saveMapStyle, showError } from "./storage.js";
+import * as settings from "./settings.js";
 
 // Registry of available basemap styles. Hybrid: 4 vector styles served by
 // OpenFreeMap (keyless), and 3 raster-only entries wrapped as inline
@@ -148,36 +149,148 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
 }
 
 /**
- * Swap the active basemap to the style identified by `styleId`.
- * Falls back to the default (with a console.warn) if the id isn't known.
+ * Resolve a MAP_STYLES entry's `style` value with any `{api_key}`
+ * placeholder substituted from the settings store. Returns the value
+ * MapLibre's `setStyle()` accepts directly — either a URL string or an
+ * inline raster style object.
  *
- * MapLibre's `setStyle()` rebuilds the entire style object, dropping all
- * sources and layers we previously added. The `styledata` one-shot below
- * re-adds the markers + route once the new style finishes loading. We
- * pass `diff: false` so the rebuild is unconditional — a custom raster
- * style swapping into a vector style cannot be diffed safely.
+ * Three input shapes:
+ *   - String URL with no placeholder (existing keyless vector entries)
+ *   - String URL with `{api_key}` (Stadia, MapTiler vector entries)
+ *   - Inline raster object whose `sources.<id>.tiles[]` may contain
+ *     `{api_key}` (Thunderforest raster entries)
+ *
+ * Throws if `requiresToken` is set on the entry but the key is empty —
+ * caller (setMapStyle) translates the throw into a user-visible banner
+ * via showError() and aborts the swap.
+ */
+function resolveStyleUrl(entry) {
+  const apiKey = entry.requiresToken
+    ? settings.getKey(entry.requiresToken)
+    : "";
+  if (entry.requiresToken && !apiKey) {
+    const provider =
+      entry.requiresToken.charAt(0).toUpperCase() + entry.requiresToken.slice(1);
+    throw new Error(`${provider} API key not set`);
+  }
+
+  if (typeof entry.style === "string") {
+    return apiKey ? entry.style.replaceAll("{api_key}", apiKey) : entry.style;
+  }
+
+  // Inline style object — deep clone before substitution so MAP_STYLES
+  // entries stay immutable across swaps.
+  const resolved = JSON.parse(JSON.stringify(entry.style));
+  if (apiKey) {
+    for (const source of Object.values(resolved.sources || {})) {
+      if (Array.isArray(source.tiles)) {
+        source.tiles = source.tiles.map((url) =>
+          url.replaceAll("{api_key}", apiKey)
+        );
+      }
+    }
+  }
+  return resolved;
+}
+
+function buildStyleErrorMessage(entry, status) {
+  const provider = entry.provider
+    ? entry.provider.charAt(0).toUpperCase() + entry.provider.slice(1)
+    : "Map style";
+  if (status === 401 || status === 403) {
+    return `${provider} rejected the API key. Verify it in Settings.`;
+  }
+  if (status === 429) {
+    return `${provider} free-tier quota exceeded. Try again later.`;
+  }
+  // status === 0 means our timeout fired or a generic network error.
+  return `Failed to load style. Check your connection.`;
+}
+
+// Track the currently-rendered style id so a failed swap can revert.
+// Different from the user's last *click*: this updates only on the
+// `styledata` success path. Initialized lazily on the first successful
+// swap; null until then means "whatever initMap painted".
+let currentRenderedStyleId = null;
+
+const STYLE_LOAD_TIMEOUT_MS = 5000;
+
+/**
+ * Swap the active basemap to the style identified by `styleId`, with
+ * resilience: races styledata (success) against error (failure) and a
+ * 5s timeout. On failure, reverts to the previously-rendered style and
+ * surfaces a banner via showError(). The persisted style id (saveMapStyle)
+ * only updates on success — reload is guaranteed to boot into a known-
+ * working style.
+ *
+ * Falls back to the default with a console.warn if the id isn't known.
  */
 export function setMapStyle(styleId, { persist = true } = {}) {
   if (!mapInstance) return;
 
-  let style = MAP_STYLES.find((s) => s.id === styleId);
-  if (!style) {
+  let entry = MAP_STYLES.find((s) => s.id === styleId);
+  if (!entry) {
     console.warn(
       `Unknown map style "${styleId}"; falling back to "${DEFAULT_MAP_STYLE_ID}".`
     );
-    style = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
+    entry = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
   }
 
-  mapInstance.setStyle(style.style, { diff: false });
-  // `styledata` fires once when the new style is ready. `once` is the
-  // documented MapLibre helper for this exact pattern.
-  mapInstance.once("styledata", () => {
+  // Snapshot of the style we'll revert to if the swap fails.
+  const previousId = currentRenderedStyleId ?? DEFAULT_MAP_STYLE_ID;
+
+  let resolved;
+  try {
+    resolved = resolveStyleUrl(entry);
+  } catch (err) {
+    // Pre-flight error (missing token). Don't touch the map — leave the
+    // current style in place. The picker should already reflect this
+    // since locked rows route to settings, but defensive belt+braces.
+    showError(`${err.message}. Open Settings (⚙ in side panel) to add one.`);
+    return;
+  }
+
+  // First-event-wins race: styledata = success, error = failure, timeout
+  // = treat as failure. Detach all listeners + clear timer when one fires.
+  let settled = false;
+  const onSuccess = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    currentRenderedStyleId = entry.id;
     addPinAndRouteLayers();
     renderPins(lastPinsSnapshot);
     renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
-  });
+    if (persist) saveMapStyle(entry.id);
+  };
+  const onError = (err) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    const status = err && err.error && err.error.status;
+    showError(buildStyleErrorMessage(entry, status));
+    // Revert to the previously-rendered style. Pass persist:false so a
+    // failed swap can never overwrite the persisted preference.
+    if (previousId && previousId !== entry.id) {
+      setMapStyle(previousId, { persist: false });
+    }
+  };
+  const cleanup = () => {
+    mapInstance.off("styledata", onSuccess);
+    mapInstance.off("error", onError);
+    if (timer) clearTimeout(timer);
+  };
+  const timer = setTimeout(
+    () => onError({ error: { status: 0 } }),
+    STYLE_LOAD_TIMEOUT_MS
+  );
 
-  if (persist) saveMapStyle(style.id);
+  mapInstance.once("styledata", onSuccess);
+  // `once` is wrong for error — many errors can fire during a single
+  // failing load; we want the FIRST one. Use on() and rely on `settled`.
+  mapInstance.on("error", onError);
+
+  mapInstance.setStyle(resolved, { diff: false });
 }
 
 /** Returns the live map instance, or null if initMap() hasn't run yet. */
