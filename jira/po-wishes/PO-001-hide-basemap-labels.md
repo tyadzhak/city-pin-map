@@ -29,9 +29,11 @@ This task is the foundation for PO-002 (pin name labels). The two together produ
 - [ ] A toggle control labelled "Hide map labels" lives in the header next to the basemap picker (or in the settings modal — pick the spot that's most discoverable).
 - [ ] Toggle state persists across reload via its own `localStorage` key.
 - [ ] When toggle is ON and the active basemap is **vector**: every layer with `type === "symbol"` and a `layout.text-field` is hidden (or removed). The map renders with no built-in city/country/street/POI text.
-- [ ] When toggle is ON and the active basemap is **raster**: a small inline notice appears near the toggle ("Labels are baked into raster tiles for this style — switch to a vector style to hide them"). The toggle's stored state remains ON so it takes effect the moment the user switches to a vector style.
-- [ ] When toggle is OFF: every basemap renders its native labels exactly as today.
-- [ ] Switching basemap with the toggle ON re-applies label hiding on the new style (the `styledata` event hook re-runs the filter).
+- [ ] When toggle is ON, every **raster** entry in the basemap picker (`js/style-picker.js`) is rendered in a **disabled** state — visible in the list but visually dimmed and not selectable.
+- [ ] Hovering, focusing, or clicking a disabled raster entry shows an **info popup/tooltip** with the message: "Labels can't be hidden on raster basemaps because they're baked into the tile image. Pick a vector style to hide labels." The popup is keyboard-accessible (appears on focus, dismissible with Escape).
+- [ ] When toggle is ON and the **currently active** basemap is raster (i.e. the user toggled labels off while a raster style was already in use): the active style stays selected (no surprise auto-switch); a small inline notice appears near the toggle and the picker explaining the situation; the picker's disabled state applies to every raster entry including the active one.
+- [ ] When toggle is OFF: every basemap renders its native labels exactly as today, AND every entry in the picker (vector and raster) is selectable normally — no disabled state, no popup.
+- [ ] Switching basemap with the toggle ON re-applies label hiding on the new style (the `styledata` event hook re-runs the filter). Switching is only possible to vector styles while the toggle is ON.
 - [ ] User pins (and the route polyline) still render correctly with the toggle ON.
 - [ ] Pin labels (when PO-002 lands) are NOT affected by this toggle — they're a user-data layer, not a basemap layer.
 - [ ] No regressions in previously completed tasks.
@@ -41,6 +43,7 @@ This task is the foundation for PO-002 (pin name labels). The two together produ
 
 ```
 ~ js/map.js
+~ js/style-picker.js
 ~ js/storage.js
 ~ js/app.js
 ~ index.html
@@ -68,6 +71,17 @@ Requirements:
 UI (index.html, css/styles.css):
 - Add a checkbox-style toggle "Hide map labels" near the basemap picker. Make it keyboard-accessible.
 - Add a small inline notice element next to the toggle — hidden by default, shown only when the toggle is ON and the current basemap is raster. Wording: "Labels are baked into raster tiles for this style. Pick a vector style to hide them."
+- Style for disabled picker rows (.style-picker-row.is-disabled or similar): dimmed text (opacity 0.5), `cursor: not-allowed`, no hover background. Keep the row visible — do NOT `display: none` it.
+- Style for the info popup/tooltip that appears on hover/focus/click of a disabled row: small floating panel anchored to the row, with the message about raster labels. Dismissible via Escape, click-outside, or blur. Reuse any existing tooltip/popover primitives in the codebase if present; otherwise a simple absolutely-positioned div with `role="tooltip"` and `aria-live="polite"` is enough.
+
+Style picker (js/style-picker.js):
+- Each row that maps to a registry entry whose `provider` is in the raster set ("wikimedia", "opentopomap", "esri", and the Stamen family — keep this raster-providers list inside js/map.js as the single source of truth and import from there) accepts a `disabled` flag.
+- When the disabled flag is true:
+  - Add the disabled visual class to the row.
+  - Disable click-to-select (the click handler short-circuits and instead opens the info popup).
+  - On hover, focus, or click, show the info popup anchored to the row.
+- Subscribe the picker to the hide-labels store from js/storage.js (or accept a `hideLabels` boolean prop refreshed on each render). When the value flips to true, re-render the rows with `disabled` set on every raster entry; when false, re-render with `disabled` cleared everywhere.
+- Keyboard navigation: arrow keys still traverse all rows including disabled ones (so the user can read why each is disabled). Pressing Enter on a disabled row opens the info popup instead of selecting.
 
 Persistence (js/storage.js):
 - Add loadHideLabels() → boolean (default false).
@@ -75,7 +89,8 @@ Persistence (js/storage.js):
 
 App wiring (js/app.js):
 - Hydrate the toggle from loadHideLabels() on bootstrap, BEFORE the map fires its first styledata.
-- On change, persist via saveHideLabels(value), then call the map module's applyLabelVisibility() helper (added in this task) so the change takes effect immediately.
+- On change, persist via saveHideLabels(value), then call the map module's applyLabelVisibility() helper (added in this task) and trigger a re-render of the style picker so its disabled-row state reflects the new toggle value.
+- Note: the user CAN turn the toggle ON while a raster style is currently active. Do NOT auto-switch to a vector style — the user explicitly chose this raster style and surprise-switching is bad UX. Just show the inline notice and let the user decide.
 
 Map module (js/map.js):
 - Export applyLabelVisibility(hide: boolean). Implementation:
@@ -90,22 +105,29 @@ Constraints:
 - Match the file layout and coding conventions in CLAUDE.md.
 - Do NOT mutate the registry's style objects — those are the source of truth for setStyleSafely(). Mutating layers must happen via setLayoutProperty on the live mapInstance, not by editing MAP_STYLES.
 - Do NOT introduce a new dependency.
+- Do NOT auto-switch the active basemap when the toggle flips. The user's explicit basemap choice is preserved; only the picker's selectability and the inline notice change.
+- Do NOT hide raster entries from the picker (display: none). They MUST remain visible in the disabled state — discoverability of all available styles matters.
 
 Deliverables:
 - index.html with the toggle and notice element.
-- css/styles.css with toggle + notice styling consistent with the existing header.
+- css/styles.css with toggle + notice styling, disabled-row styling for the picker, and info-popup styling.
 - js/storage.js with loadHideLabels / saveHideLabels.
-- js/app.js wiring hydration + change persistence.
-- js/map.js with applyLabelVisibility() exported and the styledata subscription.
+- js/app.js wiring hydration + change persistence + picker re-render.
+- js/map.js with applyLabelVisibility() exported, the styledata subscription, and the exported RASTER_PROVIDERS set used by the picker.
+- js/style-picker.js with disabled-row support and the info popup on hover/focus/click of disabled rows.
 
 Verification:
-- Open index.html. Toggle is visible, defaults to OFF. The map looks identical to before.
+- Open index.html. Toggle is visible, defaults to OFF. The map looks identical to before. All picker rows are selectable.
 - Switch to OSM Liberty (vector). Toggle ON. Every city, country, street, and POI label disappears within one frame. Pins remain visible.
-- Toggle OFF. Labels return.
+- Open the basemap picker. Every raster row (Wikimedia, OpenTopoMap, Esri Satellite, Stamen Watercolor / Toner / Toner Lite / Terrain) is rendered dimmed and not selectable. Vector rows look normal.
+- Hover one of the disabled rows — the info popup appears with the explanation. Click it — selection does NOT change; the popup stays open until dismissed.
+- Tab through the picker. The disabled rows are still focusable for discoverability; pressing Enter on a focused disabled row opens the popup instead of selecting.
+- Press Escape. Popup closes. Currently selected style is unchanged.
+- Toggle OFF. Disabled state lifts everywhere. Labels return.
 - With toggle ON, switch through every vector style (OpenFreeMap variants, MapTiler set, Stadia vector, Thunderforest variants). Labels are hidden on each.
-- With toggle ON, switch to Wikimedia (raster). The inline notice appears. Tile labels are still visible because they're baked in. Toggle remains ON in storage.
-- Switch from raster back to a vector style. Notice disappears. Labels are re-hidden on the vector style without re-clicking.
-- Reload. Toggle state persists. The map boots into the saved state cleanly.
+- Turn toggle OFF. Pick Wikimedia (raster). Turn toggle ON. The Wikimedia style stays active (no surprise auto-switch). The inline notice appears near the toggle. Tile labels are still visible because they're baked in. The picker shows Wikimedia and other raster rows as disabled, but the active row is highlighted as the current selection.
+- Switch from the active raster to a vector style via the picker (vector rows are still selectable). Notice disappears. Labels are re-hidden on the vector style without re-clicking the toggle.
+- Reload. Toggle state persists. The map boots into the saved state cleanly. Picker disabled state reflects the persisted toggle.
 - Drag a pin, switch styles, export PNG — none of these are affected.
 - All acceptance criteria in this task file are satisfied.
 
@@ -114,6 +136,9 @@ When finished, update this task file's Status field to `Done` and tick every acc
 
 ## Notes
 
-- The two implementation strategies considered for vector styles were (a) `setLayoutProperty(layerId, "visibility", "none")` per label layer and (b) cloning the style JSON, removing label layers from the clone, and calling `setStyleSafely(clonedStyle)`. (a) is simpler, fully reversible, and avoids burning a style swap on a UI preference. (b) keeps the style consistent during the brief gap between styledata firing and layer mutation. Recommended: (a) — the gap is sub-frame at our scale; the simplicity wins.
+- **Why disabled-with-popup instead of hide**: hiding raster rows would silently shrink the picker from 29 entries to ~16 the moment the toggle flips. Users would wonder where their styles went. Disabled state with a hover/focus popup keeps the inventory visible AND teaches the user the vector-vs-raster distinction the first time they encounter it. Educational UX over magical UX.
+- **Why no auto-switch when the toggle flips with a raster style active**: surprise basemap changes are disorienting. The user picked Wikimedia for a reason; turning the labels toggle on shouldn't override that choice. The inline notice next to the toggle explains what's happening; the user remains in control.
+- **The two implementation strategies considered for vector styles** were (a) `setLayoutProperty(layerId, "visibility", "none")` per label layer and (b) cloning the style JSON, removing label layers from the clone, and calling `setStyleSafely(clonedStyle)`. (a) is simpler, fully reversible, and avoids burning a style swap on a UI preference. (b) keeps the style consistent during the brief gap between styledata firing and layer mutation. Recommended: (a) — the gap is sub-frame at our scale; the simplicity wins.
 - Some vector styles place language labels in different layer ids (`country-label`, `place-label`, `poi-label-…`) and some bundle them under generic ids. The check `type === "symbol" && layout["text-field"]` is the registry-agnostic way to identify them all without hard-coding ids per provider.
+- **The RASTER_PROVIDERS set lives in js/map.js** (alongside MAP_STYLES) so there's one source of truth for which entries are raster. The picker imports it; future raster-provider additions register themselves automatically. Don't duplicate this list inside style-picker.js.
 - If the user later asks for "hide POI but keep country names" granularity, the right move is to expand the per-symbol-layer toggle into a small grouped UI (country, place, road, POI) by inspecting `layer["source-layer"]` rather than `layer.id` — that's the field that consistently distinguishes label categories across vector providers. Out of scope for v2.
