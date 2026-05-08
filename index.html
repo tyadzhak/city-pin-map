@@ -66,6 +66,48 @@
           class="map-style-select"
           aria-label="Map style"
         ></select>
+        <!-- New picker — Task 6, hidden until Task 8 takes over from <select>. -->
+        <div id="map-style-picker" class="picker" data-picker-state="closed" hidden>
+          <button
+            id="map-style-trigger"
+            type="button"
+            class="picker__trigger"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-controls="map-style-popover"
+          >
+            <span class="picker__trigger-prefix">Map:</span>
+            <span class="picker__trigger-label" id="map-style-trigger-label">…</span>
+            <span class="picker__chevron" aria-hidden="true">▾</span>
+          </button>
+          <div
+            id="map-style-popover"
+            class="picker__popover"
+            role="listbox"
+            aria-labelledby="map-style-trigger"
+            hidden
+          >
+            <input
+              type="search"
+              id="map-style-search"
+              class="picker__search"
+              placeholder="Search styles…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Search styles"
+            />
+            <ul id="map-style-list" class="picker__list" role="presentation"></ul>
+            <footer class="picker__footer">
+              <button
+                type="button"
+                class="picker__manage-keys"
+                id="picker-manage-keys"
+              >
+                ⚙ Manage API keys
+              </button>
+            </footer>
+          </div>
+        </div>
         <label class="route-toggle">
           <input
             id="route-toggle"

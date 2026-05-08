@@ -1022,3 +1022,143 @@ body.dragging-pin * {
   font-size: 1rem;
   line-height: 1;
 }
+
+/* ===== Style picker popover (Task 6 — More basemap styles) ===== */
+
+.picker { position: relative; }
+
+.picker__trigger {
+  appearance: none;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 12rem;
+  text-align: left;
+  color: #0f172a;
+}
+.picker__trigger:hover { border-color: #94a3b8; }
+.picker__trigger[aria-expanded="true"] {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.picker__trigger-prefix {
+  color: #64748b;
+  font-size: 0.8rem;
+}
+.picker__trigger-label { flex: 1; font-weight: 500; }
+.picker__chevron { color: #64748b; }
+
+.picker__popover[hidden] { display: none; }
+.picker__popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  width: 360px;
+  max-height: 480px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  z-index: 200;
+  overflow: hidden;
+}
+
+.picker__search {
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.9rem;
+  outline: none;
+}
+.picker__search:focus {
+  background: #f8fafc;
+}
+
+.picker__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.picker__group-header {
+  padding: 0.4rem 0.8rem 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.picker__row {
+  padding: 0.4rem 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+.picker__row:hover { background: #f1f5f9; }
+.picker__row[aria-selected="true"] {
+  background: #e0e7ff;
+  font-weight: 600;
+}
+.picker__row.is-active-key {
+  background: #f1f5f9;
+}
+
+.picker__row-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.picker__row-label { flex: 1; }
+
+.picker__row.is-locked {
+  color: #94a3b8;
+  cursor: pointer;
+}
+.picker__row.is-locked .picker__row-label::after {
+  content: " 🔒";
+  font-size: 0.85em;
+}
+
+.picker__empty {
+  padding: 0.6rem 0.8rem;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.picker__footer {
+  border-top: 1px solid #e2e8f0;
+  padding: 0.35rem 0.5rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.picker__manage-keys {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 0.8rem;
+  color: #2563eb;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+}
+.picker__manage-keys:hover { text-decoration: underline; }
+
+/* When the picker takes over from <select>, hide the old element. */
+.map-style-select.is-replaced { display: none; }
