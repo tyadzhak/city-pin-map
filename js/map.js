@@ -26,26 +26,31 @@ export const MAP_STYLES = [
   {
     id: "osm",
     label: "OSM Standard",
+    provider: "openfreemap",
     style: "https://tiles.openfreemap.org/styles/liberty",
   },
   {
     id: "carto-light",
     label: "Light",
+    provider: "openfreemap",
     style: "https://tiles.openfreemap.org/styles/positron",
   },
   {
     id: "carto-dark",
     label: "Dark",
+    provider: "openfreemap",
     style: "https://tiles.openfreemap.org/styles/dark",
   },
   {
     id: "carto-voyager",
     label: "Voyager",
+    provider: "openfreemap",
     style: "https://tiles.openfreemap.org/styles/bright",
   },
   {
     id: "wikimedia",
     label: "Wikimedia",
+    provider: "wikimedia",
     style: rasterStyle({
       tiles: ["https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"],
       maxzoom: 19,
@@ -56,6 +61,7 @@ export const MAP_STYLES = [
   {
     id: "topo",
     label: "Topographic",
+    provider: "opentopomap",
     style: rasterStyle({
       tiles: [
         "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
@@ -70,6 +76,7 @@ export const MAP_STYLES = [
   {
     id: "esri-imagery",
     label: "Satellite",
+    provider: "esri",
     style: rasterStyle({
       // Esri's ArcGIS REST tile endpoint uses {z}/{y}/{x} ordering (y before
       // x), the inverse of the OSM/Carto convention used elsewhere here.
@@ -79,6 +86,209 @@ export const MAP_STYLES = [
       maxzoom: 19,
       attribution:
         'Tiles © <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    }),
+  },
+
+  // Stadia Maps — token-required vector styles. Free tier: 200K req/mo.
+  {
+    id: "stadia-stamen-watercolor",
+    label: "Stamen Watercolor",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/stamen_watercolor.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-stamen-toner",
+    label: "Stamen Toner",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/stamen_toner.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-stamen-toner-lite",
+    label: "Stamen Toner Lite",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/stamen_toner_lite.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-stamen-terrain",
+    label: "Stamen Terrain",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/stamen_terrain.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-alidade-smooth",
+    label: "Alidade Smooth",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/alidade_smooth.json?api_key={api_key}",
+  },
+  {
+    id: "stadia-alidade-smooth-dark",
+    label: "Alidade Smooth Dark",
+    provider: "stadia",
+    requiresToken: "stadia",
+    style:
+      "https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key={api_key}",
+  },
+
+  // MapTiler — token-required vector styles. Free tier: 100K req/mo.
+  {
+    id: "maptiler-streets",
+    label: "Streets",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style:
+      "https://api.maptiler.com/maps/streets-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-outdoor",
+    label: "Outdoor",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style:
+      "https://api.maptiler.com/maps/outdoor-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-winter",
+    label: "Winter",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style:
+      "https://api.maptiler.com/maps/winter-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-backdrop",
+    label: "Backdrop",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style:
+      "https://api.maptiler.com/maps/backdrop/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-pastel",
+    label: "Pastel",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/pastel/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-bright",
+    label: "Bright",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/bright-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-dataviz",
+    label: "Dataviz",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/dataviz/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-topo",
+    label: "Topo",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/topo-v2/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-hybrid",
+    label: "Satellite Hybrid",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/hybrid/style.json?key={api_key}",
+  },
+  {
+    id: "maptiler-aquarelle",
+    label: "Aquarelle",
+    provider: "maptiler",
+    requiresToken: "maptiler",
+    style: "https://api.maptiler.com/maps/aquarelle/style.json?key={api_key}",
+  },
+
+  // Thunderforest — token-required raster styles. Free tier: 150K req/mo.
+  // Wrapped via rasterStyle() so they ride the existing raster path; the
+  // `{api_key}` placeholder in the tiles URL is substituted by
+  // resolveStyleUrl() at swap time.
+  {
+    id: "tf-cycle",
+    label: "OpenCycleMap",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/cycle/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-transport",
+    label: "Transport",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/transport/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-landscape",
+    label: "Landscape",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/landscape/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-atlas",
+    label: "Atlas",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/atlas/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-outdoors",
+    label: "Outdoors",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  },
+  {
+    id: "tf-pioneer",
+    label: "Pioneer",
+    provider: "thunderforest",
+    requiresToken: "thunderforest",
+    style: rasterStyle({
+      tiles: ["https://tile.thunderforest.com/pioneer/{z}/{x}/{y}.png?apikey={api_key}"],
+      maxzoom: 22,
+      attribution:
+        'Maps © <a href="https://www.thunderforest.com">Thunderforest</a> | Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }),
   },
 ];

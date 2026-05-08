@@ -29,7 +29,8 @@ import { exportToJson, importFromJson } from "./backup.js";
 import { initSearch } from "./search.js";
 import { initPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
-import { initSettingsPanel } from "./settings-panel.js";
+import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
+import { initStylePicker } from "./style-picker.js";
 
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
@@ -47,7 +48,15 @@ function init() {
     : DEFAULT_MAP_STYLE_ID;
 
   initMap("map", initialStyleId);
-  initMapStyleSelector(initialStyleId);
+  const pickerHandle = initStylePicker({
+    getCurrentStyleId: () => initialStyleId,
+    onSelect: (id) => setMapStyle(id),
+    onOpenSettings: (provider) => {
+      // null provider = generic "Manage API keys" footer click; default
+      // to the first section (Stadia).
+      openSettingsScrolledTo(provider ?? "stadia");
+    },
+  });
   attachStorage(pinStore);
   // Hydrate the group store BEFORE initGroupPanel — same rationale as
   // attachStorage above: the panel's first render must reflect persisted
@@ -162,27 +171,6 @@ function initRouteToggle({ initialValue, onChange }) {
   checkbox.checked = initialValue;
   checkbox.addEventListener("change", (event) => {
     onChange(event.target.checked);
-  });
-}
-
-// Build the <option> list from MAP_STYLES so adding a style in js/map.js
-// flows through without an HTML edit. Initial selected value matches the
-// style initMap just painted, keeping the dropdown and the visible tiles
-// in sync on first render.
-function initMapStyleSelector(initialStyleId) {
-  const select = document.getElementById("map-style-select");
-  if (!select) return;
-
-  for (const style of MAP_STYLES) {
-    const option = document.createElement("option");
-    option.value = style.id;
-    option.textContent = style.label;
-    select.appendChild(option);
-  }
-  select.value = initialStyleId;
-
-  select.addEventListener("change", (event) => {
-    setMapStyle(event.target.value);
   });
 }
 

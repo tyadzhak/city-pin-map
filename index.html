@@ -55,17 +55,9 @@
             hidden
           ></ul>
         </div>
-        <label for="map-style-select" class="visually-hidden"
-          >Map style</label
-        >
-        <!-- Options are populated at runtime from MAP_STYLES (js/map.js) so
-             the registry stays the single source of truth. Keep the element
-             empty here — js/app.js fills it on init. -->
-        <select
-          id="map-style-select"
-          class="map-style-select"
-          aria-label="Map style"
-        ></select>
+        <!-- Map-style picker (Task 8 swap from <select>). Built from
+             MAP_STYLES (js/map.js) so the registry stays the single source
+             of truth. js/style-picker.js reveals it on init. -->
         <!-- New picker — Task 6, hidden until Task 8 takes over from <select>. -->
         <div id="map-style-picker" class="picker" data-picker-state="closed" hidden>
           <button
