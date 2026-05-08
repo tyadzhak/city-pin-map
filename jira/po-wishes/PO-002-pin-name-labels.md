@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `PO-002`                                    |
 | **Milestone**   | `PO wishes`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `None`                                      |
@@ -26,19 +26,19 @@ PO-001 hides the basemap's own labels; once both ship, the map's only text is th
 
 ## Acceptance criteria
 
-- [ ] Each pin renders its `name` as a text label near the marker on the live map.
-- [ ] Label position sits above (or to the side, designer's call) the marker, with consistent offset that visually pairs label-to-pin without overlapping the pin geometry.
-- [ ] Label has a halo so it remains legible on light, dark, and satellite basemaps.
-- [ ] Renaming a pin (via the existing inline rename in the side panel) updates its label on the map within the same frame as the rename — no full re-render bounce.
-- [ ] Adding a pin shows its label immediately.
-- [ ] Removing a pin removes its label.
-- [ ] Group color changes on a pin do NOT change the label color — labels stay readable regardless of marker color.
-- [ ] At sufficiently low zoom, MapLibre's collision detection hides overlapping labels rather than rendering them on top of each other; at high zoom all labels show.
-- [ ] Switching basemap preserves the label layer (re-added on `styledata`, same pattern as the existing pin layer).
-- [ ] Exported PNG includes the labels at the same on-screen positions (this comes for free via `map.getCanvas()`).
-- [ ] The PO-001 "Hide map labels" toggle does NOT hide pin labels.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Each pin renders its `name` as a text label near the marker on the live map.
+- [x] Label position sits above (or to the side, designer's call) the marker, with consistent offset that visually pairs label-to-pin without overlapping the pin geometry.
+- [x] Label has a halo so it remains legible on light, dark, and satellite basemaps.
+- [x] Renaming a pin (via the existing inline rename in the side panel) updates its label on the map within the same frame as the rename — no full re-render bounce.
+- [x] Adding a pin shows its label immediately.
+- [x] Removing a pin removes its label.
+- [x] Group color changes on a pin do NOT change the label color — labels stay readable regardless of marker color.
+- [x] At sufficiently low zoom, MapLibre's collision detection hides overlapping labels rather than rendering them on top of each other; at high zoom all labels show.
+- [x] Switching basemap preserves the label layer (re-added on `styledata`, same pattern as the existing pin layer).
+- [x] Exported PNG includes the labels at the same on-screen positions (this comes for free via `map.getCanvas()`).
+- [x] The PO-001 "Hide map labels" toggle does NOT hide pin labels.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 

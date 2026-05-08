@@ -331,6 +331,7 @@ export function isRasterStyleEntry(entry) {
 // layer id baked into the OpenFreeMap styles.
 const PINS_SOURCE_ID = "city-pin-map.pins";
 const PINS_LAYER_ID = "city-pin-map.pins-circles";
+const PINS_LABELS_LAYER_ID = "city-pin-map.pins-labels";
 const ROUTE_SOURCE_ID = "city-pin-map.route";
 const ROUTE_LAYER_ID = "city-pin-map.route-line";
 
@@ -730,6 +731,7 @@ function pinsToFeatureCollection(pins) {
       geometry: { type: "Point", coordinates: [pin.lon, pin.lat] },
       properties: {
         id: pin.id,
+        name: pin.name,
         color: effectiveColor(pin),
       },
     })),
@@ -785,6 +787,36 @@ function addPinAndRouteLayers() {
         "circle-stroke-width": 2,
         "circle-stroke-color": "#ffffff",
         "circle-opacity": 0.9,
+      },
+    });
+  }
+
+  // Pin name labels. Same source as the circles layer — every renderPins
+  // setData() call propagates here automatically, so renames/adds/removes
+  // /drags/group-color swaps update labels without a separate subscription.
+  // Added after the circles layer so MapLibre's add-order z-stacking
+  // paints labels above pins. text-color is fixed (not bound to the pin's
+  // color) so labels stay readable regardless of marker tint, per PO-002.
+  if (!mapInstance.getLayer(PINS_LABELS_LAYER_ID)) {
+    mapInstance.addLayer({
+      id: PINS_LABELS_LAYER_ID,
+      type: "symbol",
+      source: PINS_SOURCE_ID,
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+        "text-size": 13,
+        "text-anchor": "top",
+        "text-offset": [0, 1.0],
+        "text-padding": 4,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+      },
+      paint: {
+        "text-color": "#1f2937",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.5,
+        "text-halo-blur": 0.5,
       },
     });
   }
