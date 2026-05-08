@@ -1,0 +1,63 @@
+name: Deploy to GitHub Pages
+
+# Free for public repos: GitHub Actions standard runners are unmetered for
+# public repositories, and GitHub Pages itself is free for public repos.
+# Keep this repository public to keep both costs at zero.
+#
+# Security note: this workflow does NOT consume any untrusted github.event
+# inputs (issue titles, PR bodies, commit messages, etc.) in run: blocks.
+# The only ${{ }} expression is `steps.deployment.outputs.page_url`, which
+# is an output from the official actions/deploy-pages action and is used
+# only as a UI display URL — never interpolated into shell commands.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Permissions required by actions/deploy-pages@v4 (OIDC token + Pages write).
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment runs at a time. We don't cancel in-progress runs
+# so a fast follow-up push doesn't abort the deploy that's almost done.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Stage only the web-app files. The repo also contains design docs
+      # (jira/, docs/, spikes/, *.md) that don't need to be served at the
+      # Pages URL — they remain visible on github.com but not at the
+      # deployed origin. Keeps the artifact small and the served surface
+      # clean.
+      - name: Stage site
+        run: |
+          mkdir _site
+          cp index.html _site/
+          cp -r css _site/
+          cp -r js _site/
+          cp -r assets _site/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

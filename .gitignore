@@ -6,6 +6,9 @@
 .idea/
 *.swp
 
+# Claude Code local settings (per-machine, never tracked)
+.claude/
+
 # Logs
 *.log
 

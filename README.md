@@ -44,6 +44,10 @@ If port 8000 is already in use, the launcher tries 8001, 8002, … up to 8010 an
   2. In the app, click the **⚙ gear** in the side panel (next to the Pins heading).
   3. Paste your key into the matching provider's field, click outside the field to save. The pill turns green and the locked rows in the picker unlock.
   Keys live in your browser only — they're never included in JSON backups, never committed to git.
+- **Lock your keys to your domain (if you deploy the app online)** — your key is stored only in your browser, but it travels in every tile request the map makes, so anyone visiting your deployed site could read it from DevTools. Each provider lets you restrict a key to a specific website so it can't be reused elsewhere — set this up once your app has a real URL:
+  - **MapTiler:** Account → Keys → "Allowed origins" → add `https://yourname.github.io` (or your custom domain)
+  - **Stadia Maps:** Authentication → Domain restrictions
+  - **Thunderforest:** Dashboard → API key settings → Referer restrictions
 - **Export to PNG** — fill in Title/Subtitle if you want them, pick a Format preset, click **Export PNG**. The image downloads to your usual Downloads folder.
 
 Everything you do is saved in the browser automatically. Closing the tab and reopening the app brings everything back. Clearing your browser data still wipes pins, so use **Export JSON** in the side panel (next to the Pins heading) to download a backup file you can keep alongside your other documents — and **Import JSON** to restore it on another machine or after a wipe.
