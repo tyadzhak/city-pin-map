@@ -4,6 +4,20 @@ const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
 const EXPORT_TEXT_KEY = "city-pin-map.export-text.v1";
 const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
+
+// API keys for free-tier basemap providers (Stadia / MapTiler / Thunderforest).
+// Stored as bare strings — same convention as MAP_STYLE_KEY. Never inlined in
+// source; never included in JSON backup exports (see backup.js scope).
+const STADIA_API_KEY = "city-pin-map.stadia-key.v1";
+const MAPTILER_API_KEY = "city-pin-map.maptiler-key.v1";
+const THUNDERFOREST_API_KEY = "city-pin-map.thunderforest-key.v1";
+
+const API_KEY_STORAGE_BY_PROVIDER = {
+  stadia: STADIA_API_KEY,
+  maptiler: MAPTILER_API_KEY,
+  thunderforest: THUNDERFOREST_API_KEY,
+};
+
 const DEFAULT_EXPORT_FORMAT = "current";
 const BANNER_TIMEOUT_MS = 6000;
 const EMPTY_EXPORT_TEXT = Object.freeze({ title: "", subtitle: "" });
@@ -226,4 +240,45 @@ export function showError(message) {
     banner.hidden = true;
     bannerTimer = null;
   }, BANNER_TIMEOUT_MS);
+}
+
+// Per-provider API key load/save. Mirrors the bare-string convention of
+// loadMapStyle/saveMapStyle — values are short opaque strings, JSON wrapping
+// would only add quote noise. Empty string and missing-key are equivalent
+// ("not set"). Unknown providers are no-ops, not throws, so a stale provider
+// id from older app state can never crash the boot path.
+export function loadApiKey(provider) {
+  const storageKey = API_KEY_STORAGE_BY_PROVIDER[provider];
+  if (!storageKey) return "";
+  try {
+    return localStorage.getItem(storageKey) ?? "";
+  } catch (err) {
+    console.error("localStorage unavailable on api key read:", err);
+    return "";
+  }
+}
+
+export function saveApiKey(provider, value) {
+  const storageKey = API_KEY_STORAGE_BY_PROVIDER[provider];
+  if (!storageKey) return;
+  try {
+    if (value) {
+      localStorage.setItem(storageKey, value);
+    } else {
+      localStorage.removeItem(storageKey);
+    }
+  } catch (err) {
+    console.error("failed to save api key:", err);
+    showError(
+      "Could not save API key (storage may be full). It will reset on refresh."
+    );
+  }
+}
+
+export function loadAllApiKeys() {
+  return {
+    stadia: loadApiKey("stadia"),
+    maptiler: loadApiKey("maptiler"),
+    thunderforest: loadApiKey("thunderforest"),
+  };
 }
