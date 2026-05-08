@@ -6,11 +6,11 @@ This file is the operating manual for any AI agent working in this repository. R
 
 A single-page, no-backend web app that lets the user pin cities on a world map and export the view as a PNG. Runs locally in the browser. See `PROJECT.md` for full scope.
 
-## What's shipped (as of 2026-05-07)
+## What's shipped (as of 2026-05-08)
 
-All three milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 → NICE-007), and Hardening (HARDEN-001 → HARDEN-006) — are `Done`. The app supports:
+All three milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 → NICE-007), and Hardening (HARDEN-001 → HARDEN-007) — are `Done`. The app supports:
 
-- Leaflet map with 4 basemap styles (OSM, Carto Light/Dark, OpenTopoMap), switchable from the header.
+- Leaflet map with 7 basemap styles (OSM, Carto Light/Dark/Voyager, Wikimedia, OpenTopoMap, Esri Satellite — HARDEN-007), switchable from the header.
 - Nominatim search with debounce, ≥1 req/sec gating, per-tab cache, and abort-on-newer-keystroke. New pins default to a short `"city, country"` label derived from `addressdetails` (HARDEN-004); the user can still rename freely.
 - Pin CRUD: add (via search), drag, inline rename, per-pin color picker, delete.
 - Groups (NICE-004/005): independent store with name + color, assignable per pin. Group color overrides the pin's own color while assigned. Deleting a group cascades `pin.group → null`.
@@ -19,6 +19,12 @@ All three milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 �
 - JSON backup and restore (HARDEN-001) via Export/Import buttons in the side panel. The file holds only `pins` and `groups`; UI preferences are intentionally excluded.
 - Persistence: every preference (pins, groups, map style, route toggle, export text, export format) lives in its own `localStorage` key prefixed `city-pin-map.…v1`.
 - macOS double-clickable launcher (`start.command`, HARDEN-002) running `python3 -m http.server` from the project folder, with port fallback 8000 → 8010.
+
+## Considered and parked
+
+Decisions deliberately made and parked. Don't re-evaluate without a concrete trigger — re-litigating in a fresh context wastes hours and ends in the same place.
+
+- **MapLibre GL JS + OpenFreeMap (vector tiles).** HARDEN-008 spike, verdict **PARK**. Rewrite cost ~18 h (full rewrites of `js/map.js` and the load-bearing `js/export.js`); bundle delta +164 KB gz (~4×); MapLibre's HTML-overlay markers don't survive `getCanvas().toDataURL()` so the export pipeline needs a permanent post-compositing step. Wins are aesthetic interaction polish, not output-quality. See `jira/harden/HARDEN-008-findings.md` for the full reasoning, including the explicit signals that would flip this to PROCEED (specific user complaint about retina blur or pan jankiness that HARDEN-007's styles don't address; or OpenFreeMap announcing organizational backing).
 
 ## Hard rules
 
