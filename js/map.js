@@ -6,7 +6,7 @@
 
 import { updatePin } from "./pins.js";
 import { listGroups } from "./groups.js";
-import { saveMapStyle, showError } from "./storage.js";
+import { saveMapStyle, showError, loadHideLabels } from "./storage.js";
 import * as settings from "./settings.js";
 
 // Registry of available basemap styles. Hybrid: 4 vector styles served by
@@ -295,6 +295,37 @@ export const MAP_STYLES = [
 
 export const DEFAULT_MAP_STYLE_ID = "osm";
 
+// Providers whose styles bake labels into the tile pixels server-side, so
+// labels can't be hidden client-side. Single source of truth for PO-001's
+// "Hide map labels" toggle: js/style-picker.js imports this to mark each
+// matching row as disabled when the toggle is ON, and applyLabelVisibility
+// below uses it to short-circuit on raster styles.
+//
+// Stadia is intentionally absent — it splits raster (Stamen family) and
+// vector (Alidade Smooth) under one provider id, so a flat provider-set
+// would over-match. Use isRasterStyleEntry() for per-entry checks; it
+// reads this set AND handles the Stadia split.
+export const RASTER_PROVIDERS = new Set([
+  "wikimedia",
+  "opentopomap",
+  "esri",
+  "thunderforest",
+]);
+
+// Per-entry raster check used by the picker (which rows to disable) and by
+// applyLabelVisibility (which styles to skip). Combines the all-raster
+// providers with the Stamen-only subset of Stadia (id prefix
+// "stadia-stamen-"). Stadia Alidade Smooth/Dark are vector and flow
+// through the label-walking path.
+export function isRasterStyleEntry(entry) {
+  if (!entry) return false;
+  if (RASTER_PROVIDERS.has(entry.provider)) return true;
+  if (entry.provider === "stadia" && entry.id.startsWith("stadia-stamen-")) {
+    return true;
+  }
+  return false;
+}
+
 // Layer / source ids — kept in one place so the styledata re-add logic and
 // the render functions agree on naming. Prefix avoids collisions with any
 // layer id baked into the OpenFreeMap styles.
@@ -345,6 +376,11 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
     preserveDrawingBuffer: true,
   });
 
+  // Seed currentRenderedStyleId so applyLabelVisibility's raster-check
+  // works on the very first styledata firing — before any setMapStyle()
+  // call has had a chance to set it via the swap success path.
+  currentRenderedStyleId = initial.id;
+
   // The first style emits `load` once tiles + sprites + glyphs are ready.
   // Re-add markers/route here so a hydrated pin set paints on first frame
   // even though renderPins was called before the style was ready.
@@ -355,7 +391,72 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   });
   attachPinInteractions();
 
+  // Re-apply the hide-labels preference on every basemap swap. setStyle()
+  // blows away the layer set, so a one-shot mutation at toggle time would
+  // silently revert on the next swap. Re-reading from storage (rather than
+  // closing over a captured value) keeps map.js free of the toggle's UI
+  // state — the storage module is already the shared source of truth.
+  mapInstance.on("styledata", () => {
+    applyLabelVisibility(loadHideLabels());
+  });
+
   return mapInstance;
+}
+
+/**
+ * Hide or show built-in basemap labels on the active style.
+ *
+ * Vector basemaps render labels as dedicated `symbol`-type layers with a
+ * `layout.text-field` property. We toggle their visibility via
+ * setLayoutProperty so the change is fully reversible without burning a
+ * style swap on a UI preference.
+ *
+ * Raster basemaps bake labels into the tile pixels server-side, so this is
+ * a no-op for them — the inline notice next to the toggle (managed by
+ * app.js) is the user-facing signal that the preference doesn't apply.
+ *
+ * Idempotent and safe to call before any layers exist (e.g. during the
+ * gap between a setStyle() request and the matching styledata event).
+ */
+export function applyLabelVisibility(hide) {
+  if (!mapInstance) return;
+
+  // Short-circuit for raster styles. The active entry's provider tells us
+  // this directly, no layer inspection needed. We still bail out cleanly
+  // even if the style is in a transient state where getStyle() returns
+  // a placeholder — the next styledata firing will retry.
+  const activeEntry = MAP_STYLES.find((s) => s.id === currentRenderedStyleId);
+  if (activeEntry && isRasterStyleEntry(activeEntry)) return;
+
+  const style = mapInstance.getStyle();
+  if (!style || !Array.isArray(style.layers)) return;
+
+  for (const layer of style.layers) {
+    if (!isBasemapLabelLayer(layer)) continue;
+    mapInstance.setLayoutProperty(
+      layer.id,
+      "visibility",
+      hide ? "none" : "visible"
+    );
+  }
+}
+
+// True when the layer is a built-in basemap label layer that the toggle
+// should affect. The rule is intentionally registry-agnostic: every vector
+// provider (OpenFreeMap, MapTiler, Stadia Alidade) puts city / country /
+// street / POI text in `type: "symbol"` layers with a `layout["text-field"]`
+// property, so the inverse — checking layer ids per provider — would mean
+// hard-coding a list per style and re-doing it every time a provider
+// rev's their layer naming.
+//
+// Layers added by this app (pin labels added in PO-002, route line, pin
+// circles) live under the "city-pin-map." id namespace and must never be
+// hidden by this toggle — they're user-data layers, not basemap layers.
+function isBasemapLabelLayer(layer) {
+  if (!layer) return false;
+  if (layer.id && layer.id.startsWith("city-pin-map.")) return false;
+  if (layer.type !== "symbol") return false;
+  return Boolean(layer.layout && layer.layout["text-field"]);
 }
 
 /**

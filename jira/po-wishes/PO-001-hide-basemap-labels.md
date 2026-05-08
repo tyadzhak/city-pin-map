@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `PO-001`                                    |
 | **Milestone**   | `PO wishes`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `None`                                      |
@@ -26,18 +26,18 @@ This task is the foundation for PO-002 (pin name labels). The two together produ
 
 ## Acceptance criteria
 
-- [ ] A toggle control labelled "Hide map labels" lives in the header next to the basemap picker (or in the settings modal — pick the spot that's most discoverable).
-- [ ] Toggle state persists across reload via its own `localStorage` key.
-- [ ] When toggle is ON and the active basemap is **vector**: every layer with `type === "symbol"` and a `layout.text-field` is hidden (or removed). The map renders with no built-in city/country/street/POI text.
-- [ ] When toggle is ON, every **raster** entry in the basemap picker (`js/style-picker.js`) is rendered in a **disabled** state — visible in the list but visually dimmed and not selectable.
-- [ ] Hovering, focusing, or clicking a disabled raster entry shows an **info popup/tooltip** with the message: "Labels can't be hidden on raster basemaps because they're baked into the tile image. Pick a vector style to hide labels." The popup is keyboard-accessible (appears on focus, dismissible with Escape).
-- [ ] When toggle is ON and the **currently active** basemap is raster (i.e. the user toggled labels off while a raster style was already in use): the active style stays selected (no surprise auto-switch); a small inline notice appears near the toggle and the picker explaining the situation; the picker's disabled state applies to every raster entry including the active one.
-- [ ] When toggle is OFF: every basemap renders its native labels exactly as today, AND every entry in the picker (vector and raster) is selectable normally — no disabled state, no popup.
-- [ ] Switching basemap with the toggle ON re-applies label hiding on the new style (the `styledata` event hook re-runs the filter). Switching is only possible to vector styles while the toggle is ON.
-- [ ] User pins (and the route polyline) still render correctly with the toggle ON.
-- [ ] Pin labels (when PO-002 lands) are NOT affected by this toggle — they're a user-data layer, not a basemap layer.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] A toggle control labelled "Hide map labels" lives in the header next to the basemap picker (or in the settings modal — pick the spot that's most discoverable).
+- [x] Toggle state persists across reload via its own `localStorage` key.
+- [x] When toggle is ON and the active basemap is **vector**: every layer with `type === "symbol"` and a `layout.text-field` is hidden (or removed). The map renders with no built-in city/country/street/POI text.
+- [x] When toggle is ON, every **raster** entry in the basemap picker (`js/style-picker.js`) is rendered in a **disabled** state — visible in the list but visually dimmed and not selectable.
+- [x] Hovering, focusing, or clicking a disabled raster entry shows an **info popup/tooltip** with the message: "Labels can't be hidden on raster basemaps because they're baked into the tile image. Pick a vector style to hide labels." The popup is keyboard-accessible (appears on focus, dismissible with Escape).
+- [x] When toggle is ON and the **currently active** basemap is raster (i.e. the user toggled labels off while a raster style was already in use): the active style stays selected (no surprise auto-switch); a small inline notice appears near the toggle and the picker explaining the situation; the picker's disabled state applies to every raster entry including the active one.
+- [x] When toggle is OFF: every basemap renders its native labels exactly as today, AND every entry in the picker (vector and raster) is selectable normally — no disabled state, no popup.
+- [x] Switching basemap with the toggle ON re-applies label hiding on the new style (the `styledata` event hook re-runs the filter). Switching is only possible to vector styles while the toggle is ON.
+- [x] User pins (and the route polyline) still render correctly with the toggle ON.
+- [x] Pin labels (when PO-002 lands) are NOT affected by this toggle — they're a user-data layer, not a basemap layer.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 

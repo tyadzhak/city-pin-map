@@ -9,6 +9,8 @@ import {
   setMapStyle,
   MAP_STYLES,
   DEFAULT_MAP_STYLE_ID,
+  applyLabelVisibility,
+  isRasterStyleEntry,
 } from "./map.js";
 import * as pinStore from "./pins.js";
 import * as groupStore from "./groups.js";
@@ -23,6 +25,8 @@ import {
   saveExportText,
   loadExportFormat,
   saveExportFormat,
+  loadHideLabels,
+  saveHideLabels,
   showError,
 } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
@@ -64,9 +68,19 @@ function init() {
   }
 
   initMap("map", initialStyleId);
+  // Tracks the currently-rendered style id for downstream consumers. The
+  // map module's currentRenderedStyleId is private; mirroring it here lets
+  // the hide-labels notice re-evaluate whenever the basemap swaps.
+  let activeStyleId = initialStyleId;
   const pickerHandle = initStylePicker({
     getCurrentStyleId: () => initialStyleId,
-    onSelect: (id) => setMapStyle(id),
+    onSelect: (id) => {
+      activeStyleId = id;
+      setMapStyle(id);
+      // The map's styledata handler re-applies label visibility; we just
+      // need to refresh the inline notice for the new style.
+      refreshHideLabelsNotice();
+    },
     onOpenSettings: (provider) => {
       // null provider = generic "Manage API keys" footer click; default
       // to the first section (Stadia).
@@ -124,6 +138,39 @@ function init() {
       renderRoute(pinStore.listPins(), { visible: next });
     },
   });
+
+  // PO-001: hide-labels toggle. Hydrating BEFORE wiring change events
+  // means the first styledata firing (triggered by initMap above) reads
+  // the correct value via loadHideLabels() — no flash of labelled tiles
+  // before the toggle's initial value is applied.
+  let hideLabels = loadHideLabels();
+  refreshHideLabelsNotice();
+  initHideLabelsToggle({
+    initialValue: hideLabels,
+    onChange: (next) => {
+      hideLabels = next;
+      saveHideLabels(next);
+      // The map module reads loadHideLabels() on every styledata. We can
+      // shortcut the loop here so the user sees labels disappear/return
+      // within the same frame the toggle flips, without waiting for the
+      // next basemap swap.
+      applyLabelVisibility(next);
+      pickerHandle.setHideLabels(next);
+      refreshHideLabelsNotice();
+    },
+  });
+
+  // Closure over activeStyleId + hideLabels so a single helper covers
+  // both code paths (toggle flip, basemap swap). Defined inside init so
+  // it can read the local `hideLabels` variable rather than re-reading
+  // from storage on every call.
+  function refreshHideLabelsNotice() {
+    const notice = document.getElementById("hide-labels-notice");
+    if (!notice) return;
+    const entry = MAP_STYLES.find((s) => s.id === activeStyleId);
+    const showNotice = hideLabels && entry && isRasterStyleEntry(entry);
+    notice.hidden = !showNotice;
+  }
 
   initExportOptions();
   initExportFormatSelector();
@@ -183,6 +230,18 @@ function initExportFormatSelector() {
 // next to the rest of the app's data flow.
 function initRouteToggle({ initialValue, onChange }) {
   const checkbox = document.getElementById("route-toggle");
+  if (!checkbox) return;
+  checkbox.checked = initialValue;
+  checkbox.addEventListener("change", (event) => {
+    onChange(event.target.checked);
+  });
+}
+
+// PO-001 sibling of initRouteToggle. Same dumb-pipe contract: init() owns
+// the boolean and the side effects; this function only mirrors the value
+// onto the checkbox and forwards user changes back out.
+function initHideLabelsToggle({ initialValue, onChange }) {
+  const checkbox = document.getElementById("hide-labels-toggle");
   if (!checkbox) return;
   checkbox.checked = initialValue;
   checkbox.addEventListener("change", (event) => {
