@@ -12,6 +12,7 @@ import {
 } from "./map.js";
 import * as pinStore from "./pins.js";
 import * as groupStore from "./groups.js";
+import * as settings from "./settings.js";
 import {
   attachStorage,
   attachGroupStorage,
@@ -28,8 +29,14 @@ import { exportToJson, importFromJson } from "./backup.js";
 import { initSearch } from "./search.js";
 import { initPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
+import { initSettingsPanel } from "./settings-panel.js";
 
 function init() {
+  // Settings store hydrates first so any consumer that reads keys during
+  // boot (token-required style guards, picker render) sees the persisted
+  // values. Before this line, getKey() returns "" for all providers.
+  settings.hydrate();
+
   // Resolve the initial style before initMap so the map's first paint is
   // the user's chosen style — no OSM-flash, no extra tile fetches. An
   // unknown saved id (older app version, hand-edited storage) is treated
@@ -97,6 +104,7 @@ function init() {
   initExportFormatSelector();
   initExportButton();
   initBackupControls();
+  initSettingsPanel();
 }
 
 // Hydrates the title + subtitle inputs from localStorage and persists every
