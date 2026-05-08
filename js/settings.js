@@ -20,13 +20,17 @@ const state = {
   thunderforest: "",
 };
 
-const subscribers = new Set();
+const listeners = [];
 
 function notify() {
-  // Snapshot copy so subscribers can't mutate the live state.
+  // Snapshot copy so listeners can't mutate the live state.
   const snapshot = { ...state };
-  for (const fn of subscribers) {
-    fn(snapshot);
+  for (const fn of listeners.slice()) {
+    try {
+      fn(snapshot);
+    } catch (err) {
+      console.error("settings store listener threw:", err);
+    }
   }
 }
 
@@ -69,6 +73,9 @@ export function isProviderUnlocked(provider) {
 }
 
 export function subscribe(fn) {
-  subscribers.add(fn);
-  return () => subscribers.delete(fn);
+  listeners.push(fn);
+  return () => {
+    const idx = listeners.indexOf(fn);
+    if (idx !== -1) listeners.splice(idx, 1);
+  };
 }
