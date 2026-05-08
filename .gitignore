@@ -11,3 +11,6 @@
 
 # Tooling caches
 .playwright-mcp/
+
+# Local git worktrees (subagent-driven development sessions)
+.worktrees/
