@@ -43,22 +43,25 @@ city-pin-map/
 ├── index.html          # Single entry point
 ├── start.command       # macOS double-clickable launcher (HARDEN-002)
 ├── css/styles.css      # All styles
-├── js/
+├── js/                 # 14 ES modules
 │   ├── app.js          # Bootstrap + glue: wires modules in DOMContentLoaded
-│   ├── map.js          # MapLibre init, basemap registry (hybrid vector+raster), marker layer, drag, route layer, effectiveColor()
+│   ├── map.js          # MapLibre init, basemap registry (29 styles, hybrid vector+raster), `setStyleSafely` swap pipeline, marker layer, drag, route layer, effectiveColor()
 │   ├── geocode.js      # Nominatim wrapper: rate-limit gate, in-tab cache, addressdetails fetch
 │   ├── search.js       # Search input → debounced geocode → addPin (with short "city, country" name)
 │   ├── pins.js         # Pin store: pub/sub, add/remove/update/replaceAll/list
 │   ├── pin-list.js     # Side-panel pin list (rename, color, group selector, delete)
 │   ├── groups.js       # Group store (mirrors pins.js shape)
 │   ├── group-panel.js  # Side-panel group list (always-on rename + color, delete cascades to pins)
+│   ├── settings.js     # Per-provider API key store (mirrors pins.js pub/sub shape) — Stadia, MapTiler, Thunderforest
+│   ├── settings-panel.js # Settings modal renderer: open/close, blur-to-save, status pills, reveal toggle
+│   ├── style-picker.js # Searchable popover picker for basemaps (replaces native <select>); locked rows deep-link to settings
 │   ├── storage.js      # All localStorage keys + the showError() banner helper
-│   ├── backup.js       # JSON export/import for pins + groups (HARDEN-001)
+│   ├── backup.js       # JSON export/import for pins + groups (HARDEN-001) — API keys are intentionally excluded
 │   └── export.js       # Canvas-merge PNG: getCanvas() → drawImage + title strip via ctx.fillText, dimension presets, off-screen resize trick
 └── assets/             # Reserved for icons/marker images; currently empty
 ```
 
-Keep modules small and focused. The largest files (`map.js`, `export.js`, `pin-list.js`) sit around 250–310 lines; split when adding new responsibilities, not before.
+Keep modules small and focused. `map.js` is the outlier (~770 lines — basemap registry + style-swap pipeline + marker/route rendering + drag, all of which need to share state); other top files (`export.js`, `style-picker.js`, `storage.js`, `pin-list.js`, `app.js`) sit around 250–315 lines. Split when adding new responsibilities, not before.
 
 ## Coding conventions
 
@@ -114,11 +117,17 @@ Tasks that touch pins or groups must preserve these shapes. If a task needs a ne
 
 ## Task workflow
 
+Two flavors live in this repo, both still active:
+
+**Single-task `jira/` files (CORE / NICE / HARDEN milestones):**
+
 1. Pick a task file from any milestone folder under `jira/` (e.g. `jira/core/`, `jira/nice-to-have/`, `jira/harden/`) whose `Status` is `Todo` and whose dependencies are all `Done`.
 2. Set `Status` to `In Progress`.
 3. Execute the **Implementation Prompt** at the bottom of the task.
 4. Verify against the **Acceptance Criteria** checklist — tick boxes as you go.
 5. Set `Status` to `Done` and commit.
+
+**Plan-driven milestones under `docs/superpowers/`:** Larger features (e.g. expanded basemap styles) live under `docs/superpowers/specs/` (design) + `docs/superpowers/plans/` (implementation), with each plan splitting work into checkbox-tracked tasks. Execute these via the `superpowers:executing-plans` or `superpowers:subagent-driven-development` skills. The plan file is the source of truth for "done" within that milestone.
 
 ## Definition of done
 
