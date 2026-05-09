@@ -732,45 +732,66 @@ body.dragging-pin * {
   border-top: 1px solid #f1f3f5;
 }
 
-.pin-list__swatch {
+/* Appearance tile (PI-001) — replaces the old color swatch. The tile is
+   a button that previews the chosen icon at the chosen color: it doubles
+   as the row's appearance display AND the affordance that opens the
+   icon+color popover. The tile's own `color` is the pin's effective
+   color; the inline SVG inside inherits via fill="currentColor", so the
+   preview always shows what the marker will look like on the map. */
+.pin-list__tile {
   flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  /* Inset ring keeps light-colored swatches visible against the white panel
-     without imposing a hard outer border that fights the pin's own color. */
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.18);
-  /* Swatch doubles as the "open color picker" button (CORE-011). Cursor
-     and the hover/focus rings below signal that affordance without adding
-     a separate icon. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 6px;
   cursor: pointer;
   outline: none;
-  transition: box-shadow 120ms ease, transform 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background 120ms ease, transform 120ms ease;
 }
 
-.pin-list__swatch:hover {
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.28),
-    0 0 0 2px rgba(76, 110, 245, 0.2);
-  transform: scale(1.1);
+.pin-list__tile:hover:not(:disabled) {
+  border-color: rgba(15, 23, 42, 0.24);
+  background: #f8fafc;
+  transform: scale(1.05);
 }
 
-.pin-list__swatch:focus-visible {
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.28),
-    0 0 0 3px rgba(76, 110, 245, 0.45);
+.pin-list__tile:focus-visible {
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
 }
 
-/* Read-only state for grouped pins (NICE-005). The swatch still renders
-   the effective (group) color, but it's no longer a control: no hover
-   ring, no scale-up, no cursor change. The hidden color input is also
-   omitted from the row in pin-list.js — the swatch alone has nothing to
-   open. The default cursor and the absence of the hover ring together
-   communicate "this isn't interactive". */
-.pin-list__swatch--readonly {
+.pin-list__tile-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+}
+
+.pin-list__tile-icon > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Read-only state for grouped pins (NICE-005). Tile still renders the
+   effective (group) color and icon, but it's no longer a control: no
+   hover ring, no scale-up. .pin-list.js disables the underlying button
+   so the row can't be focused into the popover flow either. */
+.pin-list__tile--readonly,
+.pin-list__tile:disabled {
   cursor: default;
+  background: transparent;
 }
 
-.pin-list__swatch--readonly:hover {
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.18);
+.pin-list__tile--readonly:hover,
+.pin-list__tile:disabled:hover {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: transparent;
   transform: none;
 }
 
@@ -813,20 +834,6 @@ body.dragging-pin * {
   border-color: #4c6ef5;
   background-color: #ffffff;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
-}
-
-/* Visually hidden but kept in the layout tree — some browsers won't open
-   the native picker for a fully `display: none` input. The swatch calls
-   .click() on this element to trigger the dialog. */
-.pin-list__color-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
 }
 
 .pin-list__name {
@@ -1279,3 +1286,119 @@ body.dragging-pin * {
 
 /* When the picker takes over from <select>, hide the old element. */
 .map-style-select.is-replaced { display: none; }
+
+/* ===== Pin appearance popover (PI-001 — pin icon picker) =====
+
+   The popover is appended to <body> (not nested inside the pin row) so
+   it can escape any overflow:hidden ancestor and lets us position it
+   freely against the viewport. pin-list.js sets `position`, `left`, and
+   `top` per-open via getBoundingClientRect on the appearance tile. */
+
+.appearance-popover {
+  /* position/left/top set inline by pin-list.js. Other layout properties
+     here are static. */
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 240px;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+}
+
+.appearance-popover__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.appearance-popover__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 44px;
+  padding: 0;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  /* color is set inline per-button so the inline SVG can inherit via
+     fill="currentColor" — same currentColor cascade pattern the tile
+     and the GL marker use. */
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background 120ms ease, transform 120ms ease;
+}
+
+.appearance-popover__icon:hover {
+  background: #ffffff;
+  border-color: #94a3b8;
+  transform: scale(1.04);
+}
+
+.appearance-popover__icon:focus-visible {
+  outline: none;
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+/* Selected state. Slightly stronger ring + filled background so the
+   active choice reads at a glance against five neighbours. */
+.appearance-popover__icon--selected {
+  border-color: #4c6ef5;
+  background: #eef2ff;
+  box-shadow: 0 0 0 1px #4c6ef5 inset;
+}
+
+.appearance-popover__icon > .pin-list__tile-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.appearance-popover__color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 4px 2px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.appearance-popover__color-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.appearance-popover__color-input {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.appearance-popover__color-input::-webkit-color-swatch-wrapper { padding: 0; }
+.appearance-popover__color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+.appearance-popover__color-input::-moz-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.appearance-popover__color-input:focus-visible {
+  outline: none;
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}

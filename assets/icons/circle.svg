@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  circle — geometric neutral marker. Hand-authored to match the Heroicons
+  solid 24 grid: viewBox 0 0 24 24, full-bleed circle (radius 11) centered
+  in the grid, fill="currentColor" so SDF tinting and picker tinting both
+  work the same way as the other icons. Heroicons solid doesn't ship a
+  plain filled dot, so this fills the gap without breaking visual coherence.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="currentColor">
+  <circle cx="12" cy="12" r="11"/>
+</svg>
