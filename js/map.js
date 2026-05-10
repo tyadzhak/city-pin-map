@@ -822,16 +822,25 @@ function rasterStyle({ tiles, maxzoom, attribution }) {
 function pinsToFeatureCollection(pins) {
   return {
     type: "FeatureCollection",
-    features: pins.map((pin) => ({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [pin.lon, pin.lat] },
-      properties: {
-        id: pin.id,
-        name: pin.name,
-        color: effectiveColor(pin),
-        icon: effectiveIcon(pin),
-      },
-    })),
+    features: pins.map((pin) => {
+      const iconId = effectiveIcon(pin);
+      const iconEntry = getIcon(iconId);
+      // tintable defaults to true so a transient pre-registry-load state
+      // still renders sensibly. The default-pin built-in is always
+      // tintable, so this is the conservative fallback.
+      const tintable = iconEntry?.tintable ?? true;
+      return {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [pin.lon, pin.lat] },
+        properties: {
+          id: pin.id,
+          name: pin.name,
+          color: effectiveColor(pin),
+          icon: iconId,
+          tintable,
+        },
+      };
+    }),
   };
 }
 
