@@ -22,7 +22,8 @@ import {
   listGroups,
 } from "./groups.js";
 import { effectiveColor } from "./map.js";
-import { effectiveIcon, getMergedIcons } from "./icons.js";
+import { effectiveIcon, getIcon } from "./icons.js";
+import { openIconPicker } from "./icon-picker.js";
 
 /**
  * Wires the list to the pin store AND the group store. Call once during
@@ -116,17 +117,30 @@ function buildRow(pin, groups) {
   return row;
 }
 
-// Renders the per-row appearance tile. For ungrouped pins the tile is
-// interactive — clicking it opens the popover that hosts the icon grid
-// and the native color input. For grouped pins it's a passive indicator
-// of the group's color and icon: appearance is owned by the group's own
-// row, mirroring the pre-PI-001 behaviour where the swatch was read-only.
+// Renders the per-row appearance composition: an icon tile (opens the
+// modal icon picker) + a small native color swatch sibling. Two
+// affordances side-by-side, each does one thing — keeps the row narrow
+// while letting the modal own the richer icon-grid surface.
+//
+// For grouped pins the whole composition is passive (group owns
+// appearance), mirroring the pre-PI-001 read-only swatch.
 function buildAppearanceTile(pin, iconId, color, groupAssigned) {
+  const wrapper = document.createElement("span");
+  wrapper.className = "pin-list__appearance";
+
   const tile = document.createElement("button");
   tile.type = "button";
   tile.className = "pin-list__tile";
   tile.style.color = color;
-  tile.appendChild(buildIconElement(iconId));
+
+  const iconEntry = getIcon(iconId);
+  const iconImg = document.createElement("img");
+  iconImg.alt = iconEntry?.label || iconId;
+  iconImg.src = iconEntry?.svg
+    ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(iconEntry.svg)
+    : iconEntry?.src || "";
+  iconImg.style.cssText = "width:18px;height:18px;display:block;";
+  tile.appendChild(iconImg);
 
   if (groupAssigned) {
     tile.classList.add("pin-list__tile--readonly");
@@ -135,13 +149,29 @@ function buildAppearanceTile(pin, iconId, color, groupAssigned) {
       "aria-label",
       `Appearance is controlled by group ${groupAssigned.name}`
     );
-    return tile;
+    wrapper.appendChild(tile);
+    return wrapper;
   }
 
-  tile.setAttribute("aria-label", `Change icon and color of pin ${pin.name}`);
+  tile.setAttribute("aria-label", `Change icon of pin ${pin.name}`);
   tile.setAttribute("aria-haspopup", "dialog");
-  tile.addEventListener("click", () => openAppearancePopover(pin, tile));
-  return tile;
+  tile.addEventListener("click", () => openIconPicker(pin.id));
+  wrapper.appendChild(tile);
+
+  // Small native color swatch — sibling to the icon tile. Opens the
+  // browser's native color picker on click. `change` only fires when the
+  // user picks; cancelling is silent.
+  const colorInput = document.createElement("input");
+  colorInput.type = "color";
+  colorInput.className = "pin-list__color-swatch";
+  colorInput.value = pin.color;
+  colorInput.setAttribute("aria-label", `Change color of pin ${pin.name}`);
+  colorInput.addEventListener("change", () => {
+    updatePin(pin.id, { color: colorInput.value });
+  });
+  wrapper.appendChild(colorInput);
+
+  return wrapper;
 }
 
 // Builds the per-row group selector. Empty value === "(none)" === ungrouped.
@@ -227,239 +257,4 @@ function enterRenameMode(pin, nameEl) {
   // at the end of the text.
   input.focus();
   input.select();
-}
-
-// ---- Appearance popover ----------------------------------------------
-
-// Cached SVG templates, keyed by icon id. Populated lazily on the first
-// popover open. The map module fetches the same files via Image() for
-// MapLibre's image registry; the browser's HTTP cache makes this second
-// fetch effectively free, and we keep responsibilities split (this
-// module owns DOM rendering of icons, map.js owns the GL-side raster).
-const iconTemplates = new Map();
-let iconTemplatesPromise = null;
-const svgParser = new DOMParser();
-
-function loadIconTemplates() {
-  if (iconTemplatesPromise) return iconTemplatesPromise;
-  iconTemplatesPromise = Promise.all(
-    getMergedIcons().map(async (icon) => {
-      const res = await fetch(icon.src);
-      const text = await res.text();
-      // DOMParser in image/svg+xml mode is the safe parse path for
-      // arbitrary SVG markup — no innerHTML, no script-execution surface.
-      // The icons here are repo-controlled, but DOMParser is the cleaner
-      // pattern regardless and disabling the security hook would be wrong.
-      const doc = svgParser.parseFromString(text, "image/svg+xml");
-      const svg = doc.documentElement;
-      if (svg && svg.tagName === "svg") {
-        // fill="currentColor" on the <svg> cascades to descendant <path>
-        // elements that have no fill of their own — Phosphor's icons fit
-        // that profile. The wrapping element's CSS `color` then drives
-        // the tint, mirroring how the GL layer's icon-color drives SDF
-        // tinting for the marker on the map.
-        svg.setAttribute("fill", "currentColor");
-        // Strip Phosphor's invisible sizing rect; we set width/height on
-        // the SVG directly so it's no longer needed.
-        const rect = svg.querySelector("rect[fill='none']");
-        if (rect) rect.remove();
-        iconTemplates.set(icon.id, svg);
-      }
-    })
-  );
-  return iconTemplatesPromise;
-}
-
-// Returns a fresh SVG node for the given icon id, ready to be styled by
-// its CSS color. Falls back to an empty span if templates haven't loaded
-// yet — the caller updates the icon once loadIconTemplates resolves.
-function buildIconElement(iconId) {
-  const wrapper = document.createElement("span");
-  wrapper.className = "pin-list__tile-icon";
-  const template = iconTemplates.get(iconId);
-  if (template) {
-    wrapper.appendChild(template.cloneNode(true));
-  } else {
-    // Lazy first-load. Once templates resolve, replace the placeholder
-    // contents in-place so the row updates without a re-render.
-    loadIconTemplates().then(() => {
-      const t = iconTemplates.get(iconId);
-      if (t && wrapper.isConnected) wrapper.replaceChildren(t.cloneNode(true));
-    });
-  }
-  return wrapper;
-}
-
-// Singleton popover state. Only one popover open at a time; opening for
-// a different pin closes the previous one. Storing the teardown closure
-// here makes close logic uniform regardless of how the popover dismisses
-// (outside-click, Escape, store-deletes-the-pin, opening another popover).
-let popoverState = null;
-
-function openAppearancePopover(pin, anchorEl) {
-  closeAppearancePopover();
-
-  const popoverEl = document.createElement("div");
-  popoverEl.className = "appearance-popover";
-  popoverEl.setAttribute("role", "dialog");
-  popoverEl.setAttribute("aria-label", `Pin appearance for ${pin.name}`);
-  document.body.appendChild(popoverEl);
-
-  // Re-render contents whenever the pin store ticks. Three reasons it
-  // can change while the popover is open: user picks a new icon, user
-  // changes the color, or another path mutates the same pin (drag,
-  // group reassignment from the selector below the tile). All three
-  // need the popover's own selected-state and color value to stay
-  // truthful.
-  const renderContents = () => {
-    const livePin = listPins().find((p) => p.id === pin.id);
-    if (!livePin) {
-      // Pin was removed (or its row went read-only via group assignment
-      // — appearance editing then belongs to the group panel). Either
-      // way, dismiss.
-      closeAppearancePopover();
-      return;
-    }
-    if (livePin.group) {
-      closeAppearancePopover();
-      return;
-    }
-    popoverEl.replaceChildren(...buildPopoverContent(livePin));
-  };
-
-  // Ensure the SVG templates are loaded before the first content render
-  // so the icon-grid cells paint with their tinted previews on open.
-  loadIconTemplates().then(() => {
-    if (popoverState && popoverState.popoverEl === popoverEl) {
-      renderContents();
-    }
-  });
-  renderContents();
-  positionPopover(popoverEl, anchorEl);
-
-  const unsubscribe = subscribe(renderContents);
-
-  // Outside-click on capture phase — fires before any inner handler can
-  // stopPropagation. Anchor and popover both shielded so the user can
-  // open and interact without an accidental dismiss.
-  const onDocumentDown = (event) => {
-    if (popoverEl.contains(event.target)) return;
-    if (anchorEl.contains(event.target)) return;
-    closeAppearancePopover();
-  };
-  const onKey = (event) => {
-    if (event.key === "Escape") closeAppearancePopover();
-  };
-  document.addEventListener("pointerdown", onDocumentDown, true);
-  document.addEventListener("keydown", onKey);
-
-  popoverState = {
-    pinId: pin.id,
-    popoverEl,
-    teardown: () => {
-      unsubscribe();
-      document.removeEventListener("pointerdown", onDocumentDown, true);
-      document.removeEventListener("keydown", onKey);
-      popoverEl.remove();
-    },
-  };
-}
-
-function closeAppearancePopover() {
-  if (!popoverState) return;
-  popoverState.teardown();
-  popoverState = null;
-}
-
-function buildPopoverContent(pin) {
-  const nodes = [];
-
-  const grid = document.createElement("div");
-  grid.className = "appearance-popover__grid";
-  for (const icon of getMergedIcons()) {
-    grid.appendChild(buildIconChoice(pin, icon));
-  }
-  nodes.push(grid);
-
-  const colorRow = document.createElement("label");
-  colorRow.className = "appearance-popover__color-row";
-  const colorLabel = document.createElement("span");
-  colorLabel.className = "appearance-popover__color-label";
-  colorLabel.textContent = "Color";
-  const colorInput = document.createElement("input");
-  colorInput.type = "color";
-  colorInput.className = "appearance-popover__color-input";
-  colorInput.value = pin.color;
-  // `change` only fires when the user picks; cancelling the dialog is
-  // silent. updatePin → notify() fans out: the row re-renders with the
-  // new tile color (CORE-008) and the marker recolors (CORE-005).
-  colorInput.addEventListener("change", () => {
-    updatePin(pin.id, { color: colorInput.value });
-  });
-  colorRow.appendChild(colorLabel);
-  colorRow.appendChild(colorInput);
-  nodes.push(colorRow);
-
-  return nodes;
-}
-
-function buildIconChoice(pin, icon) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "appearance-popover__icon";
-  // currentColor cascade: tinted preview shows what the marker will
-  // actually look like with the pin's current color applied.
-  button.style.color = pin.color;
-  button.setAttribute("aria-label", icon.label);
-  button.appendChild(buildIconElement(icon.id));
-
-  const isSelected = effectiveIcon(pin) === icon.id;
-  if (isSelected) {
-    button.classList.add("appearance-popover__icon--selected");
-    button.setAttribute("aria-pressed", "true");
-  } else {
-    button.setAttribute("aria-pressed", "false");
-  }
-
-  button.addEventListener("click", () => {
-    // No-op when re-clicking the already-selected icon. updatePin would
-    // still notify subscribers, but skipping the spurious tick keeps
-    // the popover from re-rendering for nothing.
-    if (isSelected) return;
-    updatePin(pin.id, { icon: icon.id });
-    // Don't close on selection — the user may want to iterate icon
-    // and color in one popover session.
-  });
-  return button;
-}
-
-function positionPopover(popoverEl, anchorEl) {
-  const rect = anchorEl.getBoundingClientRect();
-  // Estimated popover dimensions for viewport-clamping; the real values
-  // depend on rendered content (3-column icon grid + color row), but
-  // these match the CSS sizing in styles.css and only inform overflow
-  // detection.
-  const estWidth = 240;
-  const estHeight = 180;
-  const margin = 8;
-
-  let left = rect.left + window.scrollX;
-  let top = rect.bottom + window.scrollY + 4;
-
-  if (left + estWidth > window.innerWidth - margin) {
-    left = window.innerWidth - estWidth - margin;
-  }
-  if (left < margin) {
-    left = margin;
-  }
-  // Flip to above the anchor if the popover would overflow the bottom
-  // of the viewport. The 4 px gap from the anchor matches the down
-  // direction.
-  if (top + estHeight > window.innerHeight - margin) {
-    top = rect.top + window.scrollY - estHeight - 4;
-  }
-
-  popoverEl.style.position = "absolute";
-  popoverEl.style.left = `${left}px`;
-  popoverEl.style.top = `${top}px`;
 }
