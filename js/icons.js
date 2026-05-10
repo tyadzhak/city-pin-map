@@ -34,11 +34,36 @@ export const BUILTIN_ICONS = [
   { id: "heart", label: "Heart", category: "pins", tintable: true, src: "assets/icons/heart.svg" },
   { id: "flag", label: "Flag", category: "pins", tintable: true, src: "assets/icons/flag.svg" },
 
+  // Pins (continued)
+  { id: "square", label: "Square", category: "pins", tintable: true, src: "assets/icons/square.svg" },
+  { id: "hexagon", label: "Hexagon", category: "pins", tintable: true, src: "assets/icons/hexagon.svg" },
+
+  // Travel
+  { id: "plane", label: "Airplane", category: "travel", tintable: true, src: "assets/icons/plane.svg" },
+  { id: "hotel", label: "Hotel", category: "travel", tintable: true, src: "assets/icons/hotel.svg" },
+  { id: "restaurant", label: "Restaurant", category: "travel", tintable: true, src: "assets/icons/restaurant.svg" },
+  { id: "coffee", label: "Coffee", category: "travel", tintable: true, src: "assets/icons/coffee.svg" },
+  { id: "camera", label: "Camera", category: "travel", tintable: true, src: "assets/icons/camera.svg" },
+  { id: "suitcase", label: "Suitcase", category: "travel", tintable: true, src: "assets/icons/suitcase.svg" },
+
   // Places
   { id: "house", label: "House", category: "places", tintable: true, src: "assets/icons/house.svg" },
+  { id: "building", label: "Building", category: "places", tintable: true, src: "assets/icons/building.svg" },
+  { id: "mountain", label: "Mountain", category: "places", tintable: true, src: "assets/icons/mountain.svg" },
+  { id: "tree", label: "Tree", category: "places", tintable: true, src: "assets/icons/tree.svg" },
+  { id: "hospital", label: "Hospital", category: "places", tintable: true, src: "assets/icons/hospital.svg" },
 
-  // Task 8 of the implementation plan adds the remaining ~20 starter icons
-  // across travel/places/transport/markers.
+  // Transport
+  { id: "car", label: "Car", category: "transport", tintable: true, src: "assets/icons/car.svg" },
+  { id: "bus", label: "Bus", category: "transport", tintable: true, src: "assets/icons/bus.svg" },
+  { id: "train", label: "Train", category: "transport", tintable: true, src: "assets/icons/train.svg" },
+  { id: "bike", label: "Bike", category: "transport", tintable: true, src: "assets/icons/bike.svg" },
+
+  // Markers
+  { id: "check", label: "Checkmark", category: "markers", tintable: true, src: "assets/icons/check.svg" },
+  { id: "exclamation", label: "Exclamation", category: "markers", tintable: true, src: "assets/icons/exclamation.svg" },
+  { id: "question", label: "Question", category: "markers", tintable: true, src: "assets/icons/question.svg" },
+  { id: "info", label: "Info", category: "markers", tintable: true, src: "assets/icons/info.svg" },
 ];
 
 export const DEFAULT_ICON_ID = "map-pin";
