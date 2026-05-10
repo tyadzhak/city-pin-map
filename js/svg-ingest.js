@@ -75,6 +75,15 @@ export function ingestSvg(rawText) {
     return { ok: false, error: "Root element must be <svg>." };
   }
 
+  // Flatten any `<style>` + `class=` styling into inline presentation
+  // attributes, then drop the now-redundant `<style>` elements and class
+  // attrs. This lets icons exported by Illustrator/Figma/svgrepo —
+  // which commonly carry `<defs><style>.cls-1{...}</style></defs>` — pass
+  // the violations walker. Anything we can't flatten (tag selectors,
+  // pseudo-classes, etc.) is left in place; `walk()` below will then
+  // reject it normally.
+  flattenStylesIntoTree(root);
+
   const violations = [];
   walk(root, violations);
   if (violations.length > 0) {
@@ -182,4 +191,158 @@ function serializeRoot(el) {
   // XMLSerializer is browser-built-in. Trimming leading whitespace keeps
   // the data URL tidy.
   return new XMLSerializer().serializeToString(el).trim();
+}
+
+// ── Style flattening ────────────────────────────────────────────────────
+//
+// Real-world SVG icons (svgrepo, Illustrator, Figma "internal CSS"
+// exports) bind their fills/strokes through `<style>` + `class=` instead
+// of inline `fill=` attributes. The violations walker rejects both as a
+// category, so without flattening the user hits a confusing "can't be
+// safely imported" error on benign icons. We handle that here by
+// expanding matching CSS rules into element attributes.
+
+// Mutates `svgRoot` in place: collects all `<style>` block text, parses
+// rules, applies matching declarations to elements as attributes (only
+// for attributes the walker's allowlist already accepts), then strips
+// the `<style>` elements and `class=` attributes. After this runs, the
+// violations walker sees a tree as if the icon had been authored with
+// inline presentation attributes from the start.
+export function flattenStylesIntoTree(svgRoot) {
+  const styleEls = Array.from(svgRoot.querySelectorAll("style"));
+  if (styleEls.length === 0) return;
+
+  const rules = [];
+  for (const styleEl of styleEls) {
+    rules.push(...parseStyleBlock(styleEl.textContent || ""));
+  }
+
+  // Index rules by class name for O(1) lookup per element.
+  const rulesByClass = new Map();
+  for (const rule of rules) {
+    for (const cls of rule.classNames) {
+      if (!rulesByClass.has(cls)) rulesByClass.set(cls, []);
+      rulesByClass.get(cls).push(rule.declarations);
+    }
+  }
+
+  // Walk the tree and apply matching rules to each element. Document
+  // order is fine for cascade — last rule wins, matching CSS semantics
+  // for equal-specificity rules.
+  function applyTo(el) {
+    const classAttr = el.getAttribute && el.getAttribute("class");
+    if (classAttr) {
+      const elClasses = classAttr.split(/\s+/).filter(Boolean);
+      for (const cls of elClasses) {
+        const matchingRules = rulesByClass.get(cls);
+        if (!matchingRules) continue;
+        for (const decls of matchingRules) {
+          for (const [prop, value] of Object.entries(decls)) {
+            // Don't overwrite an existing inline attribute — inline
+            // wins per CSS specificity (style attrs > class rules).
+            if (el.hasAttribute(prop)) continue;
+            // Only apply properties the violations walker would accept;
+            // anything else gets dropped silently rather than passed
+            // through to be rejected later.
+            if (!ALLOWED_ATTRS.has(prop)) continue;
+            el.setAttribute(prop, value);
+          }
+        }
+      }
+      el.removeAttribute("class");
+    }
+    for (const child of Array.from(el.children)) applyTo(child);
+  }
+  applyTo(svgRoot);
+
+  // Drop the `<style>` elements themselves (now redundant) plus any
+  // `<defs>` left empty as a result — empty `<defs>` is harmless but
+  // tidier to remove.
+  for (const styleEl of styleEls) styleEl.remove();
+  for (const defs of Array.from(svgRoot.querySelectorAll("defs"))) {
+    if (defs.children.length === 0) defs.remove();
+  }
+}
+
+// TODO(you): Implement this function.
+//
+// Parse the text content of an SVG `<style>` block into a list of rules.
+//
+// Input: a string like `.cls-1{fill:none;stroke:#000;}.cls-2{fill:red;}`
+//
+// Output: an array of objects with this shape:
+//   [
+//     { classNames: ["cls-1"], declarations: { fill: "none", stroke: "#000" } },
+//     { classNames: ["cls-2"], declarations: { fill: "red" } },
+//   ]
+//
+// Design constraints — read these before coding:
+//
+//   • Only support class selectors. A rule whose selector doesn't start
+//     with `.` should be silently skipped (return no entry for it).
+//     Examples to skip: `path { fill: red; }`, `#myid { … }`, `:hover`.
+//
+//   • Support comma-separated class selectors: `.a, .b { fill: red; }`
+//     should produce ONE rule with `classNames: ["a", "b"]`.
+//
+//   • Be lenient with whitespace and trailing semicolons. `  .cls-1  {
+//     fill: none ; stroke : #000 ; } ` should still parse cleanly.
+//
+//   • Property names and values get trimmed; property names should be
+//     lowercased (since the walker's allowlist is lowercase). Values
+//     should NOT be lowercased (colors and url() refs preserve case).
+//
+//   • Skip empty/malformed rules silently rather than throwing. The
+//     downstream violation walker is the safety net; this function's
+//     job is best-effort extraction.
+//
+// Hint: a tiny regex split approach works well — split on `}` to get
+// individual rules, then on `{` to get selector + body, then on `;`
+// for declarations, then on `:` for prop/value. No need for a real CSS
+// parser. Take your time on the comma-separated selector case.
+//
+// Test it with: node --test js/svg-ingest.test.mjs
+export function parseStyleBlock(cssText) {
+  if (typeof cssText !== "string" || cssText.trim().length === 0) {
+    return [];
+  }
+  const rules = [];
+  for (const ruleText of cssText.split("}")) {
+    const braceIdx = ruleText.indexOf("{");
+    if (braceIdx === -1) continue;
+    const selectorPart = ruleText.slice(0, braceIdx).trim();
+    const body = ruleText.slice(braceIdx + 1).trim();
+    if (!selectorPart || !body) continue;
+
+    // Selector must be a comma-separated list of pure class selectors;
+    // anything else (tag, id, descendant, pseudo-class) opts the rule
+    // out entirely. We don't try to support partial matches — if you
+    // wrote `.a, path` we drop the rule rather than honor `.a` alone,
+    // because the CSS author's intent was for the rule to apply to
+    // both, and partial application would change the visual output.
+    const classNames = [];
+    let allClass = true;
+    for (const sel of selectorPart.split(",")) {
+      const trimmed = sel.trim();
+      if (!/^\.[A-Za-z_][\w\-]*$/.test(trimmed)) {
+        allClass = false;
+        break;
+      }
+      classNames.push(trimmed.slice(1));
+    }
+    if (!allClass || classNames.length === 0) continue;
+
+    const declarations = {};
+    for (const decl of body.split(";")) {
+      const colonIdx = decl.indexOf(":");
+      if (colonIdx === -1) continue;
+      const prop = decl.slice(0, colonIdx).trim().toLowerCase();
+      const value = decl.slice(colonIdx + 1).trim();
+      if (prop && value) declarations[prop] = value;
+    }
+    if (Object.keys(declarations).length > 0) {
+      rules.push({ classNames, declarations });
+    }
+  }
+  return rules;
 }
