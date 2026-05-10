@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `PO-005`                                    |
 | **Milestone**   | `PO wishes`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `S`                                         |
 | **Depends on**  | `None`                                      |
@@ -21,15 +21,15 @@ Adding 10×15 is a one-entry append: `"photo-10x15-portrait": { width: 1181, hei
 
 ## Acceptance criteria
 
-- [ ] The export format selector includes a new option labelled "10×15 cm portrait (300 DPI)" placed after the existing A-format presets and before any other addition.
-- [ ] Selecting it and clicking Export produces a PNG of exactly 1181×1772 px (within 1-pixel tolerance for any rounding).
-- [ ] The map content is rendered at the new dimensions: same center, same zoom, same pin set, same style, same route line, same group colors, same title/subtitle.
-- [ ] After export, the on-screen map returns to its original dimensions and is fully usable.
-- [ ] The chosen preset persists across reload (existing persistence already handles arbitrary ids — verify, don't re-implement).
-- [ ] No grey/missing tiles in the exported PNG.
-- [ ] Tile attribution remains visible.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] The export format selector includes a new option labelled "10×15 cm portrait (300 DPI)" placed after the existing A-format presets and before any other addition.
+- [x] Selecting it and clicking Export produces a PNG of exactly 1181×1772 px (within 1-pixel tolerance for any rounding).
+- [x] The map content is rendered at the new dimensions: same center, same zoom, same pin set, same style, same route line, same group colors, same title/subtitle.
+- [x] After export, the on-screen map returns to its original dimensions and is fully usable.
+- [x] The chosen preset persists across reload (existing persistence already handles arbitrary ids — verify, don't re-implement).
+- [x] No grey/missing tiles in the exported PNG.
+- [x] Tile attribution remains visible.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
