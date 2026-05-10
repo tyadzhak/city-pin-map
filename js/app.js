@@ -14,10 +14,12 @@ import {
 } from "./map.js";
 import * as pinStore from "./pins.js";
 import * as groupStore from "./groups.js";
+import * as userIconStore from "./user-icons.js";
 import * as settings from "./settings.js";
 import {
   attachStorage,
   attachGroupStorage,
+  attachUserIconStorage,
   loadMapStyle,
   loadRouteVisible,
   saveRouteVisible,
@@ -92,6 +94,13 @@ function init() {
   // attachStorage above: the panel's first render must reflect persisted
   // groups, and reversing the order would write `[]` straight back to disk.
   attachGroupStorage(groupStore);
+
+  // Hydrate user-icon library BEFORE the icon registry's subscribers fire.
+  // Same hydrate-then-subscribe contract as attachStorage / attachGroupStorage.
+  // The icon registry (js/icons.js, added in Task 4) subscribes to user-icons
+  // at module-eval time, so this attach call must run before any module that
+  // imports icons.js triggers a registry rebuild.
+  attachUserIconStorage(userIconStore);
 
   // Route visibility lives as a closure variable so the pin-store
   // subscription and the toggle's change handler share one source of
