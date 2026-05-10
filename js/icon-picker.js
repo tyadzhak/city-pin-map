@@ -17,6 +17,7 @@ import {
   effectiveIcon,
 } from "./icons.js";
 import * as userIconStore from "./user-icons.js";
+import { ingestSvg } from "./svg-ingest.js";
 
 const CATEGORY_ORDER = ["default", "pins", "travel", "places", "transport", "markers", "user"];
 const CATEGORY_LABEL = {
@@ -271,8 +272,319 @@ function buildIconNode(icon) {
   return img;
 }
 
-// showAddSubView is implemented in Task 13. Placeholder so Task 11's
-// commit compiles cleanly. Replace the body in Task 13.
-export function showAddSubView(_pin, _modal) {
-  console.info("Add-icon flow lands in the next task.");
+// In-flight ingest result. The form's tintable radio + commit button read
+// the sanitized markup from this without re-parsing on every interaction.
+// Reset whenever the SVG input clears or the sub-view re-opens.
+let pendingIngest = null;
+
+export function showAddSubView(pin, modal) {
+  pendingIngest = null;
+
+  const sub = document.createElement("div");
+  sub.className = "icon-picker-modal__sub";
+
+  // Header with Back button and × close.
+  const header = document.createElement("div");
+  header.className = "icon-picker-modal__header";
+
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "icon-picker-modal__close";
+  back.textContent = "← Back";
+  back.addEventListener("click", () => showGridView(modal, pin.id));
+  header.appendChild(back);
+
+  const titleSpan = document.createElement("span");
+  titleSpan.textContent = "Add custom icon";
+  header.appendChild(titleSpan);
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "icon-picker-modal__close";
+  close.setAttribute("aria-label", "Close");
+  close.textContent = "×";
+  close.addEventListener("click", closeIconPicker);
+  header.appendChild(close);
+
+  sub.appendChild(header);
+
+  // Scrollable body.
+  const body = document.createElement("div");
+  body.className = "icon-picker-modal__sub-body";
+  sub.appendChild(body);
+
+  // Name field (required).
+  const nameField = makeField("Name *", "text");
+  body.appendChild(nameField.wrap);
+
+  // SVG content: drop-zone + textarea, two paths into the same ingest
+  // pipeline. URL field below is attribution-only — never fetched.
+  const svgFieldWrap = document.createElement("div");
+  svgFieldWrap.className = "icon-picker-modal__field";
+
+  const svgLabel = document.createElement("label");
+  svgLabel.textContent = "SVG content *";
+  svgFieldWrap.appendChild(svgLabel);
+
+  const dropZone = document.createElement("div");
+  dropZone.className = "icon-picker-modal__drop-zone";
+  dropZone.textContent = "Drop SVG file here";
+  svgFieldWrap.appendChild(dropZone);
+
+  const orRow = document.createElement("div");
+  orRow.className = "icon-picker-modal__or";
+  orRow.textContent = "or paste SVG markup";
+  svgFieldWrap.appendChild(orRow);
+
+  const textarea = document.createElement("textarea");
+  textarea.rows = 4;
+  textarea.placeholder = "<svg ...>";
+  svgFieldWrap.appendChild(textarea);
+
+  body.appendChild(svgFieldWrap);
+
+  // Source URL — attribution metadata only. Hint text makes that explicit
+  // so the user doesn't expect us to "go fetch the icon" from this URL.
+  const urlField = makeField(
+    "Source URL (optional, for credit)",
+    "url",
+    "Source link only — not downloaded"
+  );
+  body.appendChild(urlField.wrap);
+
+  const artistField = makeField("Artist name (optional)", "text");
+  body.appendChild(artistField.wrap);
+
+  // Preview row: tinted vs as-is, side by side. Tinted preview uses CSS
+  // `color` on the wrapper so SVGs that use `currentColor` reflect the
+  // pin's color; SVGs with explicit fills ignore it (which is what
+  // tintable=false expects anyway).
+  const previewRow = document.createElement("div");
+  previewRow.className = "icon-picker-modal__preview-row";
+  const tintedCol = makePreviewColumn("Tinted", pin.color);
+  const asIsCol = makePreviewColumn("As-is", null);
+  previewRow.appendChild(tintedCol.wrap);
+  previewRow.appendChild(asIsCol.wrap);
+  body.appendChild(previewRow);
+
+  // Tintable radio group. The "(recommended)" label tracks the heuristic
+  // suggestion from svg-ingest.js — it switches between options based on
+  // unique-fill count.
+  const radioGroup = makeTintableRadioGroup();
+  body.appendChild(radioGroup.wrap);
+
+  const errorEl = document.createElement("div");
+  errorEl.className = "icon-picker-modal__error";
+  body.appendChild(errorEl);
+
+  // Action buttons.
+  const actions = document.createElement("div");
+  actions.className = "icon-picker-modal__actions";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", () => showGridView(modal, pin.id));
+  actions.appendChild(cancelBtn);
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.textContent = "Add to my icons";
+  addBtn.disabled = true;
+  addBtn.addEventListener("click", () => {
+    if (!pendingIngest || !pendingIngest.ok) return;
+    const name = nameField.input.value.trim();
+    if (!name) return;
+    const sourceUrl = urlField.input.value.trim() || null;
+    const artistName = artistField.input.value.trim() || null;
+    userIconStore.add({
+      name,
+      tintable: radioGroup.getValue(),
+      fillSvg: pendingIngest.sanitizedSvg,
+      attribution:
+        sourceUrl || artistName ? { sourceUrl, artistName } : null,
+    });
+    pendingIngest = null;
+    showGridView(modal, pin.id);
+  });
+  actions.appendChild(addBtn);
+
+  sub.appendChild(actions);
+
+  // Wire ingestion. Every input event re-runs ingestSvg; the latest result
+  // wins. This also fires when a dropped file is read into the textarea.
+  const runIngest = (rawText) => {
+    if (!rawText) {
+      tintedCol.preview.replaceChildren();
+      asIsCol.preview.replaceChildren();
+      errorEl.textContent = "";
+      addBtn.disabled = true;
+      pendingIngest = null;
+      return;
+    }
+    const result = ingestSvg(rawText);
+    if (!result.ok) {
+      errorEl.textContent = result.error;
+      tintedCol.preview.replaceChildren();
+      asIsCol.preview.replaceChildren();
+      addBtn.disabled = true;
+      pendingIngest = null;
+      return;
+    }
+    errorEl.textContent = "";
+    pendingIngest = result;
+    radioGroup.setRecommendation(result.suggestedTintable);
+    radioGroup.selectInitial(result.suggestedTintable);
+    const dataUrl =
+      "data:image/svg+xml;charset=utf-8," +
+      encodeURIComponent(result.sanitizedSvg);
+    tintedCol.preview.replaceChildren(makePreviewImg(dataUrl));
+    asIsCol.preview.replaceChildren(makePreviewImg(dataUrl));
+    addBtn.disabled = nameField.input.value.trim().length === 0;
+  };
+
+  textarea.addEventListener("input", () => runIngest(textarea.value));
+
+  nameField.input.addEventListener("input", () => {
+    addBtn.disabled =
+      !pendingIngest || nameField.input.value.trim().length === 0;
+  });
+
+  // Drag-and-drop SVG file. Only `.svg` and `image/svg+xml` accepted —
+  // anything else surfaces a clear error rather than silently failing.
+  dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropZone.classList.add("icon-picker-modal__drop-zone--active");
+  });
+  dropZone.addEventListener("dragleave", () => {
+    dropZone.classList.remove("icon-picker-modal__drop-zone--active");
+  });
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("icon-picker-modal__drop-zone--active");
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    if (
+      !/svg/.test(file.type) &&
+      !file.name.toLowerCase().endsWith(".svg")
+    ) {
+      errorEl.textContent = "Drop an .svg file.";
+      return;
+    }
+    file.text().then((text) => {
+      textarea.value = text;
+      runIngest(text);
+    });
+  });
+
+  modal.replaceChildren(sub);
+}
+
+function makeField(labelText, inputType, hint) {
+  const wrap = document.createElement("div");
+  wrap.className = "icon-picker-modal__field";
+
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  wrap.appendChild(label);
+
+  const input = document.createElement("input");
+  input.type = inputType;
+  wrap.appendChild(input);
+
+  if (hint) {
+    const hintEl = document.createElement("span");
+    hintEl.className = "icon-picker-modal__hint";
+    hintEl.textContent = hint;
+    wrap.appendChild(hintEl);
+  }
+  return { wrap, input };
+}
+
+function makePreviewColumn(labelText, color) {
+  const wrap = document.createElement("div");
+  wrap.className = "icon-picker-modal__preview-col";
+
+  const label = document.createElement("span");
+  label.className = "icon-picker-modal__preview-label";
+  label.textContent = labelText;
+  wrap.appendChild(label);
+
+  const preview = document.createElement("div");
+  preview.className = "icon-picker-modal__preview";
+  if (color) preview.style.color = color;
+  wrap.appendChild(preview);
+
+  return { wrap, preview };
+}
+
+function makePreviewImg(dataUrl) {
+  const img = document.createElement("img");
+  img.src = dataUrl;
+  img.alt = "Preview";
+  return img;
+}
+
+// Builds the Tinting radio group. Two options + a "(recommended)" label
+// that tracks the heuristic. All DOM via createElement — no innerHTML.
+function makeTintableRadioGroup() {
+  const wrap = document.createElement("div");
+  wrap.className = "icon-picker-modal__field icon-picker-modal__radio-group";
+
+  const titleLabel = document.createElement("label");
+  titleLabel.textContent = "Tinting";
+  wrap.appendChild(titleLabel);
+
+  // Tint option.
+  const tintLabel = document.createElement("label");
+  const tintInput = document.createElement("input");
+  tintInput.type = "radio";
+  tintInput.name = "tintable";
+  tintInput.value = "true";
+  tintLabel.appendChild(tintInput);
+  tintLabel.appendChild(document.createTextNode(" Tint with pin color"));
+
+  const tintRecommend = document.createElement("span");
+  tintRecommend.className =
+    "icon-picker-modal__recommend icon-picker-modal__recommend--hidden";
+  tintRecommend.textContent = " (recommended)";
+  tintLabel.appendChild(tintRecommend);
+  wrap.appendChild(tintLabel);
+
+  // As-is option.
+  const asisLabel = document.createElement("label");
+  const asisInput = document.createElement("input");
+  asisInput.type = "radio";
+  asisInput.name = "tintable";
+  asisInput.value = "false";
+  asisInput.checked = true;
+  asisLabel.appendChild(asisInput);
+  asisLabel.appendChild(document.createTextNode(" Use as-is"));
+
+  const asisRecommend = document.createElement("span");
+  asisRecommend.className = "icon-picker-modal__recommend";
+  asisRecommend.textContent = " (recommended)";
+  asisLabel.appendChild(asisRecommend);
+  wrap.appendChild(asisLabel);
+
+  return {
+    wrap,
+    setRecommendation(suggestTintable) {
+      tintRecommend.classList.toggle(
+        "icon-picker-modal__recommend--hidden",
+        !suggestTintable
+      );
+      asisRecommend.classList.toggle(
+        "icon-picker-modal__recommend--hidden",
+        suggestTintable
+      );
+    },
+    selectInitial(suggestTintable) {
+      if (suggestTintable) tintInput.checked = true;
+      else asisInput.checked = true;
+    },
+    getValue() {
+      return tintInput.checked;
+    },
+  };
 }
