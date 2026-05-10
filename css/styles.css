@@ -1296,12 +1296,17 @@ body.dragging-pin * {
 
 .appearance-popover {
   /* position/left/top set inline by pin-list.js. Other layout properties
-     here are static. */
+     here are static. PIL-001: max-height + overflow keeps the popover
+     scrollable when the registry grows past ~6 icons (it is 9+ rows tall
+     at 26). The modal in a later task replaces this; the patch is
+     transitional so the existing popover stays usable in the meantime. */
   z-index: 200;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
   width: 240px;
+  max-height: 70vh;
+  overflow-y: auto;
   padding: 10px 12px;
   background: #ffffff;
   border: 1px solid #cbd5e1;
