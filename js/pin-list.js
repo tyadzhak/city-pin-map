@@ -21,11 +21,8 @@ import {
   subscribe as subscribeGroups,
   listGroups,
 } from "./groups.js";
-import {
-  effectiveColor,
-  effectiveIcon,
-  PIN_ICONS,
-} from "./map.js";
+import { effectiveColor } from "./map.js";
+import { effectiveIcon, getMergedIcons } from "./icons.js";
 
 /**
  * Wires the list to the pin store AND the group store. Call once during
@@ -246,7 +243,7 @@ const svgParser = new DOMParser();
 function loadIconTemplates() {
   if (iconTemplatesPromise) return iconTemplatesPromise;
   iconTemplatesPromise = Promise.all(
-    PIN_ICONS.map(async (icon) => {
+    getMergedIcons().map(async (icon) => {
       const res = await fetch(icon.src);
       const text = await res.text();
       // DOMParser in image/svg+xml mode is the safe parse path for
@@ -379,7 +376,7 @@ function buildPopoverContent(pin) {
 
   const grid = document.createElement("div");
   grid.className = "appearance-popover__grid";
-  for (const icon of PIN_ICONS) {
+  for (const icon of getMergedIcons()) {
     grid.appendChild(buildIconChoice(pin, icon));
   }
   nodes.push(grid);

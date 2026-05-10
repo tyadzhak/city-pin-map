@@ -8,6 +8,13 @@ import { updatePin } from "./pins.js";
 import { listGroups } from "./groups.js";
 import { saveMapStyle, showError, loadHideLabels } from "./storage.js";
 import * as settings from "./settings.js";
+import {
+  getMergedIcons,
+  getIcon,
+  subscribe as subscribeIcons,
+  effectiveIcon as effectiveIconFromRegistry,
+  DEFAULT_ICON_ID,
+} from "./icons.js";
 
 // Registry of available basemap styles. Hybrid: 4 vector styles served by
 // OpenFreeMap (keyless), and 3 raster-only entries wrapped as inline
@@ -361,16 +368,24 @@ const ROUTE_LAYER_ID = "city-pin-map.route-line";
 // the basemap's version through a stylechange race. The mapping
 // happens once at the layer's icon-image expression via `concat`.
 const PIN_ICON_IMAGE_PREFIX = "city-pin-map.icon.";
-export const PIN_ICONS = [
-  { id: "map-pin", label: "Drop pin", src: "assets/icons/map-pin.svg" },
-  { id: "circle", label: "Circle", src: "assets/icons/circle.svg" },
-  { id: "star", label: "Star", src: "assets/icons/star.svg" },
-  { id: "heart", label: "Heart", src: "assets/icons/heart.svg" },
-  { id: "flag", label: "Flag", src: "assets/icons/flag.svg" },
-  { id: "house", label: "House", src: "assets/icons/house.svg" },
-];
-export const DEFAULT_PIN_ICON = "map-pin";
-const PIN_ICON_IDS = new Set(PIN_ICONS.map((i) => i.id));
+
+// PI-001's inline icon registry has been extracted to ./icons.js (PIL-001)
+// so user-uploaded custom icons can join the same registry. This module
+// re-exports the public surface for backwards compatibility with callers
+// that still imported from map.js.
+export const DEFAULT_PIN_ICON = DEFAULT_ICON_ID;
+
+// PIN_ICONS is exposed as a Proxy so any reader doing
+// `for (const icon of PIN_ICONS)` or `PIN_ICONS.map(...)` sees the live
+// merged (built-in + user) registry. Used internally below in the image
+// registration loop and re-exported for callers in pin-list.js / future
+// icon-picker.js (which can also subscribe via icons.js for live updates).
+export const PIN_ICONS = new Proxy([], {
+  get(target, prop) {
+    const live = getMergedIcons();
+    return Reflect.get(live, prop, live);
+  },
+});
 
 // Module-scoped singleton. Treat as private; outside callers use getMap().
 let mapInstance = null;
@@ -740,15 +755,14 @@ export function effectiveColor(pin) {
 }
 
 /**
- * Resolve the icon id a pin should render as. Returns DEFAULT_PIN_ICON
- * when the pin has no icon set or its icon id isn't in the current
- * registry (older session, hand-edited storage, future-version backup).
- * Render must never reference a missing image — MapLibre would log
- * "Image 'foo' could not be loaded" and drop the feature.
+ * Resolve the icon id a pin should render as. Re-export from ./icons.js
+ * which now owns the merged (built-in + user) registry. Render must never
+ * reference a missing image — MapLibre would log "Image 'foo' could not be
+ * loaded" and drop the feature; the registry's clamp-to-known-id contract
+ * defends against that.
  */
 export function effectiveIcon(pin) {
-  if (pin.icon && PIN_ICON_IDS.has(pin.icon)) return pin.icon;
-  return DEFAULT_PIN_ICON;
+  return effectiveIconFromRegistry(pin);
 }
 
 // ---- Internals --------------------------------------------------------
