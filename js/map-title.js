@@ -28,7 +28,20 @@ let mapInstance = null;
 let element = null;
 let onAnchorChange = null;
 
-let position = { text: "", lon: null, lat: null };
+// Full overlay state. Geographic anchor (lon/lat) drives the transform on
+// every map move; formatting fields (font/bold/italic/color/size) drive
+// the inline element styles on every update. PO-009 expanded this from
+// just the anchor + text to the full toolbar shape.
+let position = {
+  text: "",
+  lon: null,
+  lat: null,
+  font: 'Georgia, "Times New Roman", serif',
+  bold: true,
+  italic: false,
+  color: "#1f2937",
+  size: 20,
+};
 
 // Drag state. Set on pointerdown, cleared on pointerup. The pixel offset
 // captures where the cursor grabbed relative to the overlay's center, so a
@@ -87,14 +100,30 @@ export function init(map, opts = {}) {
  * from the current map center and emits onAnchorChange so the caller can
  * persist the resolved coordinates.
  */
-export function update({ text, lon, lat }) {
+export function update(next) {
+  // Merge over existing fields so a partial caller (e.g. "just toggle
+  // bold") doesn't have to know about every field. The CSS-applied
+  // formatting fields (font/bold/italic/color/size) fall back to the
+  // current value rather than the module's hard-coded defaults so a
+  // mid-session call with only `{ text: "..." }` doesn't reset the
+  // user's font picks.
   position = {
-    text: typeof text === "string" ? text : "",
-    lon: Number.isFinite(lon) ? lon : null,
-    lat: Number.isFinite(lat) ? lat : null,
+    text: typeof next.text === "string" ? next.text : position.text,
+    lon: Number.isFinite(next.lon) ? next.lon : null,
+    lat: Number.isFinite(next.lat) ? next.lat : null,
+    font: typeof next.font === "string" ? next.font : position.font,
+    bold: typeof next.bold === "boolean" ? next.bold : position.bold,
+    italic: typeof next.italic === "boolean" ? next.italic : position.italic,
+    color: typeof next.color === "string" ? next.color : position.color,
+    size: Number.isFinite(next.size) ? next.size : position.size,
   };
 
   if (!element || !mapInstance) return;
+
+  // Apply the formatting fields to the live element on every update so a
+  // toggle reflects without waiting for a re-render. Cheap (style writes
+  // batch into one layout pass).
+  applyFormatting();
 
   if (!position.text) {
     element.hidden = true;
@@ -115,6 +144,15 @@ export function update({ text, lon, lat }) {
   element.textContent = position.text;
   element.hidden = false;
   reproject();
+}
+
+function applyFormatting() {
+  if (!element) return;
+  element.style.fontFamily = position.font;
+  element.style.fontWeight = position.bold ? "700" : "400";
+  element.style.fontStyle = position.italic ? "italic" : "normal";
+  element.style.color = position.color;
+  element.style.fontSize = `${position.size}px`;
 }
 
 /** Read the live { text, lon, lat }. Returns a fresh copy so callers can mutate freely. */

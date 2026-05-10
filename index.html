@@ -26,7 +26,7 @@
       src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"
     ></script>
 
-    <link rel="stylesheet" href="css/styles.css?v=po-008" />
+    <link rel="stylesheet" href="css/styles.css?v=po-009" />
   </head>
   <body>
     <div class="app-shell">
@@ -133,33 +133,73 @@
              (NICE-007 dimensions / aspect ratio) can be added in the same
              slot without further header gymnastics. -->
         <div class="export-options" aria-label="Export options">
-          <input
-            id="export-title"
-            type="text"
-            class="export-options__input"
-            placeholder="Title (optional)"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <input
-            id="export-subtitle"
-            type="text"
-            class="export-options__input"
-            placeholder="Subtitle (optional)"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <!-- PO-008: on-map title. The input lives here next to the
-               title strip inputs, but the value drives a draggable overlay
-               on the map (js/map-title.js) — not a band above it. The two
-               coexist; both render in the export when both are set. -->
+          <!-- PO-008/009: on-map title. The input drives a draggable
+               overlay rendered both in the live map (js/map-title.js)
+               and in the exported PNG (js/export.js → drawOnMapTitle).
+               PO-009 retired the title strip — this is the only text
+               pass on the export now, and the toolbar to its right
+               (font / B / I / color / size) is the user's full set of
+               formatting controls. -->
           <input
             id="export-on-map-title"
             type="text"
             class="export-options__input"
-            placeholder="On-map title (optional)"
+            placeholder="On-map title"
             autocomplete="off"
             spellcheck="false"
+          />
+          <select
+            id="otm-font"
+            class="otm-format-select"
+            aria-label="Font family"
+            title="Font family"
+          >
+            <option value='Georgia, "Times New Roman", serif'>Georgia</option>
+            <option value='"Times New Roman", Times, serif'>Times</option>
+            <option value="Helvetica, Arial, sans-serif">Helvetica</option>
+            <option value="Verdana, Geneva, sans-serif">Verdana</option>
+            <option value='"Trebuchet MS", "Lucida Sans Unicode", sans-serif'>
+              Trebuchet
+            </option>
+            <option value='"Courier New", Courier, monospace'>Courier</option>
+            <option value='Impact, "Arial Black", sans-serif'>Impact</option>
+          </select>
+          <button
+            id="otm-bold"
+            type="button"
+            class="otm-format-toggle"
+            aria-pressed="true"
+            aria-label="Bold"
+            title="Bold"
+          >
+            <span class="otm-format-toggle__glyph otm-format-toggle__glyph--bold">B</span>
+          </button>
+          <button
+            id="otm-italic"
+            type="button"
+            class="otm-format-toggle"
+            aria-pressed="false"
+            aria-label="Italic"
+            title="Italic"
+          >
+            <span class="otm-format-toggle__glyph otm-format-toggle__glyph--italic">I</span>
+          </button>
+          <input
+            id="otm-color"
+            type="color"
+            class="otm-format-color"
+            aria-label="Text color"
+            title="Text color"
+          />
+          <input
+            id="otm-size"
+            type="number"
+            min="10"
+            max="80"
+            step="1"
+            class="otm-format-size"
+            aria-label="Font size in pixels"
+            title="Size (px)"
           />
           <label for="export-format" class="visually-hidden"
             >Export format</label

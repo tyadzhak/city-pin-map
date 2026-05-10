@@ -1,10 +1,17 @@
 // PNG export via native HTML5 Canvas. Composites the MapLibre WebGL canvas
-// + an optional title strip into an off-screen 2D canvas, then optionally
-// wraps the result in a decorative frame (PO-007), then toDataURL.
+// into an off-screen 2D canvas, paints the on-map title overlay (PO-008)
+// at its projected position, then optionally wraps the result in a
+// decorative frame (PO-007), then toDataURL.
 //
 // Markers and the route line are layers inside the WebGL canvas (see
 // js/map.js — Option B GeoJSONSource + circle/line layers), so they are
 // captured automatically by getCanvas(). No post-composite step is needed.
+//
+// PO-009 retired the NICE-006 title strip path. The single on-map title
+// (with user-driven font / bold / italic / color / size) is the only text
+// pass on the composite — picked over the strip because a draggable
+// labelled location does the same poster-header job and lets the user
+// place the text wherever it complements the map best.
 
 import { showError, loadExportFrame, loadOnMapTitle } from "./storage.js";
 import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
@@ -20,14 +27,21 @@ const TILE_WAIT_TIMEOUT_MS_PRESET = 12000;
 // viewport. Same value the Leaflet pipeline used.
 const OFFSCREEN_PX = -100000;
 
-// Reference canvas dimension that the BASE values in TITLE_STRIP and the
-// pins-labels layer were tuned against (PO-006). The export coefficient
-// is the longest output side divided by this baseline, clamped to keep
-// extreme presets readable. Tuning history: a 1280-px-wide capture is the
-// "canonical" desktop browser viewport these constants were eyeballed at.
+// Reference canvas dimension that the live-CSS sizes for the on-map title
+// and the pins-labels layer were tuned against (PO-006). The export
+// coefficient is the longest output side divided by this baseline,
+// clamped to keep extreme presets readable. Tuning history: a 1280-px-
+// wide capture is the "canonical" desktop browser viewport these
+// constants were eyeballed at.
 const REFERENCE_BASELINE = 1280;
 const COEFF_MIN = 0.6;
 const COEFF_MAX = 2.5;
+
+// White canvas under the composite. Letterbox-coverage when a preset's
+// aspect ratio doesn't match the live map's; otherwise the map fills the
+// canvas edge-to-edge and this is invisible. Kept as a constant so a
+// future "exported background color" task has one place to wire into.
+const CANVAS_BACKGROUND = "#ffffff";
 
 // Preset id → { width, height } in CSS pixels for the exported PNG.
 // `null` means "Current view — capture the live map at its on-screen size".
@@ -45,46 +59,21 @@ export const EXPORT_PRESETS = {
   "photo-10x15-portrait": { width: 1181, height: 1772 },
 };
 
-// PO-008 — on-map title overlay typography. Mirrors the live overlay's
-// CSS in css/styles.css (.export-on-map-title) so the export reads as
-// what the user saw on screen. Every dimension multiplies by `coeff`
-// (PO-006) at draw time, so the overlay grows proportionally with the
-// export canvas — same contract as the title strip below.
-const ON_MAP_TITLE = {
-  fontFamily: 'Georgia, "Times New Roman", serif',
-  fontWeight: 700,
-  // Slightly smaller than the title strip's 32px — the overlay is a
-  // place-label, not a poster header. Tuned by eye against the live
-  // CSS's 20px to land at the same visual weight after coeff scaling
-  // on a 1280-px viewport.
-  fontSize: 22,
-  textColor: "#1f2937",
+// PO-008/009 — on-map title chip. Typography (font, weight, italic, color,
+// size) comes from the user's picks in storage; the chip's box geometry
+// is fixed here so backdrops still read as one design family across font
+// changes. Every box dimension multiplies by `coeff` (PO-006) at draw
+// time, so the chip grows proportionally with the export canvas.
+const ON_MAP_TITLE_BOX = {
   background: "rgba(255, 255, 255, 0.85)",
   borderColor: "rgba(0, 0, 0, 0.06)",
   borderWidth: 1,
   paddingX: 14,
   paddingY: 8,
   borderRadius: 6,
-};
-
-// Title strip layout — matches css/styles.css .export-title-strip so the
-// exported PNG looks the same as the previous DOM-walk capture.
-const TITLE_STRIP = {
-  background: "#ffffff",
-  textColor: "#1f2933",
-  subtitleColor: "#4b5563",
-  // Georgia ships on macOS / Windows / most Linux desktops, so the PNG
-  // looks the same on every machine. Same fontstack as the previous CSS.
-  fontFamily: 'Georgia, "Times New Roman", serif',
-  titleSize: 32,
-  titleWeight: 700,
-  subtitleSize: 18,
-  subtitleStyle: "italic",
-  subtitleWeight: 400,
-  paddingTop: 24,
-  paddingBottom: 20,
-  paddingX: 32,
-  titleSubtitleGap: 6,
+  // Approximate glyph-box → line-height ratio. Used to size the backdrop
+  // around the user's text. Same 1.2 the live CSS uses, so live and
+  // exported renders read at the same visual weight.
   lineHeightMultiplier: 1.2,
 };
 
@@ -97,28 +86,23 @@ export async function exportMapAsPng(mapInstance) {
   try {
     if (!mapInstance) throw new Error("map instance not provided");
 
-    const titleInput = document.getElementById("export-title");
-    const subtitleInput = document.getElementById("export-subtitle");
-    const title = titleInput ? titleInput.value.trim() : "";
-    const subtitle = subtitleInput ? subtitleInput.value.trim() : "";
-
     const formatSelect = document.getElementById("export-format");
     const presetId = formatSelect ? formatSelect.value : "current";
     const preset = EXPORT_PRESETS[presetId] ?? null;
 
     // PO-007 frame settings live in localStorage; app.js owns the input
-    // wiring. Reading at click time mirrors how title/subtitle/preset are
-    // resolved above — the export pipeline doesn't need a subscription.
+    // wiring. Reading at click time mirrors how preset is resolved above
+    // — the export pipeline doesn't need a subscription.
     const frame = loadExportFrame();
 
-    // PO-008 — on-map title. Captured on the live map BEFORE captureFramed
-    // resizes anything (approach (1) in the task brief): we record the
-    // projected pixel position as a ratio of the live container's CSS
-    // dimensions, then composite() multiplies that ratio by the export
-    // canvas's map area. Resizing for a preset reprojects Mercator at a
-    // different aspect, so the ratio approximation can drift sub-pixel on
-    // extreme presets — invisible at A4/16:9; bump to approach (2) if the
-    // drift becomes observable on A3 / 10×15.
+    // PO-008/009 — on-map title. Captured on the live map BEFORE
+    // captureFramed resizes anything (approach (1) in the task brief):
+    // we record the projected pixel position as a ratio of the live
+    // container's CSS dimensions, then composite() multiplies that ratio
+    // by the export canvas's map area. Resizing for a preset reprojects
+    // Mercator at a different aspect, so the ratio approximation can
+    // drift sub-pixel on extreme presets — invisible at A4/16:9; bump to
+    // approach (2) if the drift becomes observable on A3 / 10×15.
     const onMapTitleRaw = loadOnMapTitle();
     const onMapTitleProjection = projectOnMapTitle(mapInstance, onMapTitleRaw);
 
@@ -126,22 +110,16 @@ export async function exportMapAsPng(mapInstance) {
     // single toDataURL conversion happen at the end so they share the
     // exact same code regardless of which capture path ran.
     let innerCanvas;
-    if (!title && !subtitle && !preset && !onMapTitleProjection) {
-      // Fast path: live map, no title strip, no resize, no overlay text.
-      // Capture the canvas as-is. triggerRepaint + once('render') ensures
-      // the framebuffer reflects the current state before we read it.
+    if (!preset && !onMapTitleProjection) {
+      // Fast path: live map, no resize, no overlay text. Capture the
+      // canvas as-is. triggerRepaint + once('render') ensures the
+      // framebuffer reflects the current state before we read it.
       await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
       mapInstance.triggerRepaint();
       await waitForRender(mapInstance);
       innerCanvas = mapInstance.getCanvas();
     } else {
-      innerCanvas = await captureFramed(
-        mapInstance,
-        title,
-        subtitle,
-        preset,
-        onMapTitleProjection
-      );
+      innerCanvas = await captureFramed(mapInstance, preset, onMapTitleProjection);
     }
 
     const finalCanvas = wrapFrame(innerCanvas, frame);
@@ -154,10 +132,10 @@ export async function exportMapAsPng(mapInstance) {
   }
 }
 
-// Single off-screen wrapper that handles both the title strip and the
-// preset resize. One try/finally so any failure unwinds the DOM and the
-// MapLibre container atomically.
-async function captureFramed(mapInstance, title, subtitle, preset, onMapTitle) {
+// Single off-screen wrapper that handles the preset resize. One
+// try/finally so any failure unwinds the DOM and the MapLibre container
+// atomically.
+async function captureFramed(mapInstance, preset, onMapTitle) {
   const mapEl = mapInstance.getContainer();
 
   const originalParent = mapEl.parentNode;
@@ -177,25 +155,17 @@ async function captureFramed(mapInstance, title, subtitle, preset, onMapTitle) {
   wrapper.style.position = "fixed";
   wrapper.style.left = `${OFFSCREEN_PX}px`;
   wrapper.style.top = "0";
-  wrapper.style.background = TITLE_STRIP.background;
+  wrapper.style.background = CANVAS_BACKGROUND;
 
   const frameWidth = preset ? preset.width : rect.width;
+  const frameHeight = preset ? preset.height : rect.height;
 
   // PO-006: the typography coefficient is a function of the export's
   // longest side. For preset captures we use the preset dimensions
-  // directly. For "current view" we use the live map's CSS rect — the
-  // map portion only, not including the title strip — so the coefficient
-  // reflects the canvas the user actually sees, and ~1.0 for a typical
-  // 1280-px-wide window keeps NICE-006's visual contract intact.
-  const coeffSourceHeight = preset ? preset.height : rect.height;
-  const coeff = computeCoeff(frameWidth, coeffSourceHeight);
-
-  // Pre-compute the title strip metrics so we know its exact pixel height
-  // before the map is resized. Strip height now scales with `coeff` too.
-  const titleHeight =
-    title || subtitle ? measureTitleStrip({ title, subtitle }, coeff) : 0;
-
-  const frameHeight = preset ? preset.height : rect.height + titleHeight;
+  // directly; for "current view" we use the live map's CSS rect, so
+  // ~1.0 for a typical 1280-px-wide window keeps the on-map title at
+  // the visual weight the user picked in the live overlay.
+  const coeff = computeCoeff(frameWidth, frameHeight);
 
   wrapper.style.width = `${frameWidth}px`;
   wrapper.style.height = `${frameHeight}px`;
@@ -208,7 +178,7 @@ async function captureFramed(mapInstance, title, subtitle, preset, onMapTitle) {
   mapEl.style.bottom = "auto";
   mapEl.style.left = "auto";
   mapEl.style.width = `${frameWidth}px`;
-  mapEl.style.height = `${frameHeight - titleHeight}px`;
+  mapEl.style.height = `${frameHeight}px`;
 
   wrapper.appendChild(mapEl);
   document.body.appendChild(wrapper);
@@ -232,14 +202,7 @@ async function captureFramed(mapInstance, title, subtitle, preset, onMapTitle) {
     return composite({
       mapCanvas: mapInstance.getCanvas(),
       mapWidthCss: frameWidth,
-      mapHeightCss: frameHeight - titleHeight,
-      titleStrip: {
-        title,
-        subtitle,
-        height: titleHeight,
-        width: frameWidth,
-        coeff,
-      },
+      mapHeightCss: frameHeight,
       outputWidth: frameWidth,
       outputHeight: frameHeight,
       onMapTitle,
@@ -267,53 +230,25 @@ async function captureFramed(mapInstance, title, subtitle, preset, onMapTitle) {
   }
 }
 
-// Returns the title strip's exact pixel height for the given inputs and
-// the resolved scaling coefficient (PO-006). Every typographic constant
-// — titleSize, subtitleSize, gap, paddings — scales by `coeff` so the
-// strip grows in lockstep with the title and never crops a scaled glyph.
-// Width is unused for the simple single-line layout we draw — long titles
-// are clipped, matching the old CSS's white-space behaviour.
-function measureTitleStrip({ title, subtitle }, coeff) {
-  const titleLineHeight = title
-    ? Math.ceil(TITLE_STRIP.titleSize * coeff * TITLE_STRIP.lineHeightMultiplier)
-    : 0;
-  const subtitleLineHeight = subtitle
-    ? Math.ceil(
-        TITLE_STRIP.subtitleSize * coeff * TITLE_STRIP.lineHeightMultiplier
-      )
-    : 0;
-  const gap = title && subtitle ? TITLE_STRIP.titleSubtitleGap * coeff : 0;
-
-  return Math.ceil(
-    TITLE_STRIP.paddingTop * coeff +
-      titleLineHeight +
-      gap +
-      subtitleLineHeight +
-      TITLE_STRIP.paddingBottom * coeff
-  );
-}
-
 // Clamp(longestSide / REFERENCE_BASELINE, [COEFF_MIN, COEFF_MAX]). Used
-// by both the title strip and the pin-labels override. See PO-006 notes:
-// the clamp guards against unreadable extremes from custom or future
-// preset dimensions sitting far outside the tuned-for-1280 sweet spot.
+// by both the on-map title chip and the pin-labels override. See PO-006
+// notes: the clamp guards against unreadable extremes from custom or
+// future preset dimensions sitting far outside the tuned-for-1280 sweet
+// spot.
 function computeCoeff(width, height) {
   const longest = Math.max(width, height);
   const raw = longest / REFERENCE_BASELINE;
   return Math.min(COEFF_MAX, Math.max(COEFF_MIN, raw));
 }
 
-// Composite the map canvas + title strip into one output canvas and
-// return the canvas. The output canvas is sized in CSS pixels to match
-// what dom-to-image-more produced — same on-disk dimensions as the
-// previous pipeline, no surprise size change for the user. The caller
-// (exportMapAsPng) handles the optional PO-007 frame wrap and the final
-// toDataURL conversion.
+// Composite the map canvas + on-map title chip into one output canvas
+// and return the canvas. The output canvas is sized in CSS pixels. The
+// caller (exportMapAsPng) handles the optional PO-007 frame wrap and the
+// final toDataURL conversion.
 function composite({
   mapCanvas,
   mapWidthCss,
   mapHeightCss,
-  titleStrip,
   outputWidth,
   outputHeight,
   onMapTitle,
@@ -324,18 +259,15 @@ function composite({
   out.height = outputHeight;
   const ctx = out.getContext("2d");
 
-  // Solid background under everything — covers the title strip area and
-  // any margin if the map is letterboxed.
-  ctx.fillStyle = TITLE_STRIP.background;
+  // Solid background — covers any margin if the preset's aspect ratio
+  // exceeds the live map's. With matched aspect ratios the map canvas
+  // covers it edge-to-edge.
+  ctx.fillStyle = CANVAS_BACKGROUND;
   ctx.fillRect(0, 0, outputWidth, outputHeight);
 
-  if (titleStrip.height > 0) {
-    drawTitleStrip(ctx, titleStrip);
-  }
-
-  // Map canvas drawn below the title strip, scaled to CSS pixel dims.
-  // mapCanvas.width/.height are device pixels (CSS × dpr); drawImage's
-  // 9-arg form rescales to the destination rect.
+  // Map canvas, scaled to CSS pixel dims. mapCanvas.width/.height are
+  // device pixels (CSS × dpr); drawImage's 9-arg form rescales to the
+  // destination rect.
   ctx.drawImage(
     mapCanvas,
     0,
@@ -343,22 +275,20 @@ function composite({
     mapCanvas.width,
     mapCanvas.height,
     0,
-    titleStrip.height,
+    0,
     mapWidthCss,
     mapHeightCss
   );
 
-  // PO-008 — draw the on-map title overlay AFTER the title strip and the
-  // map pixels, so it floats on top of the map's tiles + markers, and
-  // BEFORE wrapFrame (which runs in the caller) so the decorative frame
-  // never paints over the title. Pixel position scales the live-map
-  // ratio by the export's map area (mapWidthCss × mapHeightCss), and y
-  // is offset by titleStrip.height so a non-zero strip pushes the
-  // overlay down with the map.
+  // PO-008/009 — draw the on-map title chip AFTER the map pixels (so it
+  // floats on top of tiles + markers) and BEFORE wrapFrame (which runs
+  // in the caller, so the decorative frame never paints over the title).
+  // Pixel position scales the live-map ratio by the export's map area.
   if (onMapTitle) {
     drawOnMapTitle(ctx, {
       x: onMapTitle.xRatio * mapWidthCss,
-      y: titleStrip.height + onMapTitle.yRatio * mapHeightCss,
+      y: onMapTitle.yRatio * mapHeightCss,
+      style: onMapTitle.style,
       text: onMapTitle.text,
       coeff,
     });
@@ -420,14 +350,12 @@ function wrapFrame(innerCanvas, frame) {
   return out;
 }
 
-// PO-008. Projects the on-map title's stored lon/lat onto the LIVE map
-// container's pixel space and returns the position as a ratio of the
-// container's CSS dimensions. composite() multiplies that ratio by the
-// export's map area so the overlay lands at the same on-screen position as
-// the user saw before clicking Export. Returns null when there's nothing to
-// draw (empty text, missing anchor, or a stored anchor outside the live
-// view — out-of-bounds projections still resolve, but rendering them would
-// place the title floating off the visible map area).
+// PO-008/009. Projects the on-map title's stored lon/lat onto the LIVE
+// map container's pixel space and returns the position as a ratio of the
+// container's CSS dimensions, plus the user's formatting state pulled
+// straight off the storage object. composite() multiplies the ratio by
+// the export's map area so the chip lands at the same on-screen position
+// the user saw before clicking Export.
 function projectOnMapTitle(mapInstance, raw) {
   if (!raw || !raw.text) return null;
   if (!Number.isFinite(raw.lon) || !Number.isFinite(raw.lat)) return null;
@@ -440,33 +368,44 @@ function projectOnMapTitle(mapInstance, raw) {
     text: raw.text,
     xRatio: pt.x / rect.width,
     yRatio: pt.y / rect.height,
+    style: {
+      font: raw.font,
+      bold: Boolean(raw.bold),
+      italic: Boolean(raw.italic),
+      color: raw.color,
+      size: raw.size,
+    },
   };
 }
 
-// PO-008. Paints the on-map title at (x, y) — interpreted as the overlay's
-// CENTER, mirroring the live overlay's translate(-50%, -50%) trick. Every
-// dimension multiplies by `coeff` so a 1080² preset gets a slightly smaller
-// pill than a 1920×1080 one and an A3 print gets a larger one — the same
-// proportional-sizing contract the title strip already uses.
-function drawOnMapTitle(ctx, { x, y, text, coeff }) {
-  const fontSize = ON_MAP_TITLE.fontSize * coeff;
-  const padX = ON_MAP_TITLE.paddingX * coeff;
-  const padY = ON_MAP_TITLE.paddingY * coeff;
-  const radius = ON_MAP_TITLE.borderRadius * coeff;
-  const borderWidth = ON_MAP_TITLE.borderWidth * coeff;
+// PO-008/009. Paints the chip at (x, y) — interpreted as the chip's
+// CENTER, mirroring the live overlay's translate(-50%, -50%) trick.
+// `style` carries the user's font/bold/italic/color/size picks; the box
+// constants (background, border, padding, radius) come from
+// ON_MAP_TITLE_BOX. Every dimension scales by `coeff` so a 1080² preset
+// gets a slightly smaller pill than a 1920×1080 one — same proportional-
+// sizing contract the pin labels follow.
+function drawOnMapTitle(ctx, { x, y, style, text, coeff }) {
+  const fontSize = style.size * coeff;
+  const padX = ON_MAP_TITLE_BOX.paddingX * coeff;
+  const padY = ON_MAP_TITLE_BOX.paddingY * coeff;
+  const radius = ON_MAP_TITLE_BOX.borderRadius * coeff;
+  const borderWidth = ON_MAP_TITLE_BOX.borderWidth * coeff;
 
   ctx.save();
 
-  ctx.font = `${ON_MAP_TITLE.fontWeight} ${fontSize}px ${ON_MAP_TITLE.fontFamily}`;
+  // ctx.font shorthand: "italic 700 32px Georgia, serif". Order matters:
+  // style → weight → size → family. Skipping italic when off keeps the
+  // string short; weight=400 is the implicit normal default.
+  const weight = style.bold ? "700" : "400";
+  const styleToken = style.italic ? "italic " : "";
+  ctx.font = `${styleToken}${weight} ${fontSize}px ${style.font}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // measureText().width is alphabetic-baseline-aware. Box height is
-  // approximated as fontSize * lineHeight ratio — same 1.2 the title
-  // strip uses, so the two read as one design family.
   const metrics = ctx.measureText(text);
   const textWidth = metrics.width;
-  const textHeight = fontSize * 1.2;
+  const textHeight = fontSize * ON_MAP_TITLE_BOX.lineHeightMultiplier;
   const boxWidth = textWidth + padX * 2;
   const boxHeight = textHeight + padY * 2;
   const boxX = x - boxWidth / 2;
@@ -476,18 +415,18 @@ function drawOnMapTitle(ctx, { x, y, text, coeff }) {
   // landed in 2022 and is supported by every browser in this app's
   // target list, but a defensive fallback to a square fillRect keeps
   // older engines from throwing.
-  ctx.fillStyle = ON_MAP_TITLE.background;
+  ctx.fillStyle = ON_MAP_TITLE_BOX.background;
   drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, radius);
   ctx.fill();
 
   if (borderWidth > 0) {
     ctx.lineWidth = borderWidth;
-    ctx.strokeStyle = ON_MAP_TITLE.borderColor;
+    ctx.strokeStyle = ON_MAP_TITLE_BOX.borderColor;
     drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, radius);
     ctx.stroke();
   }
 
-  ctx.fillStyle = ON_MAP_TITLE.textColor;
+  ctx.fillStyle = style.color;
   ctx.fillText(text, x, y);
 
   ctx.restore();
@@ -510,42 +449,6 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + radius);
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
-}
-
-function drawTitleStrip(ctx, { title, subtitle, height, width, coeff }) {
-  ctx.fillStyle = TITLE_STRIP.background;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-
-  // Every typographic constant is multiplied by `coeff` so the strip
-  // matches what measureTitleStrip already reserved space for (PO-006).
-  const titleSize = TITLE_STRIP.titleSize * coeff;
-  const subtitleSize = TITLE_STRIP.subtitleSize * coeff;
-
-  let cursorY = TITLE_STRIP.paddingTop * coeff;
-
-  if (title) {
-    ctx.fillStyle = TITLE_STRIP.textColor;
-    ctx.font = `${TITLE_STRIP.titleWeight} ${titleSize}px ${TITLE_STRIP.fontFamily}`;
-    const lineHeight = Math.ceil(titleSize * TITLE_STRIP.lineHeightMultiplier);
-    // textBaseline alphabetic + cursorY+lineHeight*0.85 visually centers
-    // the cap-height row in the line-height box. Matches the apparent
-    // baseline the CSS engine produces with line-height: 1.2.
-    ctx.fillText(title, width / 2, cursorY + lineHeight * 0.85);
-    cursorY += lineHeight;
-    if (subtitle) cursorY += TITLE_STRIP.titleSubtitleGap * coeff;
-  }
-
-  if (subtitle) {
-    ctx.fillStyle = TITLE_STRIP.subtitleColor;
-    ctx.font = `${TITLE_STRIP.subtitleStyle} ${TITLE_STRIP.subtitleWeight} ${subtitleSize}px ${TITLE_STRIP.fontFamily}`;
-    const lineHeight = Math.ceil(
-      subtitleSize * TITLE_STRIP.lineHeightMultiplier
-    );
-    ctx.fillText(subtitle, width / 2, cursorY + lineHeight * 0.85);
-  }
 }
 
 // Resolves when MapLibre fires `idle` (all tiles loaded + nothing pending
