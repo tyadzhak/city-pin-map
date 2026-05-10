@@ -321,6 +321,154 @@ body {
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
 }
 
+/* PO-009 — on-map title formatting toolbar. Sits inline next to the
+   #export-on-map-title input. Each control is sized just wide enough
+   to read at a glance, so the cluster fits beside the existing format
+   selector + frame controls without forcing a second header row on
+   typical (≥1280 px) widths. */
+.otm-format-select {
+  height: 32px;
+  padding: 0 24px 0 8px;
+  font: inherit;
+  color: inherit;
+  background-color: #f5f7fa;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M1 1l4 4 4-4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.otm-format-select:hover {
+  background-color: #ffffff;
+}
+
+.otm-format-select:focus {
+  border-color: #4c6ef5;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+/* B / I toggle buttons. aria-pressed drives the active styling so the
+   markup stays a plain <button>; flipping the attribute in JS is a
+   single setAttribute call. */
+.otm-format-toggle {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.otm-format-toggle:hover {
+  background: #ffffff;
+}
+
+.otm-format-toggle:focus-visible {
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+.otm-format-toggle[aria-pressed="true"] {
+  background: #1f2937;
+  border-color: #1f2937;
+  color: #ffffff;
+}
+
+.otm-format-toggle__glyph {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.otm-format-toggle__glyph--bold {
+  font-weight: 700;
+}
+
+.otm-format-toggle__glyph--italic {
+  font-style: italic;
+  font-weight: 600;
+}
+
+/* Color swatch: native <input type="color"> with chrome stripped so it
+   reads as a plain colored square — same pattern .export-frame-controls__color
+   uses for the frame color. */
+.otm-format-color {
+  width: 32px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f5f7fa;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.otm-format-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.otm-format-color::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.otm-format-color::-moz-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.otm-format-color:focus-visible {
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+/* Size input — narrow number field. The native spin buttons stay so a
+   keyboard-only user can up/down to nudge. */
+.otm-format-size {
+  width: 56px;
+  height: 32px;
+  padding: 0 6px;
+  font: inherit;
+  color: inherit;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  outline: none;
+  text-align: center;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.otm-format-size:hover {
+  background: #ffffff;
+}
+
+.otm-format-size:focus {
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
 /* Preset selector for the exported PNG dimensions (NICE-007). Geometry
    matches .map-style-select so the two dropdowns read as one design
    family — same chevron, same height, same focus ring. The width is

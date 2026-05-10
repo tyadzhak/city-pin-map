@@ -2,10 +2,14 @@ const STORAGE_KEY = "city-pin-map.pins.v1";
 const GROUPS_STORAGE_KEY = "city-pin-map.groups.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
-const EXPORT_TEXT_KEY = "city-pin-map.export-text.v1";
 const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
 const EXPORT_FRAME_KEY = "city-pin-map.export-frame.v1";
 const HIDE_LABELS_KEY = "city-pin-map.hide-labels.v1";
+// PO-008/009 — single on-map title with formatting. PO-009 retired the
+// separate NICE-006 title strip (city-pin-map.export-text.v1); existing
+// users see their title/subtitle wiped on first load with this build.
+// Acceptable trade-off for a personal app — see CLAUDE.md "no backwards-
+// compatibility shims when you can just change the code".
 const ON_MAP_TITLE_KEY = "city-pin-map.export-on-map-title.v1";
 
 // User-uploaded icon library (PIL-001). Same defensive load shape as
@@ -27,12 +31,39 @@ const API_KEY_STORAGE_BY_PROVIDER = {
 
 const DEFAULT_EXPORT_FORMAT = "current";
 const BANNER_TIMEOUT_MS = 6000;
-const EMPTY_EXPORT_TEXT = Object.freeze({ title: "", subtitle: "" });
-// On-map title (PO-008). lon/lat are nullable so the input can hold text
-// before a position has been chosen — the live overlay seeds them from the
-// map's current center on first reveal. Same shape as EMPTY_EXPORT_TEXT but
-// with geographic anchor fields rather than a sibling string.
-const EMPTY_ON_MAP_TITLE = Object.freeze({ text: "", lon: null, lat: null });
+
+// PO-008/009 — on-map title state. lon/lat are nullable so the input can
+// hold text before a position has been chosen; the live overlay seeds
+// them from the map's current center on first reveal.
+//
+// Formatting fields (font/bold/italic/color/size) come from PO-009. The
+// curated font list is kept here so storage validation can clamp an
+// unknown saved string to the default. Adding a font: append a fontstack
+// to ON_MAP_TITLE_FONTS, an <option> to index.html's #otm-font select.
+export const ON_MAP_TITLE_FONTS = Object.freeze([
+  'Georgia, "Times New Roman", serif',
+  '"Times New Roman", Times, serif',
+  "Helvetica, Arial, sans-serif",
+  "Verdana, Geneva, sans-serif",
+  '"Trebuchet MS", "Lucida Sans Unicode", sans-serif',
+  '"Courier New", Courier, monospace',
+  'Impact, "Arial Black", sans-serif',
+]);
+const DEFAULT_ON_MAP_TITLE_FONT = ON_MAP_TITLE_FONTS[0];
+const ON_MAP_TITLE_SIZE_MIN = 10;
+const ON_MAP_TITLE_SIZE_MAX = 80;
+const DEFAULT_ON_MAP_TITLE_SIZE = 20;
+const DEFAULT_ON_MAP_TITLE_COLOR = "#1f2937";
+const EMPTY_ON_MAP_TITLE = Object.freeze({
+  text: "",
+  lon: null,
+  lat: null,
+  font: DEFAULT_ON_MAP_TITLE_FONT,
+  bold: true,
+  italic: false,
+  color: DEFAULT_ON_MAP_TITLE_COLOR,
+  size: DEFAULT_ON_MAP_TITLE_SIZE,
+});
 
 // PO-007: a single-key object covers the four frame sub-settings. Same
 // granularity NICE-006 used for `{ title, subtitle }` — keeps storage.js
@@ -206,50 +237,6 @@ export function saveRouteVisible(visible) {
   }
 }
 
-// Export title / subtitle. Same defensive shape as loadPins/loadGroups: a
-// missing key returns the empty defaults; a corrupt value (non-object, or
-// JSON parse error) is logged + banner-flagged and treated as empty. Each
-// returned object is a fresh copy so callers can safely mutate it.
-export function loadExportText() {
-  let raw;
-  try {
-    raw = localStorage.getItem(EXPORT_TEXT_KEY);
-  } catch (err) {
-    console.error("localStorage unavailable on read:", err);
-    showError("Saved export text could not be read; starting empty.");
-    return { ...EMPTY_EXPORT_TEXT };
-  }
-  if (raw === null) return { ...EMPTY_EXPORT_TEXT };
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      throw new Error("saved export text is not an object");
-    }
-    return {
-      title: typeof parsed.title === "string" ? parsed.title : "",
-      subtitle: typeof parsed.subtitle === "string" ? parsed.subtitle : "",
-    };
-  } catch (err) {
-    console.error("saved export text corrupt; ignoring:", err);
-    showError("Saved export text was corrupted and has been ignored.");
-    return { ...EMPTY_EXPORT_TEXT };
-  }
-}
-
-export function saveExportText({ title, subtitle }) {
-  try {
-    localStorage.setItem(
-      EXPORT_TEXT_KEY,
-      JSON.stringify({ title: title ?? "", subtitle: subtitle ?? "" })
-    );
-  } catch (err) {
-    console.error("failed to save export text:", err);
-    showError(
-      "Could not save export text (storage may be full). Changes are kept in memory only."
-    );
-  }
-}
-
 // Export-format preset id (NICE-007). Stored as a bare string, mirroring
 // loadMapStyle — the value is a short id like "current" or "a4-portrait"
 // and JSON wrapping would only add quote noise. A missing or unreadable
@@ -277,7 +264,7 @@ export function saveExportFormat(formatId) {
 }
 
 // Decorative export frame (PO-007). Single-key object — see
-// DEFAULT_EXPORT_FRAME above. Same defensive shape as loadExportText:
+// DEFAULT_EXPORT_FRAME above. Same defensive shape as loadOnMapTitle:
 // missing key → defaults; corrupt key → defaults + banner. Each field is
 // individually validated so a partial / hand-edited object can never poison
 // the export pipeline (e.g. NaN thickness, non-string color).
@@ -360,11 +347,12 @@ export function saveHideLabels(value) {
   }
 }
 
-// On-map title (PO-008). Single-key object — see EMPTY_ON_MAP_TITLE above.
-// Same defensive load shape as loadExportText: missing key → empty defaults,
-// corrupt key → empty + banner. Each field individually validated so a
-// partial / hand-edited object can never poison the export pipeline (e.g.
-// non-finite lon, non-string text).
+// On-map title (PO-008/009). Single-key object — see EMPTY_ON_MAP_TITLE
+// above. Same defensive load shape as loadExportFrame: missing key →
+// defaults, corrupt key → defaults + banner. Each field individually
+// validated through normalizeOnMapTitle so a partial / hand-edited
+// object can never poison the export pipeline (e.g. non-finite lon, an
+// unknown font string, a bad color hex).
 export function loadOnMapTitle() {
   let raw;
   try {
@@ -380,11 +368,7 @@ export function loadOnMapTitle() {
     if (!parsed || typeof parsed !== "object") {
       throw new Error("saved on-map title is not an object");
     }
-    return {
-      text: typeof parsed.text === "string" ? parsed.text : "",
-      lon: Number.isFinite(parsed.lon) ? parsed.lon : null,
-      lat: Number.isFinite(parsed.lat) ? parsed.lat : null,
-    };
+    return normalizeOnMapTitle(parsed);
   } catch (err) {
     console.error("saved on-map title corrupt; ignoring:", err);
     showError("Saved on-map title was corrupted and has been ignored.");
@@ -392,15 +376,11 @@ export function loadOnMapTitle() {
   }
 }
 
-export function saveOnMapTitle({ text, lon, lat }) {
+export function saveOnMapTitle(value) {
   try {
     localStorage.setItem(
       ON_MAP_TITLE_KEY,
-      JSON.stringify({
-        text: typeof text === "string" ? text : "",
-        lon: Number.isFinite(lon) ? lon : null,
-        lat: Number.isFinite(lat) ? lat : null,
-      })
+      JSON.stringify(normalizeOnMapTitle(value))
     );
   } catch (err) {
     console.error("failed to save on-map title:", err);
@@ -408,6 +388,40 @@ export function saveOnMapTitle({ text, lon, lat }) {
       "Could not save on-map title (storage may be full). Changes are kept in memory only."
     );
   }
+}
+
+// Field-by-field clamp/coerce so callers can pass partial objects (e.g.
+// `{ bold: true }` from a single toggle event) and get a complete
+// well-formed value back. Unknown keys are dropped on the floor; an
+// unknown font fontstack falls back to the default rather than
+// silently rendering with whatever the browser maps it to.
+function normalizeOnMapTitle(value) {
+  const v = value || {};
+  const sizeNum = Number(v.size);
+  const size = Number.isFinite(sizeNum)
+    ? Math.max(
+        ON_MAP_TITLE_SIZE_MIN,
+        Math.min(ON_MAP_TITLE_SIZE_MAX, Math.round(sizeNum))
+      )
+    : DEFAULT_ON_MAP_TITLE_SIZE;
+  const color =
+    typeof v.color === "string" && /^#[0-9a-fA-F]{6}$/.test(v.color)
+      ? v.color
+      : DEFAULT_ON_MAP_TITLE_COLOR;
+  const font =
+    typeof v.font === "string" && ON_MAP_TITLE_FONTS.includes(v.font)
+      ? v.font
+      : DEFAULT_ON_MAP_TITLE_FONT;
+  return {
+    text: typeof v.text === "string" ? v.text : "",
+    lon: Number.isFinite(v.lon) ? v.lon : null,
+    lat: Number.isFinite(v.lat) ? v.lat : null,
+    font,
+    bold: Boolean(v.bold),
+    italic: Boolean(v.italic),
+    color,
+    size,
+  };
 }
 
 // Hydrate first, subscribe second — see CORE-004 notes. Reversing this order

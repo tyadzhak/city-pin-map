@@ -23,8 +23,6 @@ import {
   loadMapStyle,
   loadRouteVisible,
   saveRouteVisible,
-  loadExportText,
-  saveExportText,
   loadExportFormat,
   saveExportFormat,
   loadExportFrame,
@@ -186,7 +184,6 @@ function init() {
     notice.hidden = !showNotice;
   }
 
-  initExportOptions();
   initExportFormatSelector();
   initExportFrameOptions();
   initOnMapTitle();
@@ -195,34 +192,10 @@ function init() {
   initSettingsPanel();
 }
 
-// Hydrates the title + subtitle inputs from localStorage and persists every
-// keystroke. We read both inputs on every event so the saved object stays
-// consistent if the user is mid-edit on one field while the other is
-// already filled.
-function initExportOptions() {
-  const titleInput = document.getElementById("export-title");
-  const subtitleInput = document.getElementById("export-subtitle");
-  if (!titleInput || !subtitleInput) return;
-
-  const saved = loadExportText();
-  titleInput.value = saved.title;
-  subtitleInput.value = saved.subtitle;
-
-  const persist = () =>
-    saveExportText({
-      title: titleInput.value,
-      subtitle: subtitleInput.value,
-    });
-
-  titleInput.addEventListener("input", persist);
-  subtitleInput.addEventListener("input", persist);
-}
-
 // Hydrates the format selector from localStorage and persists every
 // change. The export pipeline reads the current value back out of the
-// DOM at click time (mirrors how export-title / export-subtitle are
-// read), so this function only owns persistence — it does not need to
-// notify any other module when the value flips.
+// DOM at click time, so this function only owns persistence — it does
+// not need to notify any other module when the value flips.
 //
 // An unknown saved id (older app version, hand-edited storage) falls
 // through to the <select>'s first option, which the HTML pins to
@@ -243,10 +216,9 @@ function initExportFormatSelector() {
 // Hydrates the four Frame inputs (PO-007) from localStorage and persists
 // every change. The wrapper's data-frame-enabled attribute drives CSS
 // visibility for the dependent controls — see .export-frame-controls in
-// css/styles.css. The export pipeline reads each input back out of the DOM
-// at click time (mirroring how export-title / export-subtitle are read in
-// exportMapAsPng), so this function only owns hydration + persistence and
-// does not need to notify any other module on flip.
+// css/styles.css. The export pipeline reads each input back out of the
+// DOM at click time, so this function only owns hydration + persistence
+// and does not need to notify any other module on flip.
 //
 // Persistence reads ALL FOUR inputs on every change so saveExportFrame
 // always receives a complete object — required because normalizeFrame
@@ -312,46 +284,98 @@ function initHideLabelsToggle({ initialValue, onChange }) {
   });
 }
 
-// PO-008: hydrates the on-map title input + overlay from localStorage and
-// keeps both in sync. The map-title module owns the overlay's lifecycle
-// (DOM, drag, projection); this function only wires the input box and the
+// PO-008/009: hydrates the on-map title input + formatting toolbar +
+// overlay from localStorage and keeps all three in sync. The map-title
+// module owns the overlay's lifecycle (DOM, drag, projection); this
+// function only wires the input box, the toolbar controls, and the
 // persistence callbacks together.
 //
-// Two write paths feed saveOnMapTitle:
+// Three write paths feed saveOnMapTitle:
 //   1. Anchor-change callback — fires when the overlay's lon/lat moves
 //      (drag commit, keyboard nudge, fill-from-center on first reveal).
-//   2. Input event — fires on every keystroke; persists the current text +
-//      whatever lon/lat the module has accumulated so far.
-// Both write the full {text, lon, lat} object so a partial update never
-// overwrites a sibling field with stale state.
+//   2. Text input event — fires on every keystroke.
+//   3. Toolbar control change — font / bold / italic / color / size.
+// Each path calls mapTitle.update() with only the changing field; the
+// module's merge-over-existing semantics keep the rest intact, then we
+// persist whatever the module's internal state ends up as.
 function initOnMapTitle() {
   const input = document.getElementById("export-on-map-title");
   if (!input) return;
+
+  const fontSelect = document.getElementById("otm-font");
+  const boldBtn = document.getElementById("otm-bold");
+  const italicBtn = document.getElementById("otm-italic");
+  const colorInput = document.getElementById("otm-color");
+  const sizeInput = document.getElementById("otm-size");
 
   const map = getMap();
   if (!map) return;
 
   mapTitle.init(map, {
-    onAnchorChange: (next) => saveOnMapTitle(next),
+    onAnchorChange: () => saveOnMapTitle(mapTitle.getPosition()),
   });
 
   const saved = loadOnMapTitle();
   input.value = saved.text;
+  if (fontSelect) fontSelect.value = saved.font;
+  if (boldBtn) boldBtn.setAttribute("aria-pressed", saved.bold ? "true" : "false");
+  if (italicBtn)
+    italicBtn.setAttribute("aria-pressed", saved.italic ? "true" : "false");
+  if (colorInput) colorInput.value = saved.color;
+  if (sizeInput) sizeInput.value = String(saved.size);
+
   // Hand the persisted state to the overlay. If text is set, the module
   // shows the overlay (seeding lon/lat from the map center if those are
-  // null); if text is empty, the overlay stays hidden but lon/lat is
-  // remembered so re-typing brings the title back at the same place.
+  // null); if text is empty, the overlay stays hidden but lon/lat +
+  // formatting are remembered so re-typing brings the title back at the
+  // same place with the same look.
   mapTitle.update(saved);
 
-  input.addEventListener("input", () => {
-    const current = mapTitle.getPosition();
-    mapTitle.update({
-      text: input.value,
-      lon: current.lon,
-      lat: current.lat,
-    });
+  // Helper that applies a partial diff and persists. The module merges
+  // over current state, so passing only the changed field is sufficient.
+  const apply = (partial) => {
+    mapTitle.update(partial);
     saveOnMapTitle(mapTitle.getPosition());
-  });
+  };
+
+  input.addEventListener("input", () => apply({ text: input.value }));
+
+  if (fontSelect) {
+    fontSelect.addEventListener("change", () =>
+      apply({ font: fontSelect.value })
+    );
+  }
+  if (boldBtn) {
+    boldBtn.addEventListener("click", () => {
+      const next = boldBtn.getAttribute("aria-pressed") !== "true";
+      boldBtn.setAttribute("aria-pressed", next ? "true" : "false");
+      apply({ bold: next });
+    });
+  }
+  if (italicBtn) {
+    italicBtn.addEventListener("click", () => {
+      const next = italicBtn.getAttribute("aria-pressed") !== "true";
+      italicBtn.setAttribute("aria-pressed", next ? "true" : "false");
+      apply({ italic: next });
+    });
+  }
+  if (colorInput) {
+    colorInput.addEventListener("input", () => apply({ color: colorInput.value }));
+  }
+  if (sizeInput) {
+    // `change` fires on blur/Enter/spinner; using it (not `input`) keeps
+    // the persist + reflow burst out of every digit-typed keystroke.
+    sizeInput.addEventListener("change", () => {
+      const parsed = Number(sizeInput.value);
+      if (!Number.isFinite(parsed)) return;
+      // Clamp here (not just in storage) so the live overlay, the input
+      // box, and the persisted value all agree. Bounds match the
+      // ON_MAP_TITLE_SIZE_MIN/MAX in storage.js.
+      const clamped = Math.max(10, Math.min(80, Math.round(parsed)));
+      apply({ size: clamped });
+      sizeInput.value = String(clamped);
+    });
+  }
 }
 
 // Disabling the button across the await prevents double-clicks during the
@@ -361,7 +385,7 @@ function initOnMapTitle() {
 //
 // HARDEN-003: the inline #export-status span gets "Rendering…" only after
 // a 200 ms delay — the Nielsen "feels-instant" threshold. Fast-path
-// exports (current view, no title/subtitle) typically resolve before the
+// exports (current view, no on-map title) typically resolve before the
 // timer fires, so no label flash. The timer handle is cleared in the
 // finally branch whether the export resolved before or after the threshold.
 function initExportButton() {
