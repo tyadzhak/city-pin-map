@@ -20,7 +20,9 @@ const OFFSCREEN_PX = -100000;
 
 // Preset id → { width, height } in CSS pixels for the exported PNG.
 // `null` means "Current view — capture the live map at its on-screen size".
-// 96 dpi for A-series; see NICE-007 notes.
+// 96 dpi for A-series; see NICE-007 notes. The 10×15 cm photo-print preset
+// (PO-005) is 300 dpi to meet consumer photo-lab requirements:
+// 10 cm × 300 dpi ÷ 2.54 ≈ 1181, 15 cm × 300 dpi ÷ 2.54 ≈ 1772.
 export const EXPORT_PRESETS = {
   current: null,
   square: { width: 1080, height: 1080 },
@@ -29,6 +31,7 @@ export const EXPORT_PRESETS = {
   "a4-landscape": { width: 1123, height: 794 },
   "a3-portrait": { width: 1191, height: 1684 },
   "a3-landscape": { width: 1684, height: 1191 },
+  "photo-10x15-portrait": { width: 1181, height: 1772 },
 };
 
 // Title strip layout — matches css/styles.css .export-title-strip so the
