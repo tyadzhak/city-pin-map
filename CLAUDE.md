@@ -6,7 +6,7 @@ This file is the operating manual for any AI agent working in this repository. R
 
 A single-page, no-backend web app that lets the user pin cities on a world map and export the view as a PNG. Runs locally in the browser. See `PROJECT.md` for full scope.
 
-## What's shipped (as of 2026-05-08)
+## What's shipped (as of 2026-05-10)
 
 All four milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 → NICE-007), and Hardening (HARDEN-001 → HARDEN-012) — are `Done`. The app supports:
 
@@ -20,7 +20,9 @@ All four milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 →
 - JSON backup and restore (HARDEN-001) via Export/Import buttons in the side panel. The file holds only `pins` and `groups`; UI preferences are intentionally excluded.
 - Persistence: every preference (pins, groups, map style, route toggle, export text, export format) lives in its own `localStorage` key prefixed `city-pin-map.…v1`.
 - macOS double-clickable launcher (`start.command`, HARDEN-002) running `python3 -m http.server` from the project folder, with port fallback 8000 → 8010.
-- Expanded basemap registry (this milestone): 22 additional styles across three free-tier providers (Stadia for Stamen Watercolor/Toner family, MapTiler for the modern catalog incl. Satellite Hybrid, Thunderforest for cycling/transit/landscape). Native `<select>` replaced by a searchable popover picker (`js/style-picker.js`); per-provider API keys live in a settings modal (`js/settings-panel.js`) backed by a new pub/sub store (`js/settings.js`). Style swaps now route through `setStyleSafely()` which races `styledata` (success) vs `error` (failure) with a 5s timeout — failed swaps revert to the previously-rendered style without persisting the bad choice, so reload always boots into a known-working state.
+- Expanded basemap registry: 22 additional styles across three free-tier providers (Stadia for Stamen Watercolor/Toner family, MapTiler for the modern catalog incl. Satellite Hybrid, Thunderforest for cycling/transit/landscape). Native `<select>` replaced by a searchable popover picker (`js/style-picker.js`); per-provider API keys live in a settings modal (`js/settings-panel.js`) backed by a new pub/sub store (`js/settings.js`). Style swaps now route through `setStyleSafely()` which races `styledata` (success) vs `error` (failure) with a 5s timeout — failed swaps revert to the previously-rendered style without persisting the bad choice, so reload always boots into a known-working state.
+- Polished drop-pin markers (PO-003) and per-pin label rendering (PO-002): pins render as SVG silhouettes via a single MapLibre `symbol`-type layer with `icon-color` SDF tinting from `effectiveColor()` and a programmatic white halo (`icon-halo-color`/`icon-halo-width`/`icon-halo-blur`) replacing PO-003's two-image stack. Labels sit on a sibling `symbol` layer above the pins layer, reading `text-field` from the same source.
+- Pin icon library (PIL-001, this milestone): one neutral built-in (`circle`) intentionally — the user grows their own library through the add-icon flow rather than picking from a curated set, since pre-shipped icons rarely match a personal map's vibe. Replaced PI-001's per-row popover with a modal hosted in `js/icon-picker.js`. New module `js/icons.js` is the registry — merging built-in icons (`BUILTIN_ICONS`) with user-uploaded custom icons (`js/user-icons.js`, `localStorage` key `city-pin-map.user-icons.v1`). Users add custom icons via a sub-view in the modal: file drop, textarea paste, or URL field (URL is attribution-only — never fetched, since browser CORS + Flaticon login wall make download impossible from a no-backend page). New module `js/svg-ingest.js` sanitizes incoming SVG via an allowlist (rejects `<script>`, `<foreignObject>`, `on*` handlers, `javascript:` hrefs; allows `data-*` and `aria-*` so Heroicons-shaped uploads work verbatim) and returns a tintable heuristic. Hybrid color: tintable icons (the entire starter set, monochrome user uploads) keep the SDF + halo treatment; non-tintable icons render in original colors with a circle layer underneath (`pins-color-ring`) showing group/pin color so the group-color contract stays visible. Backup format bumped v1 → v2 with `userIcons` included; v1 backups still import (user-icon library left untouched on v1 import, same as API keys). Sprite-id namespacing under `city-pin-map.icon.<id>` keeps the registry collision-free against basemap atlases. Per-pin appearance now uses two side-by-side affordances in each pin row: an icon tile (opens modal) + a small native color swatch (opens browser color picker).
 
 ## Considered and parked
 
@@ -43,25 +45,30 @@ city-pin-map/
 ├── index.html          # Single entry point
 ├── start.command       # macOS double-clickable launcher (HARDEN-002)
 ├── css/styles.css      # All styles
-├── js/                 # 14 ES modules
+├── js/                 # 18 ES modules
 │   ├── app.js          # Bootstrap + glue: wires modules in DOMContentLoaded
-│   ├── map.js          # MapLibre init, basemap registry (29 styles, hybrid vector+raster), `setStyleSafely` swap pipeline, marker layer, drag, route layer, effectiveColor()
+│   ├── map.js          # MapLibre init, basemap registry, `setStyleSafely` swap pipeline, marker fill layer with halo paint, color-ring layer for non-tintable icons, drag, route layer, effectiveColor()
+│   ├── icons.js        # Icon registry: BUILTIN_ICONS + user-icon merge + effectiveIcon() (PIL-001)
+│   ├── icon-picker.js  # Modal grid view + add-icon sub-view + per-icon delete with cascade-clear (PIL-001)
+│   ├── user-icons.js   # User-icon store: pub/sub + localStorage CRUD (PIL-001)
+│   ├── svg-ingest.js   # Pure: sanitize + normalize + tintable heuristic; covered by js/svg-ingest.test.mjs (PIL-001)
 │   ├── geocode.js      # Nominatim wrapper: rate-limit gate, in-tab cache, addressdetails fetch
 │   ├── search.js       # Search input → debounced geocode → addPin (with short "city, country" name)
-│   ├── pins.js         # Pin store: pub/sub, add/remove/update/replaceAll/list
-│   ├── pin-list.js     # Side-panel pin list (rename, color, group selector, delete)
+│   ├── pins.js         # Pin store: pub/sub, add/remove/update/replaceAll/list — pin.icon optional
+│   ├── pin-list.js     # Side-panel pin list (rename, group selector, delete) — appearance composition: icon tile + native color swatch
 │   ├── groups.js       # Group store (mirrors pins.js shape)
 │   ├── group-panel.js  # Side-panel group list (always-on rename + color, delete cascades to pins)
 │   ├── settings.js     # Per-provider API key store (mirrors pins.js pub/sub shape) — Stadia, MapTiler, Thunderforest
 │   ├── settings-panel.js # Settings modal renderer: open/close, blur-to-save, status pills, reveal toggle
 │   ├── style-picker.js # Searchable popover picker for basemaps (replaces native <select>); locked rows deep-link to settings
-│   ├── storage.js      # All localStorage keys + the showError() banner helper
-│   ├── backup.js       # JSON export/import for pins + groups (HARDEN-001) — API keys are intentionally excluded
+│   ├── storage.js      # All localStorage keys + the showError() banner helper — incl. attachUserIconStorage (PIL-001)
+│   ├── backup.js       # JSON export/import for pins + groups + userIcons (v2; v1 still importable, leaves user icons untouched)
 │   └── export.js       # Canvas-merge PNG: getCanvas() → drawImage + title strip via ctx.fillText, dimension presets, off-screen resize trick
-└── assets/             # Reserved for icons/marker images; currently empty
+└── assets/
+    └── icons/          # 1 SVG: circle.svg (the sole built-in icon — see js/icons.js)
 ```
 
-Keep modules small and focused. `map.js` is the outlier (~770 lines — basemap registry + style-swap pipeline + marker/route rendering + drag, all of which need to share state); other top files (`export.js`, `style-picker.js`, `storage.js`, `pin-list.js`, `app.js`) sit around 250–315 lines. Split when adding new responsibilities, not before.
+Keep modules small and focused. `map.js` is the outlier (~1140 lines — basemap registry + style-swap pipeline + image registration loop + marker/route/color-ring rendering + drag, all of which need to share state); `icon-picker.js` is next at ~590 lines (modal grid + add-icon sub-view + sanitize/preview wiring); other top files (`export.js`, `style-picker.js`, `storage.js`, `app.js`) sit around 250–430 lines. Split when adding new responsibilities, not before.
 
 ## Coding conventions
 
@@ -86,13 +93,14 @@ Every pin must conform to:
 
 ```js
 {
-  id: string,           // crypto.randomUUID()
-  name: string,         // user-facing label, defaults to short "city, country" derived from Nominatim addressdetails (HARDEN-004)
+  id: string,            // crypto.randomUUID()
+  name: string,          // user-facing label, defaults to short "city, country" derived from Nominatim addressdetails (HARDEN-004)
   lat: number,
   lon: number,
-  color: string,        // hex like "#e63946" — overridden visually by group color when grouped
-  group: string | null, // group id from the group store, or null
-  createdAt: number     // Date.now()
+  color: string,         // hex like "#e63946" — overridden visually by group color when grouped
+  group: string | null,  // group id from the group store, or null
+  icon: string | null,   // icon id from the registry (PIL-001); null falls back to DEFAULT_ICON_ID at render time
+  createdAt: number      // Date.now()
 }
 ```
 
@@ -102,7 +110,20 @@ Group entity:
 {
   id: string,
   name: string,
-  color: string,        // hex
+  color: string,         // hex
+  createdAt: number
+}
+```
+
+User-icon entity (PIL-001, in `localStorage` key `city-pin-map.user-icons.v1`):
+
+```js
+{
+  id: string,            // crypto.randomUUID()
+  name: string,          // user-supplied
+  tintable: boolean,     // SDF when true; raster RGBA when false
+  fillSvg: string,       // sanitized SVG markup (allowlist-based, no <script>/<foreignObject>/on*)
+  attribution: { artistName: string|null, sourceUrl: string|null } | null,
   createdAt: number
 }
 ```
@@ -110,10 +131,11 @@ Group entity:
 Invariants worth knowing before changing this code:
 
 - A pin's `group` may legitimately reference a now-deleted group at any moment between events; **never crash on stale references**. `effectiveColor()` falls back to the pin's own color, the pin list renders "(none)", and `group-panel.js` cascade-clears the field on group delete.
-- `localStorage` is a serializer at save/load points only. The single source of truth during a session is the in-memory pin/group store. Reverse the order at hydrate time and you'll overwrite good data with `[]` — see `attachStorage` notes.
-- Hydrate stores **before** subscribing UI renderers, then call the renderer once explicitly to backfill the hydration `notify()`. `app.js` does this in a fixed order; preserve it.
+- A pin's `icon` follows the same contract: `effectiveIcon()` (in `js/icons.js`) clamps to known ids and falls back to `DEFAULT_ICON_ID` (`"map-pin"`). The icon-picker's trash button cascade-clears `pin.icon = null` on delete (parallel to the group cascade in `group-panel.js`).
+- `localStorage` is a serializer at save/load points only. The single source of truth during a session is the in-memory pin / group / user-icon store. Reverse the order at hydrate time and you'll overwrite good data with `[]` — see `attachStorage` / `attachUserIconStorage` notes.
+- Hydrate stores **before** subscribing UI renderers, then call the renderer once explicitly to backfill the hydration `notify()`. `app.js` does this in a fixed order; preserve it. The icon registry (`js/icons.js`) subscribes to `user-icons$` at module-eval time, so `attachUserIconStorage` must run before any module that triggers a registry rebuild.
 
-Tasks that touch pins or groups must preserve these shapes. If a task needs a new field, add it as optional and update this section.
+Tasks that touch pins, groups, or user icons must preserve these shapes. If a task needs a new field, add it as optional and update this section.
 
 ## Task workflow
 

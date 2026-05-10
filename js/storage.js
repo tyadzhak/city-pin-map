@@ -6,6 +6,10 @@ const EXPORT_TEXT_KEY = "city-pin-map.export-text.v1";
 const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
 const HIDE_LABELS_KEY = "city-pin-map.hide-labels.v1";
 
+// User-uploaded icon library (PIL-001). Same defensive load shape as
+// loadPins/loadGroups: missing key → empty, corrupt → empty + banner.
+const USER_ICONS_KEY = "city-pin-map.user-icons.v1";
+
 // API keys for free-tier basemap providers (Stadia / MapTiler / Thunderforest).
 // Stored as bare strings — same convention as MAP_STYLE_KEY. Never inlined in
 // source; never included in JSON backup exports (see backup.js scope).
@@ -91,6 +95,46 @@ export function saveGroups(groups) {
       "Could not save groups (storage may be full). Changes are kept in memory only."
     );
   }
+}
+
+// User-uploaded custom icons (PIL-001). Same shape as loadPins/loadGroups:
+// missing key → empty array, corrupt key → empty + banner. The store itself
+// lives in user-icons.js; this module owns the localStorage round-trip.
+export function loadUserIcons() {
+  let raw;
+  try {
+    raw = localStorage.getItem(USER_ICONS_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved custom icons could not be read; starting empty.");
+    return [];
+  }
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error("saved user icons is not an array");
+    return parsed;
+  } catch (err) {
+    console.error("saved user icons corrupt; ignoring:", err);
+    showError("Saved custom icons were corrupted and have been ignored.");
+    return [];
+  }
+}
+
+export function saveUserIcons(icons) {
+  try {
+    localStorage.setItem(USER_ICONS_KEY, JSON.stringify(icons));
+  } catch (err) {
+    console.error("failed to save user icons:", err);
+    showError(
+      "Could not save custom icons (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+export function attachUserIconStorage(userIconStore) {
+  userIconStore.replaceAll(loadUserIcons());
+  return userIconStore.subscribe(saveUserIcons);
 }
 
 // Map-style preference. Stored as a bare string (not JSON) — the value is a

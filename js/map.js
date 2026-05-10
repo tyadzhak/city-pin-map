@@ -8,6 +8,13 @@ import { updatePin } from "./pins.js";
 import { listGroups } from "./groups.js";
 import { saveMapStyle, showError, loadHideLabels } from "./storage.js";
 import * as settings from "./settings.js";
+import {
+  getMergedIcons,
+  getIcon,
+  subscribe as subscribeIcons,
+  effectiveIcon as effectiveIconFromRegistry,
+  DEFAULT_ICON_ID,
+} from "./icons.js";
 
 // Registry of available basemap styles. Hybrid: 4 vector styles served by
 // OpenFreeMap (keyless), and 3 raster-only entries wrapped as inline
@@ -336,6 +343,7 @@ export function isRasterStyleEntry(entry) {
 // previous shadow companion.
 const PINS_SOURCE_ID = "city-pin-map.pins";
 const PINS_LAYER_ID = "city-pin-map.pins-fill";
+const PINS_COLOR_RING_LAYER_ID = "city-pin-map.pins-color-ring";
 const PINS_LABELS_LAYER_ID = "city-pin-map.pins-labels";
 const ROUTE_SOURCE_ID = "city-pin-map.route";
 const ROUTE_LAYER_ID = "city-pin-map.route-line";
@@ -361,16 +369,24 @@ const ROUTE_LAYER_ID = "city-pin-map.route-line";
 // the basemap's version through a stylechange race. The mapping
 // happens once at the layer's icon-image expression via `concat`.
 const PIN_ICON_IMAGE_PREFIX = "city-pin-map.icon.";
-export const PIN_ICONS = [
-  { id: "map-pin", label: "Drop pin", src: "assets/icons/map-pin.svg" },
-  { id: "circle", label: "Circle", src: "assets/icons/circle.svg" },
-  { id: "star", label: "Star", src: "assets/icons/star.svg" },
-  { id: "heart", label: "Heart", src: "assets/icons/heart.svg" },
-  { id: "flag", label: "Flag", src: "assets/icons/flag.svg" },
-  { id: "house", label: "House", src: "assets/icons/house.svg" },
-];
-export const DEFAULT_PIN_ICON = "map-pin";
-const PIN_ICON_IDS = new Set(PIN_ICONS.map((i) => i.id));
+
+// PI-001's inline icon registry has been extracted to ./icons.js (PIL-001)
+// so user-uploaded custom icons can join the same registry. This module
+// re-exports the public surface for backwards compatibility with callers
+// that still imported from map.js.
+export const DEFAULT_PIN_ICON = DEFAULT_ICON_ID;
+
+// PIN_ICONS is exposed as a Proxy so any reader doing
+// `for (const icon of PIN_ICONS)` or `PIN_ICONS.map(...)` sees the live
+// merged (built-in + user) registry. Used internally below in the image
+// registration loop and re-exported for callers in pin-list.js / future
+// icon-picker.js (which can also subscribe via icons.js for live updates).
+export const PIN_ICONS = new Proxy([], {
+  get(target, prop) {
+    const live = getMergedIcons();
+    return Reflect.get(live, prop, live);
+  },
+});
 
 // Module-scoped singleton. Treat as private; outside callers use getMap().
 let mapInstance = null;
@@ -438,6 +454,36 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   // state — the storage module is already the shared source of truth.
   mapInstance.on("styledata", () => {
     applyLabelVisibility(loadHideLabels());
+  });
+
+  // Icon-registry subscription. When the user adds a custom icon, register
+  // its MapLibre image and rebuild the source so any pin already using its
+  // id renders correctly. Removing an icon doesn't need an explicit
+  // mapInstance.removeImage call — the icon is gone from the registry, and
+  // its image just goes unreferenced. The next styledata cycle drops it
+  // (setStyle wipes the registry; the missing icon won't be re-added).
+  subscribeIcons(async (mergedIcons) => {
+    if (!mapInstance) return;
+    try {
+      await loadPinIconImages(mergedIcons);
+    } catch (err) {
+      showError(`${err.message}. Custom icon may not render.`);
+      return;
+    }
+    if (!mapInstance) return;
+    for (const icon of mergedIcons) {
+      const imageId = PIN_ICON_IMAGE_PREFIX + icon.id;
+      if (!mapInstance.hasImage(imageId)) {
+        mapInstance.addImage(imageId, pinIconImages.get(icon.id), {
+          sdf: icon.tintable,
+          pixelRatio: 4,
+        });
+      }
+    }
+    // Re-render markers so any pin that just got a newly-available icon
+    // picks it up. Cheap (full-source replace at this app's scale).
+    const source = mapInstance.getSource(PINS_SOURCE_ID);
+    if (source) source.setData(pinsToFeatureCollection(lastPinsSnapshot));
   });
 
   return mapInstance;
@@ -740,15 +786,14 @@ export function effectiveColor(pin) {
 }
 
 /**
- * Resolve the icon id a pin should render as. Returns DEFAULT_PIN_ICON
- * when the pin has no icon set or its icon id isn't in the current
- * registry (older session, hand-edited storage, future-version backup).
- * Render must never reference a missing image — MapLibre would log
- * "Image 'foo' could not be loaded" and drop the feature.
+ * Resolve the icon id a pin should render as. Re-export from ./icons.js
+ * which now owns the merged (built-in + user) registry. Render must never
+ * reference a missing image — MapLibre would log "Image 'foo' could not be
+ * loaded" and drop the feature; the registry's clamp-to-known-id contract
+ * defends against that.
  */
 export function effectiveIcon(pin) {
-  if (pin.icon && PIN_ICON_IDS.has(pin.icon)) return pin.icon;
-  return DEFAULT_PIN_ICON;
+  return effectiveIconFromRegistry(pin);
 }
 
 // ---- Internals --------------------------------------------------------
@@ -778,16 +823,25 @@ function rasterStyle({ tiles, maxzoom, attribution }) {
 function pinsToFeatureCollection(pins) {
   return {
     type: "FeatureCollection",
-    features: pins.map((pin) => ({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [pin.lon, pin.lat] },
-      properties: {
-        id: pin.id,
-        name: pin.name,
-        color: effectiveColor(pin),
-        icon: effectiveIcon(pin),
-      },
-    })),
+    features: pins.map((pin) => {
+      const iconId = effectiveIcon(pin);
+      const iconEntry = getIcon(iconId);
+      // tintable defaults to true so a transient pre-registry-load state
+      // still renders sensibly. The default-pin built-in is always
+      // tintable, so this is the conservative fallback.
+      const tintable = iconEntry?.tintable ?? true;
+      return {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [pin.lon, pin.lat] },
+        properties: {
+          id: pin.id,
+          name: pin.name,
+          color: effectiveColor(pin),
+          icon: iconId,
+          tintable,
+        },
+      };
+    }),
   };
 }
 
@@ -797,29 +851,41 @@ function emptyLineFeatureCollection() {
 
 // Cached pin-sprite Image objects, keyed by icon id. setStyle() wipes
 // MapLibre's image registry on every basemap swap, but the underlying
-// HTMLImageElement is reusable — fetch once, re-register on every
-// styledata via addImage. `pinImagesPromise` deduplicates concurrent
-// first-call awaits.
+// HTMLImageElement is reusable — load once, re-register on every styledata
+// via addImage. User icons (with inline `svg` strings) load via data:
+// URLs so there's no network round-trip; built-ins use their `src` path
+// under assets/icons/ and the browser HTTP-caches them.
 const pinIconImages = new Map();
-let pinImagesPromise = null;
 
-function loadPinIconImages() {
-  if (pinImagesPromise) return pinImagesPromise;
-  pinImagesPromise = Promise.all(
-    PIN_ICONS.map((icon) =>
-      fetchImage(icon.src).then((img) => pinIconImages.set(icon.id, img))
+async function loadPinIconImages(targetIcons) {
+  const missing = targetIcons.filter((icon) => !pinIconImages.has(icon.id));
+  if (missing.length === 0) return;
+  await Promise.all(
+    missing.map((icon) =>
+      fetchImage(iconImageHref(icon)).then((img) =>
+        pinIconImages.set(icon.id, img)
+      )
     )
   );
-  return pinImagesPromise;
 }
 
-function fetchImage(src) {
+function iconImageHref(icon) {
+  if (icon.svg) {
+    // Inline SVG string from a user icon. data: URLs work as Image() src.
+    // encodeURIComponent over `#` and friends keeps malformed-looking
+    // shapes out of the browser's URL parser.
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(icon.svg);
+  }
+  return icon.src;
+}
+
+function fetchImage(href) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () =>
-      reject(new Error(`Failed to load pin sprite "${src}"`));
-    img.src = src;
+      reject(new Error(`Failed to load pin sprite "${href.slice(0, 80)}"`));
+    img.src = href;
   });
 }
 
@@ -827,10 +893,11 @@ async function addPinAndRouteLayers() {
   if (!mapInstance) return;
 
   // Pin sprites must be in the registry before the symbol layer can
-  // reference them by id. Loading is cached after the first call —
-  // subsequent style swaps await a microtask, not network round-trips.
+  // reference them by id. The loader caches per-icon, so subsequent
+  // style swaps and registry-tick re-runs are cheap.
+  const icons = getMergedIcons();
   try {
-    await loadPinIconImages();
+    await loadPinIconImages(icons);
   } catch (err) {
     showError(`${err.message}. Markers will not render.`);
     return;
@@ -847,11 +914,15 @@ async function addPinAndRouteLayers() {
   // hasImage guard would see the basemap version and skip our addImage,
   // and the layer's icon-image would point at the wrong sprite (small,
   // non-SDF, untintable).
-  for (const icon of PIN_ICONS) {
+  //
+  // sdf:icon.tintable — tintable user icons get SDF (icon-color paint
+  // tints them); non-tintable ones get raster RGBA (color-ring layer
+  // shows group color underneath).
+  for (const icon of icons) {
     const imageId = PIN_ICON_IMAGE_PREFIX + icon.id;
     if (!mapInstance.hasImage(imageId)) {
       mapInstance.addImage(imageId, pinIconImages.get(icon.id), {
-        sdf: true,
+        sdf: icon.tintable,
         // pixelRatio:4 with 128×128 source SVGs → on-screen display at
         // 32 CSS px (matches PO-003's drop-pin footprint). The 4× source
         // headroom is what gives the SDF generator enough alpha samples
@@ -886,6 +957,31 @@ async function addPinAndRouteLayers() {
     mapInstance.addSource(PINS_SOURCE_ID, {
       type: "geojson",
       data: pinsToFeatureCollection(lastPinsSnapshot),
+    });
+  }
+
+  // Color ring for non-tintable icons (full-color custom uploads). The
+  // pins-fill layer's icon-color paint is silently ignored on non-SDF
+  // sprites, so without a separate color cue, group color and per-pin
+  // color would never read on those pins. The ring sits slightly above
+  // the icon's bottom anchor (circle-translate) so it peeks out from the
+  // base of the marker rather than getting hidden by the icon body.
+  // Filtered to features with tintable=false; tintable pins draw their
+  // color via icon-color and don't need the ring. Added BEFORE the fill
+  // layer so it z-stacks underneath.
+  if (!mapInstance.getLayer(PINS_COLOR_RING_LAYER_ID)) {
+    mapInstance.addLayer({
+      id: PINS_COLOR_RING_LAYER_ID,
+      type: "circle",
+      source: PINS_SOURCE_ID,
+      filter: ["==", ["get", "tintable"], false],
+      paint: {
+        "circle-color": ["get", "color"],
+        "circle-radius": 6,
+        "circle-translate": [0, -2],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1.5,
+      },
     });
   }
 
