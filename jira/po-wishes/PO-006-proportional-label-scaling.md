@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `PO-006`                                    |
 | **Milestone**   | `PO wishes`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `PO-005` (preset to validate against)       |
@@ -27,17 +27,17 @@ For pin labels (PO-002, MapLibre symbol layer), the scaling is different: the sy
 
 ## Acceptance criteria
 
-- [ ] Title font size in the exported PNG scales proportionally with the canvas's longest dimension.
-- [ ] Subtitle font size scales the same way (preserving the existing title:subtitle ratio).
-- [ ] Title-strip padding and line height scale with the same coefficient (so a heavier title doesn't compress against the strip's edges).
-- [ ] Pin labels (if PO-002 has landed) scale similarly during the export capture and restore to their on-screen size after.
-- [ ] On the existing 1920×1080 (16:9) preset, exported titles look approximately the same as before this task ships (coefficient ~1.5 ≈ today's tuned-for-1280 default).
-- [ ] On the 1080² square preset, titles fit comfortably without dominating the canvas.
-- [ ] On A3 / 10×15 / large presets, titles read at a presentation-poster scale rather than as a footnote.
-- [ ] On the "Current view" preset (capture-as-is), no scaling math is applied and behavior matches today exactly (the criterion: NICE-006's golden output remains pixel-identical at the same on-screen size).
-- [ ] Coefficient is clamped to a reasonable range (e.g. [0.6, 2.5]) so an extreme custom dimension doesn't produce unreadable extremes.
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Title font size in the exported PNG scales proportionally with the canvas's longest dimension.
+- [x] Subtitle font size scales the same way (preserving the existing title:subtitle ratio).
+- [x] Title-strip padding and line height scale with the same coefficient (so a heavier title doesn't compress against the strip's edges).
+- [x] Pin labels (if PO-002 has landed) scale similarly during the export capture and restore to their on-screen size after.
+- [x] On the existing 1920×1080 (16:9) preset, exported titles look approximately the same as before this task ships (coefficient ~1.5 ≈ today's tuned-for-1280 default).
+- [x] On the 1080² square preset, titles fit comfortably without dominating the canvas.
+- [x] On A3 / 10×15 / large presets, titles read at a presentation-poster scale rather than as a footnote.
+- [x] On the "Current view" preset (capture-as-is), no scaling math is applied and behavior matches today exactly (the criterion: NICE-006's golden output remains pixel-identical at the same on-screen size).
+- [x] Coefficient is clamped to a reasonable range (e.g. [0.6, 2.5]) so an extreme custom dimension doesn't produce unreadable extremes.
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 

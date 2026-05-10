@@ -6,6 +6,7 @@
 // captured automatically by getCanvas(). No post-composite step is needed.
 
 import { showError } from "./storage.js";
+import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
 // Same budgets the previous Leaflet impl used; MapLibre's `idle` event
@@ -17,6 +18,15 @@ const TILE_WAIT_TIMEOUT_MS_PRESET = 12000;
 // CSS-pixel offset that pushes the export frame fully off any reasonable
 // viewport. Same value the Leaflet pipeline used.
 const OFFSCREEN_PX = -100000;
+
+// Reference canvas dimension that the BASE values in TITLE_STRIP and the
+// pins-labels layer were tuned against (PO-006). The export coefficient
+// is the longest output side divided by this baseline, clamped to keep
+// extreme presets readable. Tuning history: a 1280-px-wide capture is the
+// "canonical" desktop browser viewport these constants were eyeballed at.
+const REFERENCE_BASELINE = 1280;
+const COEFF_MIN = 0.6;
+const COEFF_MAX = 2.5;
 
 // Preset id → { width, height } in CSS pixels for the exported PNG.
 // `null` means "Current view — capture the live map at its on-screen size".
@@ -120,10 +130,19 @@ async function captureFramed(mapInstance, title, subtitle, preset) {
 
   const frameWidth = preset ? preset.width : rect.width;
 
+  // PO-006: the typography coefficient is a function of the export's
+  // longest side. For preset captures we use the preset dimensions
+  // directly. For "current view" we use the live map's CSS rect — the
+  // map portion only, not including the title strip — so the coefficient
+  // reflects the canvas the user actually sees, and ~1.0 for a typical
+  // 1280-px-wide window keeps NICE-006's visual contract intact.
+  const coeffSourceHeight = preset ? preset.height : rect.height;
+  const coeff = computeCoeff(frameWidth, coeffSourceHeight);
+
   // Pre-compute the title strip metrics so we know its exact pixel height
-  // before the map is resized.
+  // before the map is resized. Strip height now scales with `coeff` too.
   const titleHeight =
-    title || subtitle ? measureTitleStrip({ title, subtitle }) : 0;
+    title || subtitle ? measureTitleStrip({ title, subtitle }, coeff) : 0;
 
   const frameHeight = preset ? preset.height : rect.height + titleHeight;
 
@@ -148,6 +167,14 @@ async function captureFramed(mapInstance, title, subtitle, preset) {
     // implicit — `resize()` doesn't animate.
     mapInstance.resize();
     await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS_PRESET);
+
+    // PO-006: bump pin label size to match the export canvas, AFTER the
+    // resize+idle settle but BEFORE the final repaint. The change goes
+    // through MapLibre's symbol layer, so the next render frame picks up
+    // the new size; setLayoutProperty itself queues a repaint, the
+    // explicit triggerRepaint+waitForRender below is belt-and-suspenders.
+    setPinLabelSize(BASE_PIN_LABEL_SIZE * coeff);
+
     mapInstance.triggerRepaint();
     await waitForRender(mapInstance);
 
@@ -155,11 +182,21 @@ async function captureFramed(mapInstance, title, subtitle, preset) {
       mapCanvas: mapInstance.getCanvas(),
       mapWidthCss: frameWidth,
       mapHeightCss: frameHeight - titleHeight,
-      titleStrip: { title, subtitle, height: titleHeight, width: frameWidth },
+      titleStrip: {
+        title,
+        subtitle,
+        height: titleHeight,
+        width: frameWidth,
+        coeff,
+      },
       outputWidth: frameWidth,
       outputHeight: frameHeight,
     });
   } finally {
+    // Restore live pin-label size first — independent of DOM state, so
+    // even if any re-attach step throws, the live UI returns to default.
+    setPinLabelSize(null);
+
     if (originalNextSibling) {
       originalParent.insertBefore(mapEl, originalNextSibling);
     } else {
@@ -177,25 +214,40 @@ async function captureFramed(mapInstance, title, subtitle, preset) {
   }
 }
 
-// Returns the title strip's exact pixel height for the given inputs.
+// Returns the title strip's exact pixel height for the given inputs and
+// the resolved scaling coefficient (PO-006). Every typographic constant
+// — titleSize, subtitleSize, gap, paddings — scales by `coeff` so the
+// strip grows in lockstep with the title and never crops a scaled glyph.
 // Width is unused for the simple single-line layout we draw — long titles
 // are clipped, matching the old CSS's white-space behaviour.
-function measureTitleStrip({ title, subtitle }) {
+function measureTitleStrip({ title, subtitle }, coeff) {
   const titleLineHeight = title
-    ? Math.ceil(TITLE_STRIP.titleSize * TITLE_STRIP.lineHeightMultiplier)
+    ? Math.ceil(TITLE_STRIP.titleSize * coeff * TITLE_STRIP.lineHeightMultiplier)
     : 0;
   const subtitleLineHeight = subtitle
-    ? Math.ceil(TITLE_STRIP.subtitleSize * TITLE_STRIP.lineHeightMultiplier)
+    ? Math.ceil(
+        TITLE_STRIP.subtitleSize * coeff * TITLE_STRIP.lineHeightMultiplier
+      )
     : 0;
-  const gap = title && subtitle ? TITLE_STRIP.titleSubtitleGap : 0;
+  const gap = title && subtitle ? TITLE_STRIP.titleSubtitleGap * coeff : 0;
 
-  return (
-    TITLE_STRIP.paddingTop +
-    titleLineHeight +
-    gap +
-    subtitleLineHeight +
-    TITLE_STRIP.paddingBottom
+  return Math.ceil(
+    TITLE_STRIP.paddingTop * coeff +
+      titleLineHeight +
+      gap +
+      subtitleLineHeight +
+      TITLE_STRIP.paddingBottom * coeff
   );
+}
+
+// Clamp(longestSide / REFERENCE_BASELINE, [COEFF_MIN, COEFF_MAX]). Used
+// by both the title strip and the pin-labels override. See PO-006 notes:
+// the clamp guards against unreadable extremes from custom or future
+// preset dimensions sitting far outside the tuned-for-1280 sweet spot.
+function computeCoeff(width, height) {
+  const longest = Math.max(width, height);
+  const raw = longest / REFERENCE_BASELINE;
+  return Math.min(COEFF_MAX, Math.max(COEFF_MIN, raw));
 }
 
 // Composite the map canvas + title strip into one output canvas and
@@ -242,34 +294,37 @@ function composite({
   return out.toDataURL("image/png");
 }
 
-function drawTitleStrip(ctx, { title, subtitle, height, width }) {
+function drawTitleStrip(ctx, { title, subtitle, height, width, coeff }) {
   ctx.fillStyle = TITLE_STRIP.background;
   ctx.fillRect(0, 0, width, height);
 
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
 
-  let cursorY = TITLE_STRIP.paddingTop;
+  // Every typographic constant is multiplied by `coeff` so the strip
+  // matches what measureTitleStrip already reserved space for (PO-006).
+  const titleSize = TITLE_STRIP.titleSize * coeff;
+  const subtitleSize = TITLE_STRIP.subtitleSize * coeff;
+
+  let cursorY = TITLE_STRIP.paddingTop * coeff;
 
   if (title) {
     ctx.fillStyle = TITLE_STRIP.textColor;
-    ctx.font = `${TITLE_STRIP.titleWeight} ${TITLE_STRIP.titleSize}px ${TITLE_STRIP.fontFamily}`;
-    const lineHeight = Math.ceil(
-      TITLE_STRIP.titleSize * TITLE_STRIP.lineHeightMultiplier
-    );
+    ctx.font = `${TITLE_STRIP.titleWeight} ${titleSize}px ${TITLE_STRIP.fontFamily}`;
+    const lineHeight = Math.ceil(titleSize * TITLE_STRIP.lineHeightMultiplier);
     // textBaseline alphabetic + cursorY+lineHeight*0.85 visually centers
     // the cap-height row in the line-height box. Matches the apparent
     // baseline the CSS engine produces with line-height: 1.2.
     ctx.fillText(title, width / 2, cursorY + lineHeight * 0.85);
     cursorY += lineHeight;
-    if (subtitle) cursorY += TITLE_STRIP.titleSubtitleGap;
+    if (subtitle) cursorY += TITLE_STRIP.titleSubtitleGap * coeff;
   }
 
   if (subtitle) {
     ctx.fillStyle = TITLE_STRIP.subtitleColor;
-    ctx.font = `${TITLE_STRIP.subtitleStyle} ${TITLE_STRIP.subtitleWeight} ${TITLE_STRIP.subtitleSize}px ${TITLE_STRIP.fontFamily}`;
+    ctx.font = `${TITLE_STRIP.subtitleStyle} ${TITLE_STRIP.subtitleWeight} ${subtitleSize}px ${TITLE_STRIP.fontFamily}`;
     const lineHeight = Math.ceil(
-      TITLE_STRIP.subtitleSize * TITLE_STRIP.lineHeightMultiplier
+      subtitleSize * TITLE_STRIP.lineHeightMultiplier
     );
     ctx.fillText(subtitle, width / 2, cursorY + lineHeight * 0.85);
   }

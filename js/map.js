@@ -348,6 +348,12 @@ const PINS_LABELS_LAYER_ID = "city-pin-map.pins-labels";
 const ROUTE_SOURCE_ID = "city-pin-map.route";
 const ROUTE_LAYER_ID = "city-pin-map.route-line";
 
+// Live default for the pins-labels symbol layer's text-size, in screen
+// pixels at the live map zoom. Hoisted so setPinLabelSize(null) and the
+// layer's initial `text-size` stay in sync — and so js/export.js can
+// scale this value by the canvas-size coefficient at export time (PO-006).
+export const BASE_PIN_LABEL_SIZE = 13;
+
 // Pin icon registry. Single source of truth for both the map layer (image
 // id used by `icon-image`) and the side-panel picker (label + same id).
 // Adding an icon here is the only change needed to expose a new shape:
@@ -525,6 +531,23 @@ export function applyLabelVisibility(hide) {
       hide ? "none" : "visible"
     );
   }
+}
+
+/**
+ * Override or restore the pins-labels layer's `text-size`. Used by the
+ * PNG export (PO-006) to bump label size in proportion to the export
+ * canvas, then restore the live default after capture. Passing `null`
+ * (or omitting the argument) restores BASE_PIN_LABEL_SIZE.
+ *
+ * Idempotent: silently no-ops when the map or the labels layer don't
+ * exist yet (e.g. during the gap between a setStyle() request and the
+ * matching styledata event).
+ */
+export function setPinLabelSize(sizeOrNull) {
+  if (!mapInstance) return;
+  if (!mapInstance.getLayer(PINS_LABELS_LAYER_ID)) return;
+  const size = sizeOrNull == null ? BASE_PIN_LABEL_SIZE : sizeOrNull;
+  mapInstance.setLayoutProperty(PINS_LABELS_LAYER_ID, "text-size", size);
 }
 
 // True when the layer is a built-in basemap label layer that the toggle
@@ -1046,7 +1069,7 @@ async function addPinAndRouteLayers() {
         // but PO-003 puts pin icons into the same symbol bucket and a failed
         // glyph load on this layer suppresses the icons too.
         "text-font": ["Noto Sans Regular"],
-        "text-size": 13,
+        "text-size": BASE_PIN_LABEL_SIZE,
         "text-anchor": "top",
         "text-offset": [0, 1.0],
         "text-padding": 4,
