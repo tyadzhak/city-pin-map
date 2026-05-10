@@ -329,11 +329,48 @@ export function isRasterStyleEntry(entry) {
 // Layer / source ids — kept in one place so the styledata re-add logic and
 // the render functions agree on naming. Prefix avoids collisions with any
 // layer id baked into the OpenFreeMap styles.
+//
+// PINS_LAYER_ID is the canonical pins layer for hover/drag/
+// queryRenderedFeatures. It paints every pin as a tintable SDF symbol
+// driven by `pin.icon`, with a built-in white halo standing in for the
+// previous shadow companion.
 const PINS_SOURCE_ID = "city-pin-map.pins";
-const PINS_LAYER_ID = "city-pin-map.pins-circles";
+const PINS_LAYER_ID = "city-pin-map.pins-fill";
 const PINS_LABELS_LAYER_ID = "city-pin-map.pins-labels";
 const ROUTE_SOURCE_ID = "city-pin-map.route";
 const ROUTE_LAYER_ID = "city-pin-map.route-line";
+
+// Pin icon registry. Single source of truth for both the map layer (image
+// id used by `icon-image`) and the side-panel picker (label + same id).
+// Adding an icon here is the only change needed to expose a new shape:
+// place a single-color filled SVG at `src`, list it here, and the
+// data-driven `icon-image` expression on the pins layer picks it up.
+//
+// All entries must be SDF-friendly (filled silhouettes, no per-pixel
+// color), so MapLibre can tint them with the pin's effectiveColor().
+// Files are MIT-licensed Phosphor icons (fill weight) plus this app's
+// header attribution — see assets/icons/<id>.svg.
+//
+// Each icon's `id` is the public, stored-in-localStorage value used by
+// the picker UI and persisted on every pin. The `imageId` is the
+// MapLibre image-registry key — namespaced under "city-pin-map.icon."
+// to avoid colliding with basemap sprites: OpenFreeMap's Liberty style
+// already registers small POI sprites named "circle", "star", "heart",
+// "flag", "house", "map-pin", and our addImage would either silently
+// skip (when hasImage returned true on the basemap version) or fight
+// the basemap's version through a stylechange race. The mapping
+// happens once at the layer's icon-image expression via `concat`.
+const PIN_ICON_IMAGE_PREFIX = "city-pin-map.icon.";
+export const PIN_ICONS = [
+  { id: "map-pin", label: "Drop pin", src: "assets/icons/map-pin.svg" },
+  { id: "circle", label: "Circle", src: "assets/icons/circle.svg" },
+  { id: "star", label: "Star", src: "assets/icons/star.svg" },
+  { id: "heart", label: "Heart", src: "assets/icons/heart.svg" },
+  { id: "flag", label: "Flag", src: "assets/icons/flag.svg" },
+  { id: "house", label: "House", src: "assets/icons/house.svg" },
+];
+export const DEFAULT_PIN_ICON = "map-pin";
+const PIN_ICON_IDS = new Set(PIN_ICONS.map((i) => i.id));
 
 // Module-scoped singleton. Treat as private; outside callers use getMap().
 let mapInstance = null;
@@ -385,8 +422,10 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   // The first style emits `load` once tiles + sprites + glyphs are ready.
   // Re-add markers/route here so a hydrated pin set paints on first frame
   // even though renderPins was called before the style was ready.
-  mapInstance.on("load", () => {
-    addPinAndRouteLayers();
+  // Awaiting the layer setup ensures the pins source exists before the
+  // first renderPins() call writes its data.
+  mapInstance.on("load", async () => {
+    await addPinAndRouteLayers();
     renderPins(lastPinsSnapshot);
     renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
   });
@@ -580,12 +619,12 @@ export function setMapStyle(styleId, { persist = true } = {}) {
   // First-event-wins race: styledata = success, error = failure, timeout
   // = treat as failure. Detach all listeners + clear timer when one fires.
   let settled = false;
-  const onSuccess = () => {
+  const onSuccess = async () => {
     if (settled) return;
     settled = true;
     cleanup();
     currentRenderedStyleId = entry.id;
-    addPinAndRouteLayers();
+    await addPinAndRouteLayers();
     renderPins(lastPinsSnapshot);
     renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
     if (persist) saveMapStyle(entry.id);
@@ -636,10 +675,11 @@ export function getMap() {
 /**
  * Synchronize the rendered pins source against `pins`.
  *
- * Markers are GeoJSON features in a single `geojson` source. The circle
- * layer paints them as filled circles with a white border. Group color
- * override is materialized into each feature's `properties.color` — the
- * layer's paint reads it via `['get', 'color']`.
+ * Markers are GeoJSON features in a single `geojson` source, painted by
+ * two stacked symbol layers: a non-SDF shadow+contour beneath, and an
+ * SDF tintable fill on top. Group color override is materialized into
+ * each feature's `properties.color` — the fill layer's `icon-color`
+ * reads it via `['get', 'color']`.
  *
  * Safe to call on every pin-store change. No-op until the style is loaded
  * (the source doesn't exist yet) — the `load` and `styledata` handlers
@@ -699,6 +739,18 @@ export function effectiveColor(pin) {
   return group?.color ?? pin.color;
 }
 
+/**
+ * Resolve the icon id a pin should render as. Returns DEFAULT_PIN_ICON
+ * when the pin has no icon set or its icon id isn't in the current
+ * registry (older session, hand-edited storage, future-version backup).
+ * Render must never reference a missing image — MapLibre would log
+ * "Image 'foo' could not be loaded" and drop the feature.
+ */
+export function effectiveIcon(pin) {
+  if (pin.icon && PIN_ICON_IDS.has(pin.icon)) return pin.icon;
+  return DEFAULT_PIN_ICON;
+}
+
 // ---- Internals --------------------------------------------------------
 
 function rasterStyle({ tiles, maxzoom, attribution }) {
@@ -733,6 +785,7 @@ function pinsToFeatureCollection(pins) {
         id: pin.id,
         name: pin.name,
         color: effectiveColor(pin),
+        icon: effectiveIcon(pin),
       },
     })),
   };
@@ -742,8 +795,71 @@ function emptyLineFeatureCollection() {
   return { type: "FeatureCollection", features: [] };
 }
 
-function addPinAndRouteLayers() {
+// Cached pin-sprite Image objects, keyed by icon id. setStyle() wipes
+// MapLibre's image registry on every basemap swap, but the underlying
+// HTMLImageElement is reusable — fetch once, re-register on every
+// styledata via addImage. `pinImagesPromise` deduplicates concurrent
+// first-call awaits.
+const pinIconImages = new Map();
+let pinImagesPromise = null;
+
+function loadPinIconImages() {
+  if (pinImagesPromise) return pinImagesPromise;
+  pinImagesPromise = Promise.all(
+    PIN_ICONS.map((icon) =>
+      fetchImage(icon.src).then((img) => pinIconImages.set(icon.id, img))
+    )
+  );
+  return pinImagesPromise;
+}
+
+function fetchImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () =>
+      reject(new Error(`Failed to load pin sprite "${src}"`));
+    img.src = src;
+  });
+}
+
+async function addPinAndRouteLayers() {
   if (!mapInstance) return;
+
+  // Pin sprites must be in the registry before the symbol layer can
+  // reference them by id. Loading is cached after the first call —
+  // subsequent style swaps await a microtask, not network round-trips.
+  try {
+    await loadPinIconImages();
+  } catch (err) {
+    showError(`${err.message}. Markers will not render.`);
+    return;
+  }
+  // Defensive against a teardown that snuck in during the await.
+  if (!mapInstance) return;
+
+  // Re-register every pin icon on every styledata cycle. setStyle() wipes
+  // the image registry; the hasImage() check short-circuits the rare path
+  // where MapLibre kept our image, avoiding the "image already exists"
+  // console warning. The PIN_ICON_IMAGE_PREFIX namespacing keeps these
+  // IDs out of collision range with basemap sprites that share short
+  // names like "circle"/"star"/"heart" — without the prefix, the
+  // hasImage guard would see the basemap version and skip our addImage,
+  // and the layer's icon-image would point at the wrong sprite (small,
+  // non-SDF, untintable).
+  for (const icon of PIN_ICONS) {
+    const imageId = PIN_ICON_IMAGE_PREFIX + icon.id;
+    if (!mapInstance.hasImage(imageId)) {
+      mapInstance.addImage(imageId, pinIconImages.get(icon.id), {
+        sdf: true,
+        // pixelRatio:4 with 128×128 source SVGs → on-screen display at
+        // 32 CSS px (matches PO-003's drop-pin footprint). The 4× source
+        // headroom is what gives the SDF generator enough alpha samples
+        // to interpolate smooth curves at retina and 1× displays alike.
+        pixelRatio: 4,
+      });
+    }
+  }
 
   // Route source + layer first, so it draws underneath the pins (MapLibre
   // z-orders by add-order within a layer type).
@@ -772,31 +888,54 @@ function addPinAndRouteLayers() {
       data: pinsToFeatureCollection(lastPinsSnapshot),
     });
   }
+
+  // Single fill layer for all pins. SDF: icon-color tints the silhouette
+  // via ['get', 'color'], reading the materialized effectiveColor() from
+  // each feature's properties. icon-image is data-driven the same way:
+  // a coalesce expression reads pin.icon and falls back to map-pin so
+  // pre-icon-picker pins (no `icon` field) render unchanged.
+  //
+  // The white halo replaces PO-003's separate shadow companion image.
+  // Halo width gives the inner-contour cue against any basemap; halo
+  // blur gives a soft glow that reads as a shadow without committing to
+  // a lighting direction.
   if (!mapInstance.getLayer(PINS_LAYER_ID)) {
     mapInstance.addLayer({
       id: PINS_LAYER_ID,
-      type: "circle",
+      type: "symbol",
       source: PINS_SOURCE_ID,
+      layout: {
+        // pin.icon stores the short public id ("map-pin", "star", …);
+        // the actual MapLibre image id is namespaced to avoid basemap
+        // sprite collisions, so we concat the prefix here at expression
+        // evaluation time. The coalesce fallback covers pre-PI-001 pins
+        // (no `icon` field) by routing them to the default drop-pin.
+        "icon-image": [
+          "concat",
+          PIN_ICON_IMAGE_PREFIX,
+          ["coalesce", ["get", "icon"], DEFAULT_PIN_ICON],
+        ],
+        "icon-anchor": "bottom",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        "icon-size": 1.0,
+      },
       paint: {
-        "circle-radius": 8,
-        // ['get', 'color'] reads from feature.properties.color, which we
-        // bake from effectiveColor() at render time. So a group rename or
-        // recolor flows through renderPins → setData → repaint without
-        // touching this layer definition.
-        "circle-color": ["get", "color"],
-        "circle-stroke-width": 2,
-        "circle-stroke-color": "#ffffff",
-        "circle-opacity": 0.9,
+        "icon-color": ["get", "color"],
+        "icon-opacity": 1,
+        "icon-halo-color": "#ffffff",
+        "icon-halo-width": 1.5,
+        "icon-halo-blur": 2,
       },
     });
   }
 
-  // Pin name labels. Same source as the circles layer — every renderPins
+  // Pin name labels. Same source as the fill layer — every renderPins
   // setData() call propagates here automatically, so renames/adds/removes
   // /drags/group-color swaps update labels without a separate subscription.
-  // Added after the circles layer so MapLibre's add-order z-stacking
-  // paints labels above pins. text-color is fixed (not bound to the pin's
-  // color) so labels stay readable regardless of marker tint, per PO-002.
+  // Added LAST so MapLibre's add-order z-stacking paints labels above
+  // pins. text-color is fixed (not bound to the pin's color) so labels
+  // stay readable regardless of marker tint, per PO-002.
   if (!mapInstance.getLayer(PINS_LABELS_LAYER_ID)) {
     mapInstance.addLayer({
       id: PINS_LABELS_LAYER_ID,
@@ -804,7 +943,13 @@ function addPinAndRouteLayers() {
       source: PINS_SOURCE_ID,
       layout: {
         "text-field": ["get", "name"],
-        "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+        // Noto Sans Regular is the font the OpenFreeMap basemap uses for its
+        // own labels, so we know the glyph PBF exists at the expected URL.
+        // The previous combo "Open Sans Regular,Arial Unicode MS Regular"
+        // 404'd silently — fine when markers were a non-symbol circle layer,
+        // but PO-003 puts pin icons into the same symbol bucket and a failed
+        // glyph load on this layer suppresses the icons too.
+        "text-font": ["Noto Sans Regular"],
         "text-size": 13,
         "text-anchor": "top",
         "text-offset": [0, 1.0],

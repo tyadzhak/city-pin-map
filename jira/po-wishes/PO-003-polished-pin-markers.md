@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `PO-003`                                    |
 | **Milestone**   | `PO wishes`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `None`                                      |
@@ -31,17 +31,17 @@ Drag still works: the drag commit reads coordinates from the source feature, not
 
 ## Acceptance criteria
 
-- [ ] Pins render as a teardrop drop-pin shape (rounded top, pointed bottom), NOT as flat circles.
-- [ ] Each pin has a soft shadow underneath and a white inner contour for definition.
-- [ ] The pin's tip (bottom-center of the drop) sits exactly on its `lat/lon` coordinate. Pan/zoom verifies — the tip stays glued to the geographic point.
-- [ ] Group color override and per-pin color show up as the fill of the drop. Switching a pin's group recolors it without a re-render bounce.
-- [ ] Pins remain draggable. Drag mechanics from CORE-009 (mousedown on pin layer + document-level mousemove/mouseup commit) work unchanged.
-- [ ] Pin labels (PO-002, if it lands first) sit above the pin head without overlapping the drop silhouette.
-- [ ] Switching through every basemap style (vector + raster) preserves the marker design.
-- [ ] Exported PNG captures the new markers correctly (canvas-merge pipeline reads `mapInstance.getCanvas()`, so this is automatic).
-- [ ] On retina displays, the drop edges and shadow remain crisp (SVG sprites registered at 2× source resolution).
-- [ ] No regressions in previously completed tasks.
-- [ ] No errors in browser console.
+- [x] Pins render as a teardrop drop-pin shape (rounded top, pointed bottom), NOT as flat circles.
+- [x] Each pin has a soft shadow underneath and a white inner contour for definition.
+- [x] The pin's tip (bottom-center of the drop) sits exactly on its `lat/lon` coordinate. Pan/zoom verifies — the tip stays glued to the geographic point.
+- [x] Group color override and per-pin color show up as the fill of the drop. Switching a pin's group recolors it without a re-render bounce.
+- [x] Pins remain draggable. Drag mechanics from CORE-009 (mousedown on pin layer + document-level mousemove/mouseup commit) work unchanged.
+- [x] Pin labels (PO-002, if it lands first) sit above the pin head without overlapping the drop silhouette.
+- [x] Switching through every basemap style (vector + raster) preserves the marker design.
+- [x] Exported PNG captures the new markers correctly (canvas-merge pipeline reads `mapInstance.getCanvas()`, so this is automatic).
+- [x] On retina displays, the drop edges and shadow remain crisp (SVG sprites registered at 2× source resolution).
+- [x] No regressions in previously completed tasks.
+- [x] No errors in browser console.
 
 ## Files affected
 
@@ -127,3 +127,7 @@ When finished, update this task file's Status field to `Done` and tick every acc
 - `pixelRatio: 2` on `addImage` tells MapLibre to render the 64×80 sprite at 32×40 CSS px on screen, doubling effective DPI for retina crispness.
 - If shadows look heavy on light basemaps but fine on dark ones, the right move is a single shadow opacity (0.25–0.4 alpha in the SVG itself) that reads acceptably on both — not a per-style shadow override.
 - The previous circle layer's `circle-stroke-width: 2` + `circle-stroke-color: "#ffffff"` is the visual cue this task replaces with the SVG's white inner contour. Don't keep both.
+
+## Implementation note (added during execution)
+
+- **Found and fixed a latent PO-002 bug.** The pin-labels layer's `text-font` was set to `["Open Sans Regular", "Arial Unicode MS Regular"]` — a font combination OpenFreeMap doesn't host (the glyph endpoint returns 404 for the comma-joined fontstack). Labels never actually rendered. The bug stayed invisible while markers were a `circle`-type layer because circles don't share a symbol bucket with labels. Promoting markers to symbol layers in this task surfaced a MapLibre coupling: when one symbol layer in a source fails its glyph load, the worker can drop the entire tile's symbol bucket, suppressing siblings (the pin icons). Switched to `["Noto Sans Regular"]`, which the basemap proves works against the same glyph endpoint. Labels now render too — a free upgrade.
