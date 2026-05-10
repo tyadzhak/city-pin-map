@@ -25,48 +25,15 @@ import * as userIcons from "./user-icons.js";
 //   2. Append an entry below
 //   3. (Optional) Update CLAUDE.md "What's shipped" if the count changes meaningfully
 export const BUILTIN_ICONS = [
-  // Default — the migration target for pre-PI-001 pins. Sits alone in the picker.
-  { id: "map-pin", label: "Drop pin", category: "default", tintable: true, src: "assets/icons/map-pin.svg" },
-
-  // Pins — geometric variants
-  { id: "circle", label: "Circle", category: "pins", tintable: true, src: "assets/icons/circle.svg" },
-  { id: "star", label: "Star", category: "pins", tintable: true, src: "assets/icons/star.svg" },
-  { id: "heart", label: "Heart", category: "pins", tintable: true, src: "assets/icons/heart.svg" },
-  { id: "flag", label: "Flag", category: "pins", tintable: true, src: "assets/icons/flag.svg" },
-
-  // Pins (continued)
-  { id: "square", label: "Square", category: "pins", tintable: true, src: "assets/icons/square.svg" },
-  { id: "hexagon", label: "Hexagon", category: "pins", tintable: true, src: "assets/icons/hexagon.svg" },
-
-  // Travel
-  { id: "plane", label: "Airplane", category: "travel", tintable: true, src: "assets/icons/plane.svg" },
-  { id: "hotel", label: "Hotel", category: "travel", tintable: true, src: "assets/icons/hotel.svg" },
-  { id: "restaurant", label: "Restaurant", category: "travel", tintable: true, src: "assets/icons/restaurant.svg" },
-  { id: "coffee", label: "Coffee", category: "travel", tintable: true, src: "assets/icons/coffee.svg" },
-  { id: "camera", label: "Camera", category: "travel", tintable: true, src: "assets/icons/camera.svg" },
-  { id: "suitcase", label: "Suitcase", category: "travel", tintable: true, src: "assets/icons/suitcase.svg" },
-
-  // Places
-  { id: "house", label: "House", category: "places", tintable: true, src: "assets/icons/house.svg" },
-  { id: "building", label: "Building", category: "places", tintable: true, src: "assets/icons/building.svg" },
-  { id: "mountain", label: "Mountain", category: "places", tintable: true, src: "assets/icons/mountain.svg" },
-  { id: "tree", label: "Tree", category: "places", tintable: true, src: "assets/icons/tree.svg" },
-  { id: "hospital", label: "Hospital", category: "places", tintable: true, src: "assets/icons/hospital.svg" },
-
-  // Transport
-  { id: "car", label: "Car", category: "transport", tintable: true, src: "assets/icons/car.svg" },
-  { id: "bus", label: "Bus", category: "transport", tintable: true, src: "assets/icons/bus.svg" },
-  { id: "train", label: "Train", category: "transport", tintable: true, src: "assets/icons/train.svg" },
-  { id: "bike", label: "Bike", category: "transport", tintable: true, src: "assets/icons/bike.svg" },
-
-  // Markers
-  { id: "check", label: "Checkmark", category: "markers", tintable: true, src: "assets/icons/check.svg" },
-  { id: "exclamation", label: "Exclamation", category: "markers", tintable: true, src: "assets/icons/exclamation.svg" },
-  { id: "question", label: "Question", category: "markers", tintable: true, src: "assets/icons/question.svg" },
-  { id: "info", label: "Info", category: "markers", tintable: true, src: "assets/icons/info.svg" },
+  // Sole built-in: the default neutral marker. Anything richer gets added
+  // by the user via the icon-picker's "+ Add" sub-flow. Pins from older
+  // sessions whose `icon` references a previous built-in (`map-pin`,
+  // `star`, etc.) degrade to this via effectiveIcon's clamp-to-known-id
+  // contract.
+  { id: "circle", label: "Circle", category: "default", tintable: true, src: "assets/icons/circle.svg" },
 ];
 
-export const DEFAULT_ICON_ID = "map-pin";
+export const DEFAULT_ICON_ID = "circle";
 
 // Subscribers re-fire whenever the merged registry changes — either because
 // a user icon was added/removed/replaced, or (rare) because the built-in
