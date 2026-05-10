@@ -343,6 +343,7 @@ export function isRasterStyleEntry(entry) {
 // previous shadow companion.
 const PINS_SOURCE_ID = "city-pin-map.pins";
 const PINS_LAYER_ID = "city-pin-map.pins-fill";
+const PINS_COLOR_RING_LAYER_ID = "city-pin-map.pins-color-ring";
 const PINS_LABELS_LAYER_ID = "city-pin-map.pins-labels";
 const ROUTE_SOURCE_ID = "city-pin-map.route";
 const ROUTE_LAYER_ID = "city-pin-map.route-line";
@@ -956,6 +957,31 @@ async function addPinAndRouteLayers() {
     mapInstance.addSource(PINS_SOURCE_ID, {
       type: "geojson",
       data: pinsToFeatureCollection(lastPinsSnapshot),
+    });
+  }
+
+  // Color ring for non-tintable icons (full-color custom uploads). The
+  // pins-fill layer's icon-color paint is silently ignored on non-SDF
+  // sprites, so without a separate color cue, group color and per-pin
+  // color would never read on those pins. The ring sits slightly above
+  // the icon's bottom anchor (circle-translate) so it peeks out from the
+  // base of the marker rather than getting hidden by the icon body.
+  // Filtered to features with tintable=false; tintable pins draw their
+  // color via icon-color and don't need the ring. Added BEFORE the fill
+  // layer so it z-stacks underneath.
+  if (!mapInstance.getLayer(PINS_COLOR_RING_LAYER_ID)) {
+    mapInstance.addLayer({
+      id: PINS_COLOR_RING_LAYER_ID,
+      type: "circle",
+      source: PINS_SOURCE_ID,
+      filter: ["==", ["get", "tintable"], false],
+      paint: {
+        "circle-color": ["get", "color"],
+        "circle-radius": 6,
+        "circle-translate": [0, -2],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1.5,
+      },
     });
   }
 
