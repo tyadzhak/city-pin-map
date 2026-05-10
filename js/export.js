@@ -1,11 +1,12 @@
 // PNG export via native HTML5 Canvas. Composites the MapLibre WebGL canvas
-// + an optional title strip into an off-screen 2D canvas, then toDataURL.
+// + an optional title strip into an off-screen 2D canvas, then optionally
+// wraps the result in a decorative frame (PO-007), then toDataURL.
 //
 // Markers and the route line are layers inside the WebGL canvas (see
 // js/map.js — Option B GeoJSONSource + circle/line layers), so they are
 // captured automatically by getCanvas(). No post-composite step is needed.
 
-import { showError } from "./storage.js";
+import { showError, loadExportFrame } from "./storage.js";
 import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
@@ -83,7 +84,15 @@ export async function exportMapAsPng(mapInstance) {
     const presetId = formatSelect ? formatSelect.value : "current";
     const preset = EXPORT_PRESETS[presetId] ?? null;
 
-    let dataUrl;
+    // PO-007 frame settings live in localStorage; app.js owns the input
+    // wiring. Reading at click time mirrors how title/subtitle/preset are
+    // resolved above — the export pipeline doesn't need a subscription.
+    const frame = loadExportFrame();
+
+    // Both paths produce a canvas. The optional frame-wrap pass and the
+    // single toDataURL conversion happen at the end so they share the
+    // exact same code regardless of which capture path ran.
+    let innerCanvas;
     if (!title && !subtitle && !preset) {
       // Fast path: live map, no title strip, no resize. Capture the
       // canvas as-is. triggerRepaint + once('render') ensures the
@@ -91,10 +100,13 @@ export async function exportMapAsPng(mapInstance) {
       await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
       mapInstance.triggerRepaint();
       await waitForRender(mapInstance);
-      dataUrl = mapInstance.getCanvas().toDataURL("image/png");
+      innerCanvas = mapInstance.getCanvas();
     } else {
-      dataUrl = await captureFramed(mapInstance, title, subtitle, preset);
+      innerCanvas = await captureFramed(mapInstance, title, subtitle, preset);
     }
+
+    const finalCanvas = wrapFrame(innerCanvas, frame);
+    const dataUrl = finalCanvas.toDataURL("image/png");
 
     triggerDownload(dataUrl, `city-pin-map-${todayStamp()}.png`);
   } catch (err) {
@@ -251,9 +263,11 @@ function computeCoeff(width, height) {
 }
 
 // Composite the map canvas + title strip into one output canvas and
-// return its data URL. The output canvas is sized in CSS pixels to match
+// return the canvas. The output canvas is sized in CSS pixels to match
 // what dom-to-image-more produced — same on-disk dimensions as the
-// previous pipeline, no surprise size change for the user.
+// previous pipeline, no surprise size change for the user. The caller
+// (exportMapAsPng) handles the optional PO-007 frame wrap and the final
+// toDataURL conversion.
 function composite({
   mapCanvas,
   mapWidthCss,
@@ -291,7 +305,60 @@ function composite({
     mapHeightCss
   );
 
-  return out.toDataURL("image/png");
+  return out;
+}
+
+// PO-007 — Decorative frame composition. Allocates a larger canvas
+// (inner + 2*thickness on each axis), fills it with the frame color, then
+// drawImages the inner composite at offset (thickness, thickness). When
+// `frame.shadow` is true, a soft drop shadow is cast by the inner image
+// onto the frame area — like a printed photo on a card.
+//
+// Defensive: enabled=false OR thickness<=0 returns the inner canvas
+// untouched, satisfying the acceptance criterion that thickness=0 with
+// the toggle on produces the same output as the toggle off.
+//
+// Shadow recipe (tuned visually for the "soft Polaroid" look):
+//   shadowColor   = "rgba(0,0,0,0.25)"
+//   shadowBlur    = round(thickness * 0.4)
+//   shadowOffsetY = round(thickness * 0.15)
+// Expressing every shadow dimension as a fraction of `thickness` means
+// at thickness=0 every dimension is also 0, so the disabled / thickness=0
+// short-circuit isn't strictly required for shadow correctness — it's just
+// there to skip the canvas allocation entirely.
+//
+// Implementation note (deliberate deviation from the task prompt): the
+// task prompt described setting shadow → fillRect → reset → drawImage,
+// but a fillRect that covers the entire canvas is fully self-occluding —
+// its own shadow would only fall outside the canvas (clipped). To get the
+// described "soft drop shadow within the frame area" effect, the shadow
+// has to be active when the INNER composite is drawn so the inner image
+// (the photo) casts onto the frame fill (the card).
+function wrapFrame(innerCanvas, frame) {
+  if (!frame || !frame.enabled) return innerCanvas;
+  const thickness = Math.max(0, Math.round(Number(frame.thickness) || 0));
+  if (thickness <= 0) return innerCanvas;
+
+  const out = document.createElement("canvas");
+  out.width = innerCanvas.width + 2 * thickness;
+  out.height = innerCanvas.height + 2 * thickness;
+  const ctx = out.getContext("2d");
+
+  // Fill the frame card with no shadow set, so the fill itself doesn't
+  // try (and fail) to cast a shadow.
+  ctx.fillStyle = frame.color;
+  ctx.fillRect(0, 0, out.width, out.height);
+
+  if (frame.shadow) {
+    ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+    ctx.shadowBlur = Math.round(thickness * 0.4);
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = Math.round(thickness * 0.15);
+  }
+
+  ctx.drawImage(innerCanvas, thickness, thickness);
+
+  return out;
 }
 
 function drawTitleStrip(ctx, { title, subtitle, height, width, coeff }) {

@@ -4,6 +4,7 @@ const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
 const EXPORT_TEXT_KEY = "city-pin-map.export-text.v1";
 const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
+const EXPORT_FRAME_KEY = "city-pin-map.export-frame.v1";
 const HIDE_LABELS_KEY = "city-pin-map.hide-labels.v1";
 
 // User-uploaded icon library (PIL-001). Same defensive load shape as
@@ -26,6 +27,18 @@ const API_KEY_STORAGE_BY_PROVIDER = {
 const DEFAULT_EXPORT_FORMAT = "current";
 const BANNER_TIMEOUT_MS = 6000;
 const EMPTY_EXPORT_TEXT = Object.freeze({ title: "", subtitle: "" });
+
+// PO-007: a single-key object covers the four frame sub-settings. Same
+// granularity NICE-006 used for `{ title, subtitle }` — keeps storage.js
+// from sprouting four sibling keys for one feature.
+const DEFAULT_EXPORT_FRAME = Object.freeze({
+  enabled: false,
+  thickness: 60,
+  color: "#ffffff",
+  shadow: false,
+});
+const FRAME_THICKNESS_MIN = 0;
+const FRAME_THICKNESS_MAX = 200;
 
 let bannerTimer = null;
 
@@ -255,6 +268,66 @@ export function saveExportFormat(formatId) {
       "Could not save export format preference. Choice will reset on refresh."
     );
   }
+}
+
+// Decorative export frame (PO-007). Single-key object — see
+// DEFAULT_EXPORT_FRAME above. Same defensive shape as loadExportText:
+// missing key → defaults; corrupt key → defaults + banner. Each field is
+// individually validated so a partial / hand-edited object can never poison
+// the export pipeline (e.g. NaN thickness, non-string color).
+export function loadExportFrame() {
+  let raw;
+  try {
+    raw = localStorage.getItem(EXPORT_FRAME_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved frame settings could not be read; using defaults.");
+    return { ...DEFAULT_EXPORT_FRAME };
+  }
+  if (raw === null) return { ...DEFAULT_EXPORT_FRAME };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("saved frame settings is not an object");
+    }
+    return normalizeFrame(parsed);
+  } catch (err) {
+    console.error("saved frame settings corrupt; ignoring:", err);
+    showError("Saved frame settings were corrupted and have been ignored.");
+    return { ...DEFAULT_EXPORT_FRAME };
+  }
+}
+
+export function saveExportFrame(value) {
+  try {
+    localStorage.setItem(EXPORT_FRAME_KEY, JSON.stringify(normalizeFrame(value)));
+  } catch (err) {
+    console.error("failed to save frame settings:", err);
+    showError(
+      "Could not save frame settings (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Field-by-field clamp/coerce so callers can pass partial objects (e.g.
+// `{ enabled: true }` from a single change event) and get a complete
+// well-formed value back. Unknown keys are dropped on the floor.
+function normalizeFrame(value) {
+  const v = value || {};
+  const thicknessNum = Number(v.thickness);
+  const thickness = Number.isFinite(thicknessNum)
+    ? Math.max(FRAME_THICKNESS_MIN, Math.min(FRAME_THICKNESS_MAX, Math.round(thicknessNum)))
+    : DEFAULT_EXPORT_FRAME.thickness;
+  const color =
+    typeof v.color === "string" && /^#[0-9a-fA-F]{6}$/.test(v.color)
+      ? v.color
+      : DEFAULT_EXPORT_FRAME.color;
+  return {
+    enabled: Boolean(v.enabled),
+    thickness,
+    color,
+    shadow: Boolean(v.shadow),
+  };
 }
 
 // Hide-labels preference (PO-001). Same bare-string "true" / "false"

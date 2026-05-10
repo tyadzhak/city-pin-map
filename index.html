@@ -172,6 +172,51 @@
               10×15 cm portrait (300 DPI)
             </option>
           </select>
+          <!-- Frame controls (PO-007). The "Add frame" toggle drives the
+               visibility of the thickness / color / shadow inputs via the
+               data-frame-enabled attribute on the wrapper — app.js flips it
+               on hydration and on every change. The dependent controls are
+               kept in the DOM at all times so tab order and ARIA stay
+               consistent; only their `display` is suppressed. -->
+          <label class="export-frame-toggle" title="Decorative frame around the exported PNG">
+            <input
+              id="export-frame-enabled"
+              type="checkbox"
+              class="export-frame-toggle__input"
+            />
+            <span class="export-frame-toggle__label">Frame</span>
+          </label>
+          <span
+            id="export-frame-controls"
+            class="export-frame-controls"
+            data-frame-enabled="false"
+          >
+            <input
+              id="export-frame-thickness"
+              type="number"
+              min="0"
+              max="200"
+              step="1"
+              class="export-frame-controls__thickness"
+              aria-label="Frame thickness in pixels"
+              title="Frame thickness (px)"
+            />
+            <input
+              id="export-frame-color"
+              type="color"
+              class="export-frame-controls__color"
+              aria-label="Frame color"
+              title="Frame color"
+            />
+            <label class="export-frame-shadow-toggle" title="Soft drop shadow inside the frame">
+              <input
+                id="export-frame-shadow"
+                type="checkbox"
+                class="export-frame-shadow-toggle__input"
+              />
+              <span class="export-frame-shadow-toggle__label">Shadow</span>
+            </label>
+          </span>
         </div>
         <button id="export-png" type="button" class="export-btn">
           Export PNG

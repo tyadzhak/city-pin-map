@@ -27,6 +27,8 @@ import {
   saveExportText,
   loadExportFormat,
   saveExportFormat,
+  loadExportFrame,
+  saveExportFrame,
   loadHideLabels,
   saveHideLabels,
   showError,
@@ -183,6 +185,7 @@ function init() {
 
   initExportOptions();
   initExportFormatSelector();
+  initExportFrameOptions();
   initExportButton();
   initBackupControls();
   initSettingsPanel();
@@ -231,6 +234,53 @@ function initExportFormatSelector() {
   select.addEventListener("change", (event) => {
     saveExportFormat(event.target.value);
   });
+}
+
+// Hydrates the four Frame inputs (PO-007) from localStorage and persists
+// every change. The wrapper's data-frame-enabled attribute drives CSS
+// visibility for the dependent controls — see .export-frame-controls in
+// css/styles.css. The export pipeline reads each input back out of the DOM
+// at click time (mirroring how export-title / export-subtitle are read in
+// exportMapAsPng), so this function only owns hydration + persistence and
+// does not need to notify any other module on flip.
+//
+// Persistence reads ALL FOUR inputs on every change so saveExportFrame
+// always receives a complete object — required because normalizeFrame
+// fills missing fields from the static defaults, not from prior state.
+function initExportFrameOptions() {
+  const enabled = document.getElementById("export-frame-enabled");
+  const thickness = document.getElementById("export-frame-thickness");
+  const color = document.getElementById("export-frame-color");
+  const shadow = document.getElementById("export-frame-shadow");
+  const wrapper = document.getElementById("export-frame-controls");
+  if (!enabled || !thickness || !color || !shadow || !wrapper) return;
+
+  const saved = loadExportFrame();
+  enabled.checked = saved.enabled;
+  thickness.value = String(saved.thickness);
+  color.value = saved.color;
+  shadow.checked = saved.shadow;
+  wrapper.dataset.frameEnabled = saved.enabled ? "true" : "false";
+
+  const persist = () => {
+    saveExportFrame({
+      enabled: enabled.checked,
+      thickness: thickness.valueAsNumber,
+      color: color.value,
+      shadow: shadow.checked,
+    });
+  };
+
+  enabled.addEventListener("change", () => {
+    wrapper.dataset.frameEnabled = enabled.checked ? "true" : "false";
+    persist();
+  });
+  // `input` instead of `change` for the number/color inputs so the user
+  // sees the persisted state update as they scrub a value, mirroring the
+  // immediate-save behaviour of the title/subtitle text inputs.
+  thickness.addEventListener("input", persist);
+  color.addEventListener("input", persist);
+  shadow.addEventListener("change", persist);
 }
 
 // Reflects the persisted preference on the checkbox at boot and forwards
