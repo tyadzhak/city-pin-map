@@ -26,7 +26,7 @@
       src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"
     ></script>
 
-    <link rel="stylesheet" href="css/styles.css?v=pil-001-r2" />
+    <link rel="stylesheet" href="css/styles.css?v=po-008" />
   </head>
   <body>
     <div class="app-shell">
@@ -146,6 +146,18 @@
             type="text"
             class="export-options__input"
             placeholder="Subtitle (optional)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <!-- PO-008: on-map title. The input lives here next to the
+               title strip inputs, but the value drives a draggable overlay
+               on the map (js/map-title.js) — not a band above it. The two
+               coexist; both render in the export when both are set. -->
+          <input
+            id="export-on-map-title"
+            type="text"
+            class="export-options__input"
+            placeholder="On-map title (optional)"
             autocomplete="off"
             spellcheck="false"
           />

@@ -6,7 +6,7 @@
 // js/map.js — Option B GeoJSONSource + circle/line layers), so they are
 // captured automatically by getCanvas(). No post-composite step is needed.
 
-import { showError, loadExportFrame } from "./storage.js";
+import { showError, loadExportFrame, loadOnMapTitle } from "./storage.js";
 import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
@@ -43,6 +43,28 @@ export const EXPORT_PRESETS = {
   "a3-portrait": { width: 1191, height: 1684 },
   "a3-landscape": { width: 1684, height: 1191 },
   "photo-10x15-portrait": { width: 1181, height: 1772 },
+};
+
+// PO-008 — on-map title overlay typography. Mirrors the live overlay's
+// CSS in css/styles.css (.export-on-map-title) so the export reads as
+// what the user saw on screen. Every dimension multiplies by `coeff`
+// (PO-006) at draw time, so the overlay grows proportionally with the
+// export canvas — same contract as the title strip below.
+const ON_MAP_TITLE = {
+  fontFamily: 'Georgia, "Times New Roman", serif',
+  fontWeight: 700,
+  // Slightly smaller than the title strip's 32px — the overlay is a
+  // place-label, not a poster header. Tuned by eye against the live
+  // CSS's 20px to land at the same visual weight after coeff scaling
+  // on a 1280-px viewport.
+  fontSize: 22,
+  textColor: "#1f2937",
+  background: "rgba(255, 255, 255, 0.85)",
+  borderColor: "rgba(0, 0, 0, 0.06)",
+  borderWidth: 1,
+  paddingX: 14,
+  paddingY: 8,
+  borderRadius: 6,
 };
 
 // Title strip layout — matches css/styles.css .export-title-strip so the
@@ -89,20 +111,37 @@ export async function exportMapAsPng(mapInstance) {
     // resolved above — the export pipeline doesn't need a subscription.
     const frame = loadExportFrame();
 
+    // PO-008 — on-map title. Captured on the live map BEFORE captureFramed
+    // resizes anything (approach (1) in the task brief): we record the
+    // projected pixel position as a ratio of the live container's CSS
+    // dimensions, then composite() multiplies that ratio by the export
+    // canvas's map area. Resizing for a preset reprojects Mercator at a
+    // different aspect, so the ratio approximation can drift sub-pixel on
+    // extreme presets — invisible at A4/16:9; bump to approach (2) if the
+    // drift becomes observable on A3 / 10×15.
+    const onMapTitleRaw = loadOnMapTitle();
+    const onMapTitleProjection = projectOnMapTitle(mapInstance, onMapTitleRaw);
+
     // Both paths produce a canvas. The optional frame-wrap pass and the
     // single toDataURL conversion happen at the end so they share the
     // exact same code regardless of which capture path ran.
     let innerCanvas;
-    if (!title && !subtitle && !preset) {
-      // Fast path: live map, no title strip, no resize. Capture the
-      // canvas as-is. triggerRepaint + once('render') ensures the
-      // framebuffer reflects the current state before we read it.
+    if (!title && !subtitle && !preset && !onMapTitleProjection) {
+      // Fast path: live map, no title strip, no resize, no overlay text.
+      // Capture the canvas as-is. triggerRepaint + once('render') ensures
+      // the framebuffer reflects the current state before we read it.
       await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
       mapInstance.triggerRepaint();
       await waitForRender(mapInstance);
       innerCanvas = mapInstance.getCanvas();
     } else {
-      innerCanvas = await captureFramed(mapInstance, title, subtitle, preset);
+      innerCanvas = await captureFramed(
+        mapInstance,
+        title,
+        subtitle,
+        preset,
+        onMapTitleProjection
+      );
     }
 
     const finalCanvas = wrapFrame(innerCanvas, frame);
@@ -118,7 +157,7 @@ export async function exportMapAsPng(mapInstance) {
 // Single off-screen wrapper that handles both the title strip and the
 // preset resize. One try/finally so any failure unwinds the DOM and the
 // MapLibre container atomically.
-async function captureFramed(mapInstance, title, subtitle, preset) {
+async function captureFramed(mapInstance, title, subtitle, preset, onMapTitle) {
   const mapEl = mapInstance.getContainer();
 
   const originalParent = mapEl.parentNode;
@@ -203,6 +242,8 @@ async function captureFramed(mapInstance, title, subtitle, preset) {
       },
       outputWidth: frameWidth,
       outputHeight: frameHeight,
+      onMapTitle,
+      coeff,
     });
   } finally {
     // Restore live pin-label size first — independent of DOM state, so
@@ -275,6 +316,8 @@ function composite({
   titleStrip,
   outputWidth,
   outputHeight,
+  onMapTitle,
+  coeff,
 }) {
   const out = document.createElement("canvas");
   out.width = outputWidth;
@@ -304,6 +347,22 @@ function composite({
     mapWidthCss,
     mapHeightCss
   );
+
+  // PO-008 — draw the on-map title overlay AFTER the title strip and the
+  // map pixels, so it floats on top of the map's tiles + markers, and
+  // BEFORE wrapFrame (which runs in the caller) so the decorative frame
+  // never paints over the title. Pixel position scales the live-map
+  // ratio by the export's map area (mapWidthCss × mapHeightCss), and y
+  // is offset by titleStrip.height so a non-zero strip pushes the
+  // overlay down with the map.
+  if (onMapTitle) {
+    drawOnMapTitle(ctx, {
+      x: onMapTitle.xRatio * mapWidthCss,
+      y: titleStrip.height + onMapTitle.yRatio * mapHeightCss,
+      text: onMapTitle.text,
+      coeff,
+    });
+  }
 
   return out;
 }
@@ -359,6 +418,98 @@ function wrapFrame(innerCanvas, frame) {
   ctx.drawImage(innerCanvas, thickness, thickness);
 
   return out;
+}
+
+// PO-008. Projects the on-map title's stored lon/lat onto the LIVE map
+// container's pixel space and returns the position as a ratio of the
+// container's CSS dimensions. composite() multiplies that ratio by the
+// export's map area so the overlay lands at the same on-screen position as
+// the user saw before clicking Export. Returns null when there's nothing to
+// draw (empty text, missing anchor, or a stored anchor outside the live
+// view — out-of-bounds projections still resolve, but rendering them would
+// place the title floating off the visible map area).
+function projectOnMapTitle(mapInstance, raw) {
+  if (!raw || !raw.text) return null;
+  if (!Number.isFinite(raw.lon) || !Number.isFinite(raw.lat)) return null;
+
+  const rect = mapInstance.getContainer().getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+
+  const pt = mapInstance.project([raw.lon, raw.lat]);
+  return {
+    text: raw.text,
+    xRatio: pt.x / rect.width,
+    yRatio: pt.y / rect.height,
+  };
+}
+
+// PO-008. Paints the on-map title at (x, y) — interpreted as the overlay's
+// CENTER, mirroring the live overlay's translate(-50%, -50%) trick. Every
+// dimension multiplies by `coeff` so a 1080² preset gets a slightly smaller
+// pill than a 1920×1080 one and an A3 print gets a larger one — the same
+// proportional-sizing contract the title strip already uses.
+function drawOnMapTitle(ctx, { x, y, text, coeff }) {
+  const fontSize = ON_MAP_TITLE.fontSize * coeff;
+  const padX = ON_MAP_TITLE.paddingX * coeff;
+  const padY = ON_MAP_TITLE.paddingY * coeff;
+  const radius = ON_MAP_TITLE.borderRadius * coeff;
+  const borderWidth = ON_MAP_TITLE.borderWidth * coeff;
+
+  ctx.save();
+
+  ctx.font = `${ON_MAP_TITLE.fontWeight} ${fontSize}px ${ON_MAP_TITLE.fontFamily}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // measureText().width is alphabetic-baseline-aware. Box height is
+  // approximated as fontSize * lineHeight ratio — same 1.2 the title
+  // strip uses, so the two read as one design family.
+  const metrics = ctx.measureText(text);
+  const textWidth = metrics.width;
+  const textHeight = fontSize * 1.2;
+  const boxWidth = textWidth + padX * 2;
+  const boxHeight = textHeight + padY * 2;
+  const boxX = x - boxWidth / 2;
+  const boxY = y - boxHeight / 2;
+
+  // Translucent backdrop with rounded corners. Canvas2D's roundRect
+  // landed in 2022 and is supported by every browser in this app's
+  // target list, but a defensive fallback to a square fillRect keeps
+  // older engines from throwing.
+  ctx.fillStyle = ON_MAP_TITLE.background;
+  drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, radius);
+  ctx.fill();
+
+  if (borderWidth > 0) {
+    ctx.lineWidth = borderWidth;
+    ctx.strokeStyle = ON_MAP_TITLE.borderColor;
+    drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, radius);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = ON_MAP_TITLE.textColor;
+  ctx.fillText(text, x, y);
+
+  ctx.restore();
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  const radius = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, radius);
+    return;
+  }
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
 
 function drawTitleStrip(ctx, { title, subtitle, height, width, coeff }) {

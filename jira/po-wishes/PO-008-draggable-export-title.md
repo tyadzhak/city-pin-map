@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `PO-008`                                    |
 | **Milestone**   | `PO wishes`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `L`                                         |
 | **Depends on**  | `NICE-006`                                  |
@@ -28,19 +28,19 @@ Position persists as `{ lon, lat }` (NOT pixel coords) so the title keeps anchor
 
 ## Acceptance criteria
 
-- [ ] An "On-map title" text input lives in the Export options panel below the existing title/subtitle inputs from NICE-006.
-- [ ] When non-empty, a draggable overlay element appears on the map showing the typed text.
-- [ ] On first appearance the overlay is centered above the user's current map view (or above the most recently added pin — designer's choice; pick whichever is more discoverable).
-- [ ] User can drag the overlay to any pixel position on the map. Drop commits to the underlying lon/lat.
-- [ ] The overlay sticks to its lon/lat through pan and zoom. Pan east → the title moves left in screen space. Zoom in → the title stays anchored to its city.
-- [ ] Position persists across reload (storage key `'city-pin-map.export-on-map-title.v1'` or similar, JSON-shaped `{ text, lon, lat }`).
-- [ ] When the input is cleared, the overlay disappears and stored position is cleared.
-- [ ] Export PNG includes the on-map title at the correct projected position. Style mirrors NICE-006 typography (same font family + sizing scaled by PO-006's coefficient if present).
-- [ ] The on-map title coexists with NICE-006's title strip — both render in the export when both are set; the strip is at the top, the on-map title floats over the map.
-- [ ] Title overlay is keyboard-accessible: focusable, repositionable via arrow keys (1 px per arrow press, 10 px with shift) when the overlay has focus.
-- [ ] No regressions in NICE-006 behavior when the on-map title is empty.
-- [ ] No regressions in pin drag, zoom, basemap switch, or export pipeline.
-- [ ] No errors in browser console.
+- [x] An "On-map title" text input lives in the Export options panel below the existing title/subtitle inputs from NICE-006.
+- [x] When non-empty, a draggable overlay element appears on the map showing the typed text.
+- [x] On first appearance the overlay is centered above the user's current map view (or above the most recently added pin — designer's choice; pick whichever is more discoverable).
+- [x] User can drag the overlay to any pixel position on the map. Drop commits to the underlying lon/lat.
+- [x] The overlay sticks to its lon/lat through pan and zoom. Pan east → the title moves left in screen space. Zoom in → the title stays anchored to its city.
+- [x] Position persists across reload (storage key `'city-pin-map.export-on-map-title.v1'` or similar, JSON-shaped `{ text, lon, lat }`).
+- [x] When the input is cleared, the overlay disappears and stored position is cleared. *(Implemented as overlay-hidden-but-position-remembered, per the implementation prompt's explicit instruction: "If text becomes empty, hide the overlay (don't destroy it; just hide so re-typing brings it back without losing position)." Storage retains lon/lat with text:"" so re-typing restores the same anchor.)*
+- [x] Export PNG includes the on-map title at the correct projected position. Style mirrors NICE-006 typography (same font family + sizing scaled by PO-006's coefficient if present).
+- [x] The on-map title coexists with NICE-006's title strip — both render in the export when both are set; the strip is at the top, the on-map title floats over the map.
+- [x] Title overlay is keyboard-accessible: focusable, repositionable via arrow keys (1 px per arrow press, 10 px with shift) when the overlay has focus.
+- [x] No regressions in NICE-006 behavior when the on-map title is empty.
+- [x] No regressions in pin drag, zoom, basemap switch, or export pipeline.
+- [x] No errors in browser console.
 
 ## Files affected
 

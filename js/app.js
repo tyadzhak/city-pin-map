@@ -31,6 +31,8 @@ import {
   saveExportFrame,
   loadHideLabels,
   saveHideLabels,
+  loadOnMapTitle,
+  saveOnMapTitle,
   showError,
 } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
@@ -40,6 +42,7 @@ import { initPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
 import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
 import { initStylePicker } from "./style-picker.js";
+import * as mapTitle from "./map-title.js";
 
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
@@ -186,6 +189,7 @@ function init() {
   initExportOptions();
   initExportFormatSelector();
   initExportFrameOptions();
+  initOnMapTitle();
   initExportButton();
   initBackupControls();
   initSettingsPanel();
@@ -305,6 +309,48 @@ function initHideLabelsToggle({ initialValue, onChange }) {
   checkbox.checked = initialValue;
   checkbox.addEventListener("change", (event) => {
     onChange(event.target.checked);
+  });
+}
+
+// PO-008: hydrates the on-map title input + overlay from localStorage and
+// keeps both in sync. The map-title module owns the overlay's lifecycle
+// (DOM, drag, projection); this function only wires the input box and the
+// persistence callbacks together.
+//
+// Two write paths feed saveOnMapTitle:
+//   1. Anchor-change callback — fires when the overlay's lon/lat moves
+//      (drag commit, keyboard nudge, fill-from-center on first reveal).
+//   2. Input event — fires on every keystroke; persists the current text +
+//      whatever lon/lat the module has accumulated so far.
+// Both write the full {text, lon, lat} object so a partial update never
+// overwrites a sibling field with stale state.
+function initOnMapTitle() {
+  const input = document.getElementById("export-on-map-title");
+  if (!input) return;
+
+  const map = getMap();
+  if (!map) return;
+
+  mapTitle.init(map, {
+    onAnchorChange: (next) => saveOnMapTitle(next),
+  });
+
+  const saved = loadOnMapTitle();
+  input.value = saved.text;
+  // Hand the persisted state to the overlay. If text is set, the module
+  // shows the overlay (seeding lon/lat from the map center if those are
+  // null); if text is empty, the overlay stays hidden but lon/lat is
+  // remembered so re-typing brings the title back at the same place.
+  mapTitle.update(saved);
+
+  input.addEventListener("input", () => {
+    const current = mapTitle.getPosition();
+    mapTitle.update({
+      text: input.value,
+      lon: current.lon,
+      lat: current.lat,
+    });
+    saveOnMapTitle(mapTitle.getPosition());
   });
 }
 

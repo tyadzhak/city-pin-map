@@ -597,6 +597,59 @@ body.dragging-pin * {
   cursor: grabbing !important;
 }
 
+/* PO-008 — draggable on-map title overlay. JS appends one of these inside
+   the MapLibre container and drives the transform from a stored lon/lat.
+   The transform is set inline (translate3d positions the top-left at the
+   projected pixel; translate(-50%,-50%) shifts so the OVERLAY's center
+   aligns with the projection — matches the math in js/map-title.js).
+   Typography mirrors NICE-006's title strip (Georgia, bold, dark) so the
+   live overlay previews what the export PNG will render.
+   touch-action: none lets a finger drag actually drag, instead of being
+   captured by the browser's scroll/zoom heuristics. */
+.export-on-map-title {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Above tiles + markers + the maplibregl-control-container. The
+     hide-labels notice / error banner sit at higher z-indices so they
+     still cover the overlay when needed. */
+  z-index: 5;
+
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #1f2937;
+  white-space: nowrap;
+
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  padding: 8px 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+
+  cursor: grab;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+
+.export-on-map-title[hidden] {
+  display: none;
+}
+
+.export-on-map-title:focus {
+  outline: 2px solid #4c6ef5;
+  outline-offset: 2px;
+}
+
+body.dragging-on-map-title,
+body.dragging-on-map-title * {
+  cursor: grabbing !important;
+}
+
 .app-side {
   grid-area: side;
   display: flex;

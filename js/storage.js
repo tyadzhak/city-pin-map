@@ -6,6 +6,7 @@ const EXPORT_TEXT_KEY = "city-pin-map.export-text.v1";
 const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
 const EXPORT_FRAME_KEY = "city-pin-map.export-frame.v1";
 const HIDE_LABELS_KEY = "city-pin-map.hide-labels.v1";
+const ON_MAP_TITLE_KEY = "city-pin-map.export-on-map-title.v1";
 
 // User-uploaded icon library (PIL-001). Same defensive load shape as
 // loadPins/loadGroups: missing key → empty, corrupt → empty + banner.
@@ -27,6 +28,11 @@ const API_KEY_STORAGE_BY_PROVIDER = {
 const DEFAULT_EXPORT_FORMAT = "current";
 const BANNER_TIMEOUT_MS = 6000;
 const EMPTY_EXPORT_TEXT = Object.freeze({ title: "", subtitle: "" });
+// On-map title (PO-008). lon/lat are nullable so the input can hold text
+// before a position has been chosen — the live overlay seeds them from the
+// map's current center on first reveal. Same shape as EMPTY_EXPORT_TEXT but
+// with geographic anchor fields rather than a sibling string.
+const EMPTY_ON_MAP_TITLE = Object.freeze({ text: "", lon: null, lat: null });
 
 // PO-007: a single-key object covers the four frame sub-settings. Same
 // granularity NICE-006 used for `{ title, subtitle }` — keeps storage.js
@@ -350,6 +356,56 @@ export function saveHideLabels(value) {
     console.error("failed to save hide-labels preference:", err);
     showError(
       "Could not save hide-labels preference. Choice will reset on refresh."
+    );
+  }
+}
+
+// On-map title (PO-008). Single-key object — see EMPTY_ON_MAP_TITLE above.
+// Same defensive load shape as loadExportText: missing key → empty defaults,
+// corrupt key → empty + banner. Each field individually validated so a
+// partial / hand-edited object can never poison the export pipeline (e.g.
+// non-finite lon, non-string text).
+export function loadOnMapTitle() {
+  let raw;
+  try {
+    raw = localStorage.getItem(ON_MAP_TITLE_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved on-map title could not be read; starting empty.");
+    return { ...EMPTY_ON_MAP_TITLE };
+  }
+  if (raw === null) return { ...EMPTY_ON_MAP_TITLE };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("saved on-map title is not an object");
+    }
+    return {
+      text: typeof parsed.text === "string" ? parsed.text : "",
+      lon: Number.isFinite(parsed.lon) ? parsed.lon : null,
+      lat: Number.isFinite(parsed.lat) ? parsed.lat : null,
+    };
+  } catch (err) {
+    console.error("saved on-map title corrupt; ignoring:", err);
+    showError("Saved on-map title was corrupted and has been ignored.");
+    return { ...EMPTY_ON_MAP_TITLE };
+  }
+}
+
+export function saveOnMapTitle({ text, lon, lat }) {
+  try {
+    localStorage.setItem(
+      ON_MAP_TITLE_KEY,
+      JSON.stringify({
+        text: typeof text === "string" ? text : "",
+        lon: Number.isFinite(lon) ? lon : null,
+        lat: Number.isFinite(lat) ? lat : null,
+      })
+    );
+  } catch (err) {
+    console.error("failed to save on-map title:", err);
+    showError(
+      "Could not save on-map title (storage may be full). Changes are kept in memory only."
     );
   }
 }
