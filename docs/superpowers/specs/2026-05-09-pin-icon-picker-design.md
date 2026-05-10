@@ -1,9 +1,11 @@
 # Pin icon picker — design
 
-**Status:** Approved
+**Status:** Superseded by [`2026-05-10-pin-shape-library-design.md`](./2026-05-10-pin-shape-library-design.md)
 **Date:** 2026-05-09
 **Predecessor:** PO-003 (drop-pin markers)
-**Successor:** _implementation plan TBD_
+**Successor:** 2026-05-10 pin shape library design
+
+> **Superseded.** Approved 2026-05-09 but no implementation plan was written before the 2026-05-10 brainstorm widened scope (custom user-uploadable icons, hybrid tintable/non-tintable color model, modal picker, larger starter set, backup-with-userIcons). Two ideas from this spec carry forward unchanged into the successor: (1) `icon-halo-*` paint replacing the shadow companion, (2) the `city-pin-map.icon.` sprite-id prefix to avoid basemap atlas collisions.
 
 ## Goal
 
