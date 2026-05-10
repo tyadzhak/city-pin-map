@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `PO-007`                                    |
 | **Milestone**   | `PO wishes`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M`                                         |
 | **Depends on**  | `None`                                      |
@@ -23,19 +23,19 @@ Sane defaults that don't require the user to think: 60 px white frame, no shadow
 
 ## Acceptance criteria
 
-- [ ] An "Add frame" toggle is visible in the Export options panel near the format selector.
-- [ ] When ON: a thickness input (slider OR number input, accepting 0–200 px), a color picker, and a "Soft shadow" checkbox become visible.
-- [ ] When OFF: the export pipeline behaves exactly as today — no frame, no shadow, original preset dimensions.
-- [ ] When ON, the exported PNG has the chosen frame around the entire image, including the title strip if present.
-- [ ] Final PNG dimensions = preset dimensions + (2 × thickness) on each axis.
-- [ ] Default frame settings: thickness 60 px, color white (#FFFFFF), shadow off.
-- [ ] Color picker change updates the persisted color; reload restores it.
-- [ ] Thickness change persists.
-- [ ] Shadow checkbox state persists.
-- [ ] Frame is keyboard-accessible (toggle, inputs, color picker).
-- [ ] Frame renders correctly on every preset (current view, 1080², A4, 10×15, etc.).
-- [ ] No regressions in previously completed tasks (especially NICE-006's title strip and NICE-007's preset resizing).
-- [ ] No errors in browser console.
+- [x] An "Add frame" toggle is visible in the Export options panel near the format selector.
+- [x] When ON: a thickness input (slider OR number input, accepting 0–200 px), a color picker, and a "Soft shadow" checkbox become visible.
+- [x] When OFF: the export pipeline behaves exactly as today — no frame, no shadow, original preset dimensions.
+- [x] When ON, the exported PNG has the chosen frame around the entire image, including the title strip if present.
+- [x] Final PNG dimensions = preset dimensions + (2 × thickness) on each axis.
+- [x] Default frame settings: thickness 60 px, color white (#FFFFFF), shadow off.
+- [x] Color picker change updates the persisted color; reload restores it.
+- [x] Thickness change persists.
+- [x] Shadow checkbox state persists.
+- [x] Frame is keyboard-accessible (toggle, inputs, color picker).
+- [x] Frame renders correctly on every preset (current view, 1080², A4, 10×15, etc.).
+- [x] No regressions in previously completed tasks (especially NICE-006's title strip and NICE-007's preset resizing).
+- [x] No errors in browser console.
 
 ## Files affected
 
@@ -137,3 +137,10 @@ When finished, update this task file's Status field to `Done` and tick every acc
 - **Shadow recipe to start with**: `rgba(0,0,0,0.25)` color, blur ≈ 0.4 × thickness, vertical offset ≈ 0.15 × thickness. These produce a tasteful soft shadow at any thickness without the user thinking about it. If user feedback says the shadow is too harsh, lower the alpha; too subtle, raise it.
 - **Possible follow-up parallel to PO-006.** At very large presets (A3 portrait, 2480×3508), a 60-px frame looks proportionally thinner than at 1080². If this is reported as a problem, the right fix is to multiply thickness by PO-006's coeff — same scaling treatment titles get. That's a future enhancement, not v2 scope.
 - **Why native color picker?** It's good enough, costs zero bytes, works in every modern browser, and avoids a CDN dependency. Iro.js / Pickr / Spectrum all add 10–60 KB for a feature this isolated doesn't justify.
+
+## Implementation notes (2026-05-10)
+
+- **Shadow ordering — deviation from prompt.** The prompt described `setShadow → fillRect entire canvas → reset → drawImage`, but a fillRect that covers the full canvas is fully self-occluding (its own shadow falls outside the canvas bounds and gets clipped), so that order produces no visible shadow. To get the verification step's "soft drop shadow within the frame area, the way a printed photo casts a shadow on a card", the shadow must be active *while the inner composite is drawn* — so the inner image (the photo) casts onto the frame fill (the card). Implementation in `js/export.js` → `wrapFrame()` does `fill (no shadow) → set shadow → drawImage`. The `rgba(0,0,0,0.25)` / blur 0.4×t / offsetY 0.15×t recipe is preserved verbatim.
+- **PO-006 thickness scaling — confirmed follow-up signal.** A4 portrait export with thickness 60 came out 914×1243; the absolute frame remains 60 logical pixels but on the larger canvas it reads proportionally thinner than at 1080². The right fix when this becomes a complaint is to multiply thickness by PO-006's `coeff` — same scaling treatment titles get. Not done in this task per the spec's out-of-scope note.
+- **Defensive equivalence — byte-identical output proven.** Toggle ON + thickness 0 produced the same file size (940537 bytes) as toggle OFF for a 1080² preset. The `wrapFrame()` short-circuit returns the inner canvas unchanged when `thickness <= 0`, so the toDataURL conversion is run on exactly the same canvas in both cases.
+- **Verification was end-to-end via Playwright + PNG header decode**: width / height read from bytes 16–23 of the captured `data:image/png` URL across six cases (frame off, frame on @ t60/t120/t0, A4 portrait @ t60, square @ t60 + shadow). Every case matched the expected `preset + 2×thickness` math.
