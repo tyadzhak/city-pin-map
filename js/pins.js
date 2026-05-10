@@ -12,7 +12,19 @@ function notify() {
   }
 }
 
-export function addPin({ name, lat, lon, color, group = null }) {
+/**
+ * Add a new pin to the store.
+ *
+ * @param {object} input
+ * @param {string} input.name - User-facing label.
+ * @param {number} input.lat
+ * @param {number} input.lon
+ * @param {string} input.color - Hex like "#e63946". Overridden visually by group color when assigned.
+ * @param {string|null} [input.group=null] - Group id; null means ungrouped.
+ * @param {string|null} [input.icon=null] - Icon id from the registry; null falls back to DEFAULT_PIN_ICON at render time.
+ * @returns {object} The created pin.
+ */
+export function addPin({ name, lat, lon, color, group = null, icon = null }) {
   const pin = {
     id: crypto.randomUUID(),
     name,
@@ -20,6 +32,7 @@ export function addPin({ name, lat, lon, color, group = null }) {
     lon,
     color,
     group,
+    icon,
     createdAt: Date.now(),
   };
   pins.push(pin);
