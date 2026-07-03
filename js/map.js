@@ -670,11 +670,25 @@ const STYLE_LOAD_TIMEOUT_MS = 5000;
 
 /**
  * Swap the active basemap to the style identified by `styleId`, with
- * resilience: races styledata (success) against error (failure) and a
- * 5s timeout. On failure, reverts to the previously-rendered style and
- * surfaces a banner via showError(). The persisted style id (saveMapStyle)
- * only updates on success — reload is guaranteed to boot into a known-
- * working style.
+ * resilience: races success against error (failure) and a 5s timeout. On
+ * failure, reverts to the previously-rendered style and surfaces a banner
+ * via showError(). The persisted style id (saveMapStyle) only updates on
+ * success — reload is guaranteed to boot into a known-working style.
+ *
+ * What counts as "success" differs by style type (FBL-006):
+ *
+ *   VECTOR (hosted style JSON — OpenFreeMap, Stadia, MapTiler): a rejected
+ *   key or bad URL fails the style-JSON *fetch*, before `styledata` fires.
+ *   So `styledata` firing already proves the style loaded — we settle on it
+ *   immediately, no added latency.
+ *
+ *   RASTER (inline style object — Thunderforest, Wikimedia, OpenTopoMap,
+ *   Esri): MapLibre parses the inline object locally and fires `styledata`
+ *   almost instantly, BEFORE a single tile has been requested. A bad API
+ *   key only fails later at tile-fetch time. So for raster we WITHHOLD the
+ *   success verdict until a tile actually loads (a `data` event carrying a
+ *   `tile`); a tile fetch failure fires `error` and takes the revert path.
+ *   Without this, a garbage Thunderforest key would persist a blank map.
  *
  * Falls back to the default with a console.warn if the id isn't known.
  */
@@ -711,11 +725,26 @@ export function setMapStyle(styleId, { persist = true } = {}) {
     return;
   }
 
-  // First-event-wins race: styledata = success, error = failure, timeout
-  // = treat as failure. Detach all listeners + clear timer when one fires.
+  // Per-call raster/vector branch chosen from the entry being swapped TO.
+  // A failed swap reverts by re-entering setMapStyle(previousId, …), and
+  // previousId's own entry re-picks its branch — so a revert to a vector
+  // style always takes the fast styledata path even if the failed swap was
+  // raster (and vice-versa).
+  const isRaster = isRasterStyleEntry(entry);
+
+  // First-event-wins race. `settled` guards every settle path (styledata
+  // for vector, tile-load for raster, error, and timeout) so only the FIRST
+  // one commits and the rest no-op. cleanup() detaches all listeners +
+  // clears the timer, exactly once.
   let settled = false;
-  const onSuccess = async () => {
-    if (settled) return;
+
+  // Commit the success verdict: record the rendered style, (re)add the
+  // pin/route layers, persist (unless reverting), and notify. For the
+  // vector fast path this is the whole success handler; for raster the
+  // layers were already added on `styledata` (so pins paint during the
+  // tile wait), and addPinAndRouteLayers is idempotent, so re-calling it
+  // here is a cheap no-op.
+  const commitSuccess = async () => {
     settled = true;
     cleanup();
     currentRenderedStyleId = entry.id;
@@ -731,11 +760,14 @@ export function setMapStyle(styleId, { persist = true } = {}) {
     // re-invoke setMapStyle, or the revert would loop.
     notifyStyleRendered(entry.id);
   };
-  const onError = (err) => {
+
+  // Shared failure verdict: banner + revert, never persist. Called by the
+  // vector error listener, the raster tile-error listener, and the timeout.
+  // `status` feeds buildStyleErrorMessage (0 = timeout/generic).
+  const settleFailure = (status) => {
     if (settled) return;
     settled = true;
     cleanup();
-    const status = err && err.error && err.error.status;
     showError(buildStyleErrorMessage(entry, status));
     // Revert to the previously-rendered style. Pass persist:false so a
     // failed swap can never overwrite the persisted preference.
@@ -743,11 +775,80 @@ export function setMapStyle(styleId, { persist = true } = {}) {
       setMapStyle(previousId, { persist: false });
     }
   };
+
+  // Vector success: `styledata` proves the hosted style JSON loaded.
+  const onVectorStyleData = () => {
+    if (settled) return;
+    commitSuccess();
+  };
+
+  // Vector failure: any error during a vector swap is a real load failure
+  // (vector styles HAVE a `glyphs` property, so adding pin layers never
+  // trips the style-validation error the raster path must ignore). Unchanged
+  // from the pre-FBL-006 behavior.
+  const onVectorError = (err) => {
+    const status = err && err.error && err.error.status;
+    settleFailure(status);
+  };
+
+  // Raster: `styledata` only proves the inline object parsed — no tile has
+  // been fetched yet. Add the pin/route layers now so pins paint, but do
+  // NOT settle: wait for a real basemap tile (onRasterTileData) or the
+  // timeout. Not `settled`-guarded because it's registered via once() and
+  // only performs idempotent layer setup — it never commits the verdict.
+  //
+  // Adding the pins-labels symbol layer here fires a BENIGN style-validation
+  // error ("text-field requires a style glyphs property") because the inline
+  // rasterStyle() objects have no `glyphs`. That error has no `sourceId`, so
+  // onRasterTileError below ignores it — only errors attributable to the
+  // basemap raster source revert the swap.
+  const onRasterStyleData = async () => {
+    await addPinAndRouteLayers();
+    if (!mapInstance) return;
+    renderPins(lastPinsSnapshot);
+    renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
+  };
+
+  // Raster tile-loaded probe. Success ONLY when a basemap tile actually
+  // renders: `data` scoped to the raster source (`rasterStyle()` always keys
+  // it "raster-source") with a loaded tile. The sourceId scope is load-
+  // bearing — the app's OWN pins/route GeoJSON sources also fire tile `data`
+  // events, and they load instantly, so an unscoped predicate would let a
+  // genuinely-broken basemap settle as success.
+  const onRasterTileData = (e) => {
+    if (settled) return;
+    if (
+      e.dataType === "source" &&
+      e.sourceId === "raster-source" &&
+      e.tile &&
+      e.tile.state === "loaded"
+    ) {
+      commitSuccess();
+    }
+  };
+
+  // Raster failure: only a basemap tile fetch failure counts. Gate on the
+  // raster source id so we ignore (a) the benign glyphs style-validation
+  // error from our pins-labels layer and (b) any pins/route source noise —
+  // neither should revert a swap whose tiles are loading fine.
+  const onRasterTileError = (err) => {
+    if (settled) return;
+    if (!err || err.sourceId !== "raster-source") return;
+    const status = err.error && err.error.status;
+    settleFailure(status);
+  };
+
   const cleanup = () => {
-    mapInstance.off("styledata", onSuccess);
-    mapInstance.off("error", onError);
-    // Safe even when cleanup() is called from inside onError() because the
-    // timer fired: clearTimeout() on an already-fired timer is a no-op.
+    // off() on a listener that was never attached (e.g. the raster handlers
+    // on a vector swap) is a harmless no-op, so we detach all of them
+    // unconditionally rather than branch on isRaster again here.
+    mapInstance.off("styledata", onVectorStyleData);
+    mapInstance.off("styledata", onRasterStyleData);
+    mapInstance.off("data", onRasterTileData);
+    mapInstance.off("error", onVectorError);
+    mapInstance.off("error", onRasterTileError);
+    // Safe even when cleanup() is called from inside a settle path because
+    // the timer fired: clearTimeout() on an already-fired timer is a no-op.
     if (timer) clearTimeout(timer);
     // Clear the module pointer ONLY if it still references this cleanup;
     // a later setMapStyle may have replaced it (in which case we leave it).
@@ -755,15 +856,26 @@ export function setMapStyle(styleId, { persist = true } = {}) {
       activeSwapCleanup = null;
     }
   };
+  // Timeout applies to BOTH paths: a vector style whose JSON never resolves,
+  // and a raster style whose tiles never load (e.g. a silent stall). Treated
+  // as failure → revert, so a raster swap can never hang forever waiting for
+  // a tile that isn't coming. Calls settleFailure directly (status 0) so it
+  // works regardless of the sourceId gate on the raster error listener.
   const timer = setTimeout(
-    () => onError({ error: { status: 0 } }),
+    () => settleFailure(0),
     STYLE_LOAD_TIMEOUT_MS
   );
 
-  mapInstance.once("styledata", onSuccess);
-  // `once` is wrong for error — many errors can fire during a single
-  // failing load; we want the FIRST one. Use on() and rely on `settled`.
-  mapInstance.on("error", onError);
+  // `once` is wrong for error — many errors can fire during a single failing
+  // load; we want the FIRST relevant one. Use on() and rely on `settled`.
+  if (isRaster) {
+    mapInstance.once("styledata", onRasterStyleData);
+    mapInstance.on("data", onRasterTileData);
+    mapInstance.on("error", onRasterTileError);
+  } else {
+    mapInstance.once("styledata", onVectorStyleData);
+    mapInstance.on("error", onVectorError);
+  }
 
   mapInstance.setStyle(resolved, { diff: false });
   activeSwapCleanup = cleanup;
