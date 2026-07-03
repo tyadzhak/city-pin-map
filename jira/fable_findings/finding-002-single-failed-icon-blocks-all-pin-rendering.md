@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `FBL-002`                                   |
 | **Milestone**   | `Fable findings`                            |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Severity**    | `Medium` (High user impact, low likelihood) |
 | **Priority**    | `High`                                      |
 | **Estimate**    | `M` (1–3h)                                  |
@@ -45,12 +45,12 @@ The failure contradicts the codebase invariant "render must never crash on stale
 
 ## Acceptance criteria
 
-- [ ] With one corrupt user icon in storage, all pins still render (pins that referenced the bad icon show the default icon).
-- [ ] A user-visible banner still reports the icon that failed, naming it once — not on every styledata cycle.
-- [ ] Basemap swaps continue to re-register the healthy icons.
-- [ ] Adding a new valid custom icon while a corrupt one exists still registers and renders the new icon.
-- [ ] No regressions in PIL-001 flows (add icon, delete icon, tint/as-is rendering).
-- [ ] No errors in browser console beyond the intentional warning for the failed sprite.
+- [x] With one corrupt user icon in storage, all pins still render (pins that referenced the bad icon show the default icon).
+- [x] A user-visible banner still reports the icon that failed, naming it once — not on every styledata cycle.
+- [x] Basemap swaps continue to re-register the healthy icons.
+- [x] Adding a new valid custom icon while a corrupt one exists still registers and renders the new icon.
+- [x] No regressions in PIL-001 flows (add icon, delete icon, tint/as-is rendering).
+- [x] No errors in browser console beyond the intentional warning for the failed sprite.
 
 ## Files affected
 

@@ -470,14 +470,14 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   // (setStyle wipes the registry; the missing icon won't be re-added).
   subscribeIcons(async (mergedIcons) => {
     if (!mapInstance) return;
-    try {
-      await loadPinIconImages(mergedIcons);
-    } catch (err) {
-      showError(`${err.message}. Custom icon may not render.`);
-      return;
-    }
+    // Per-icon fault tolerance (mirrors addPinAndRouteLayers): one failed
+    // sprite is skipped, not fatal, so adding a valid icon still registers
+    // even while a corrupt one sits in the registry.
+    const failedIds = await loadPinIconImages(mergedIcons);
     if (!mapInstance) return;
+    reportFailedIcons(failedIds);
     for (const icon of mergedIcons) {
+      if (!pinIconImages.has(icon.id)) continue; // failed to load; skip
       const imageId = PIN_ICON_IMAGE_PREFIX + icon.id;
       if (!mapInstance.hasImage(imageId)) {
         mapInstance.addImage(imageId, pinIconImages.get(icon.id), {
@@ -847,7 +847,15 @@ function pinsToFeatureCollection(pins) {
   return {
     type: "FeatureCollection",
     features: pins.map((pin) => {
-      const iconId = effectiveIcon(pin);
+      let iconId = effectiveIcon(pin);
+      // effectiveIcon's clamp only guards *unknown* ids. A known id whose
+      // *image* failed to load (corrupt user SVG, missing built-in file)
+      // isn't in the cache — referencing its unregistered MapLibre image
+      // would make MapLibre drop the whole feature. Fall back to the default
+      // icon so the pin still renders. (If even the default failed to load,
+      // this leaves iconId at the default and only that single feature's
+      // icon is dropped — the layers themselves are still created.)
+      if (!pinIconImages.has(iconId)) iconId = DEFAULT_ICON_ID;
       const iconEntry = getIcon(iconId);
       // tintable defaults to true so a transient pre-registry-load state
       // still renders sensibly. The default-pin built-in is always
@@ -880,15 +888,51 @@ function emptyLineFeatureCollection() {
 // under assets/icons/ and the browser HTTP-caches them.
 const pinIconImages = new Map();
 
+// Remembers the last set of failed icon ids we surfaced a banner for. Each
+// basemap swap re-runs the load path (and re-retries the still-failing
+// icons), so without this guard the same failure would re-spam a banner on
+// every styledata cycle. Keyed by the sorted failed-id list; reset to "" on
+// full recovery so a genuinely new failure later still reports.
+let lastReportedFailedKey = "";
+
+// Load pin sprites into the `pinIconImages` cache, one Image per icon.
+//
+// Fault-tolerant per icon: a single undecodable sprite (corrupt user SVG,
+// missing built-in file) must NOT reject the batch and blank out every pin.
+// Uses Promise.allSettled so successful loads always land in the cache; the
+// returned Set names the icon ids that FAILED so callers can skip their
+// addImage and surface a banner. Already-cached icons short-circuit, so
+// style swaps stay cheap and only ever retry the ids not yet loaded.
 async function loadPinIconImages(targetIcons) {
+  const failed = new Set();
   const missing = targetIcons.filter((icon) => !pinIconImages.has(icon.id));
-  if (missing.length === 0) return;
-  await Promise.all(
-    missing.map((icon) =>
-      fetchImage(iconImageHref(icon)).then((img) =>
-        pinIconImages.set(icon.id, img)
-      )
-    )
+  if (missing.length === 0) return failed;
+  const results = await Promise.allSettled(
+    missing.map((icon) => fetchImage(iconImageHref(icon)))
+  );
+  results.forEach((result, i) => {
+    const icon = missing[i];
+    if (result.status === "fulfilled") {
+      pinIconImages.set(icon.id, result.value);
+    } else {
+      failed.add(icon.id);
+    }
+  });
+  return failed;
+}
+
+// Surface at most one banner per distinct failed-icon set. Debounced across
+// styledata cycles via lastReportedFailedKey. Names the icons by their
+// registry label so the user can find and remove the offending upload.
+function reportFailedIcons(failedIds) {
+  const key = [...failedIds].sort().join("|");
+  if (key === lastReportedFailedKey) return;
+  lastReportedFailedKey = key;
+  if (failedIds.size === 0) return; // recovered — reset only, no banner
+  const names = [...failedIds].map((id) => getIcon(id)?.label ?? id).join(", ");
+  const noun = failedIds.size === 1 ? "icon" : "icons";
+  showError(
+    `Could not load pin ${noun}: ${names}. Affected pins use the default icon.`
   );
 }
 
@@ -919,14 +963,13 @@ async function addPinAndRouteLayers() {
   // reference them by id. The loader caches per-icon, so subsequent
   // style swaps and registry-tick re-runs are cheap.
   const icons = getMergedIcons();
-  try {
-    await loadPinIconImages(icons);
-  } catch (err) {
-    showError(`${err.message}. Markers will not render.`);
-    return;
-  }
+  // Per-icon fault tolerance: a failed sprite is skipped, never fatal. We
+  // still create every source and layer below so one corrupt icon can't
+  // blank out all pins, labels, and the route.
+  const failedIds = await loadPinIconImages(icons);
   // Defensive against a teardown that snuck in during the await.
   if (!mapInstance) return;
+  reportFailedIcons(failedIds);
 
   // Re-register every pin icon on every styledata cycle. setStyle() wipes
   // the image registry; the hasImage() check short-circuits the rare path
@@ -942,6 +985,11 @@ async function addPinAndRouteLayers() {
   // tints them); non-tintable ones get raster RGBA (color-ring layer
   // shows group color underneath).
   for (const icon of icons) {
+    // Skip icons whose image failed to load — their sprite isn't in the
+    // cache, so addImage would register `undefined` and throw. Pins that
+    // referenced them already fell back to the default icon in
+    // pinsToFeatureCollection().
+    if (!pinIconImages.has(icon.id)) continue;
     const imageId = PIN_ICON_IMAGE_PREFIX + icon.id;
     if (!mapInstance.hasImage(imageId)) {
       mapInstance.addImage(imageId, pinIconImages.get(icon.id), {
