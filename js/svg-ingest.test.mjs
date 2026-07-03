@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { walk, collectFills } from "./svg-ingest.js";
+import { walk, collectFills, parseStyleBlock } from "./svg-ingest.js";
 
 // Minimal element shim that mimics the browser API surface our walker
 // touches. Keeps tests dependency-free (no jsdom / linkedom).
@@ -152,4 +152,67 @@ test("collectFills: ignores 'none' and url(...)", () => {
   });
   const fills = collectFills(svg);
   assert.deepEqual([...fills], ["black"]);
+});
+
+// ── parseStyleBlock tests ──────────────────────────────────────────────
+// These exercise the user-implemented CSS parser. They cover the design
+// constraints called out in svg-ingest.js's TODO comment.
+
+test("parseStyleBlock: simple class rule", () => {
+  const rules = parseStyleBlock(".cls-1{fill:none;stroke:#000;}");
+  assert.deepEqual(rules, [
+    { classNames: ["cls-1"], declarations: { fill: "none", stroke: "#000" } },
+  ]);
+});
+
+test("parseStyleBlock: multiple rules", () => {
+  const rules = parseStyleBlock(".a{fill:red;}.b{fill:blue;}");
+  assert.equal(rules.length, 2);
+  assert.deepEqual(rules[0], { classNames: ["a"], declarations: { fill: "red" } });
+  assert.deepEqual(rules[1], { classNames: ["b"], declarations: { fill: "blue" } });
+});
+
+test("parseStyleBlock: comma-separated class selectors share one rule", () => {
+  const rules = parseStyleBlock(".a, .b{fill:red;}");
+  assert.equal(rules.length, 1);
+  assert.deepEqual(rules[0].classNames.sort(), ["a", "b"]);
+  assert.deepEqual(rules[0].declarations, { fill: "red" });
+});
+
+test("parseStyleBlock: tolerates whitespace and trailing semicolons", () => {
+  const rules = parseStyleBlock("  .cls-1  {  fill : none ; stroke : #000 ; }  ");
+  assert.deepEqual(rules, [
+    { classNames: ["cls-1"], declarations: { fill: "none", stroke: "#000" } },
+  ]);
+});
+
+test("parseStyleBlock: lowercases property names but preserves value case", () => {
+  const rules = parseStyleBlock(".x{FILL:#ABCDEF;}");
+  assert.deepEqual(rules[0].declarations, { fill: "#ABCDEF" });
+});
+
+test("parseStyleBlock: silently skips non-class selectors", () => {
+  const rules = parseStyleBlock("path{fill:red;}#id{fill:blue;}.cls{fill:green;}");
+  assert.equal(rules.length, 1);
+  assert.deepEqual(rules[0], { classNames: ["cls"], declarations: { fill: "green" } });
+});
+
+test("parseStyleBlock: returns [] for empty input", () => {
+  assert.deepEqual(parseStyleBlock(""), []);
+  assert.deepEqual(parseStyleBlock("   "), []);
+});
+
+test("parseStyleBlock: real-world svgrepo example", () => {
+  // The exact <style> block from the user's anchor SVG.
+  const rules = parseStyleBlock(
+    ".cls-1{fill:none;stroke:#000000;stroke-linecap:round;stroke-linejoin:round;}"
+  );
+  assert.equal(rules.length, 1);
+  assert.deepEqual(rules[0].classNames, ["cls-1"]);
+  assert.deepEqual(rules[0].declarations, {
+    fill: "none",
+    stroke: "#000000",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+  });
 });
