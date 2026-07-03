@@ -247,7 +247,17 @@ async function applyRows(rows) {
   const needsGeocode = rows.filter((r) => r.lat === null || r.lon === null);
 
   for (const row of immediate) {
-    addPin({ name: row.name, lat: row.lat, lon: row.lon, color: DEFAULT_PIN_COLOR, group: null });
+    // Capture the origin (FBL-008) from the row's own coordinates so the
+    // reset-position affordance restores the imported location.
+    addPin({
+      name: row.name,
+      lat: row.lat,
+      lon: row.lon,
+      color: DEFAULT_PIN_COLOR,
+      group: null,
+      originalLat: row.lat,
+      originalLon: row.lon,
+    });
   }
 
   const failed = [];
@@ -261,7 +271,16 @@ async function applyRows(rows) {
           failed.push({ name: row.name, reason: "no match" });
           continue;
         }
-        addPin({ name: row.name, lat: top.lat, lon: top.lon, color: DEFAULT_PIN_COLOR, group: null });
+        // Capture the geocoded origin (FBL-008) from the resolved result.
+        addPin({
+          name: row.name,
+          lat: top.lat,
+          lon: top.lon,
+          color: DEFAULT_PIN_COLOR,
+          group: null,
+          originalLat: top.lat,
+          originalLon: top.lon,
+        });
       } catch (err) {
         console.error("geocode failed during import for row:", row.name, err);
         failed.push({ name: row.name, reason: err?.message ?? "geocode error" });

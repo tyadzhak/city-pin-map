@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `FBL-008`                                   |
 | **Milestone**   | `Fable findings`                            |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Severity**    | `Medium` (data integrity / UX)              |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M` (1–3h)                                  |
@@ -33,14 +33,14 @@ Drag itself is a deliberate Core-milestone feature and has a legitimate use: Nom
 
 ## Acceptance criteria
 
-- [ ] A click-drag that the user intends as a map pan cannot move a pin unintentionally. **Decided guard: Alt/Option-drag** (PO approval 2026-07-03, see Notes) — plain drag over a pin pans the map; Alt-drag moves the pin.
-- [ ] Deliberate repositioning is still possible (the centroid-nudging use case survives).
-- [ ] Each pin retains its original geocoded coordinates (`originalLat`/`originalLon`, added as **optional** fields per CLAUDE.md's data-model rule) from the moment of creation.
-- [ ] A moved pin exposes a "Reset position" affordance (pin-list row action or similar) that restores the geocoded coordinates.
-- [ ] Pins created before this change (no original coords stored) degrade gracefully: no crash, reset affordance hidden or seeded from current position.
-- [ ] Backup export/import (v2) round-trips the new optional fields without breaking v1/v2 import (coordinate with FBL-004 if both are implemented).
-- [ ] No regressions in existing drag, rename, group, and render flows.
-- [ ] No errors in browser console.
+- [x] A click-drag that the user intends as a map pan cannot move a pin unintentionally. **Decided guard: Alt/Option-drag** (PO approval 2026-07-03, see Notes) — plain drag over a pin pans the map; Alt-drag moves the pin.
+- [x] Deliberate repositioning is still possible (the centroid-nudging use case survives).
+- [x] Each pin retains its original geocoded coordinates (`originalLat`/`originalLon`, added as **optional** fields per CLAUDE.md's data-model rule) from the moment of creation.
+- [x] A moved pin exposes a "Reset position" affordance (pin-list row action or similar) that restores the geocoded coordinates.
+- [x] Pins created before this change (no original coords stored) degrade gracefully: no crash, reset affordance hidden or seeded from current position.
+- [x] Backup export/import (v2) round-trips the new optional fields without breaking v1/v2 import (coordinate with FBL-004 if both are implemented).
+- [x] No regressions in existing drag, rename, group, and render flows.
+- [x] No errors in browser console.
 
 ## Files affected
 

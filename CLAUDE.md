@@ -103,7 +103,9 @@ Every pin must conform to:
   color: string,         // hex like "#e63946" — overridden visually by group color when grouped
   group: string | null,  // group id from the group store, or null
   icon: string | null,   // icon id from the registry (PIL-001); null falls back to DEFAULT_ICON_ID at render time
-  createdAt: number      // Date.now()
+  createdAt: number,     // Date.now()
+  originalLat?: number,  // geocoded origin captured once at creation (FBL-008); powers the pin-list "reset position" affordance for Alt-dragged pins
+  originalLon?: number   // paired with originalLat; both optional — absent on pre-FBL-008 pins, never crash on absence (mirrors the stale-group contract)
 }
 ```
 

@@ -162,6 +162,10 @@ function selectResult(result) {
     lat: result.lat,
     lon: result.lon,
     color: DEFAULT_PIN_COLOR,
+    // Capture the geocoded origin once at creation (FBL-008) so an
+    // Alt-dragged pin can be reset to its true city location.
+    originalLat: result.lat,
+    originalLon: result.lon,
   });
   inputEl.value = "";
   clearDropdown();

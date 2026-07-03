@@ -1228,7 +1228,8 @@ body.dragging-on-map-title * {
 }
 
 .remove-pin,
-.edit-pin {
+.edit-pin,
+.reset-pin {
   flex: 0 0 auto;
   width: 22px;
   height: 22px;
@@ -1255,9 +1256,23 @@ body.dragging-on-map-title * {
 
 .pin-list__row:hover .remove-pin,
 .pin-list__row:hover .edit-pin,
+.pin-list__row:hover .reset-pin,
 .remove-pin:focus-visible,
-.edit-pin:focus-visible {
+.edit-pin:focus-visible,
+.reset-pin:focus-visible {
   opacity: 1;
+}
+
+.reset-pin:hover {
+  color: #1d4ed8;
+  background: #eef2ff;
+}
+
+.reset-pin:focus-visible {
+  outline: none;
+  color: #1d4ed8;
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
 }
 
 .remove-pin:hover {

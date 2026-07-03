@@ -199,7 +199,7 @@ function normalizePins(rawPins, dropped) {
       dropped.pins++;
       continue;
     }
-    out.push({
+    const pin = {
       id: typeof raw.id === "string" && raw.id ? raw.id : crypto.randomUUID(),
       name: raw.name,
       lat,
@@ -208,7 +208,21 @@ function normalizePins(rawPins, dropped) {
       group: typeof raw.group === "string" ? raw.group : null,
       icon: typeof raw.icon === "string" ? raw.icon : null,
       createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
-    });
+    };
+    // Carry the geocoded origin through import (FBL-008) so Export → Import
+    // round-trips the "reset position" affordance. Only when BOTH are finite
+    // and in range — never regenerate or invent an origin; a pin that lacks
+    // them stays button-less on the destination (pre-FBL-008 contract).
+    const originalLat = toFiniteNumber(raw.originalLat);
+    const originalLon = toFiniteNumber(raw.originalLon);
+    if (
+      originalLat !== null && originalLat >= -90 && originalLat <= 90 &&
+      originalLon !== null && originalLon >= -180 && originalLon <= 180
+    ) {
+      pin.originalLat = originalLat;
+      pin.originalLon = originalLon;
+    }
+    out.push(pin);
   }
   return out;
 }

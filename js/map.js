@@ -1174,15 +1174,44 @@ async function addPinAndRouteLayers() {
 function attachPinInteractions() {
   if (!mapInstance) return;
 
-  mapInstance.on("mouseenter", PINS_LAYER_ID, () => {
-    mapInstance.getCanvas().style.cursor = "grab";
+  // A pin drag is deliberate-only (FBL-008): it moves a city off its real
+  // geocoded location, so it fires ONLY while the Alt/Option modifier is
+  // held. Plain hover/drag over a pin behaves exactly like anywhere else on
+  // the map — so we must not advertise a grab cursor unless Alt is down, or
+  // the cursor would promise a drag that a plain mousedown won't deliver.
+  //
+  // `hoveringPin` remembers whether the cursor is currently over the pins
+  // layer so the document-level keydown/keyup handlers can refresh the
+  // cursor the moment Alt is pressed or released without the mouse moving.
+  let hoveringPin = false;
+  const refreshHoverCursor = (altDown) => {
+    if (!mapInstance || dragState) return;
+    mapInstance.getCanvas().style.cursor =
+      hoveringPin && altDown ? "grab" : "";
+  };
+
+  mapInstance.on("mouseenter", PINS_LAYER_ID, (e) => {
+    hoveringPin = true;
+    refreshHoverCursor(e.originalEvent?.altKey);
   });
   mapInstance.on("mouseleave", PINS_LAYER_ID, () => {
+    hoveringPin = false;
     if (!dragState) mapInstance.getCanvas().style.cursor = "";
+  });
+  // Toggle the grab affordance live as Alt is pressed/released over a pin.
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Alt") refreshHoverCursor(true);
+  });
+  document.addEventListener("keyup", (ev) => {
+    if (ev.key === "Alt") refreshHoverCursor(false);
   });
 
   mapInstance.on("mousedown", PINS_LAYER_ID, (e) => {
     if (e.originalEvent.button !== 0) return;
+    // Guard: without Alt held, do NOT start a drag. Fall through with no
+    // preventDefault and no dragPan.disable() so MapLibre pans the map
+    // normally even though the cursor is over a pin (FBL-008).
+    if (!e.originalEvent.altKey) return;
     const feature = e.features?.[0];
     if (!feature) return;
 
