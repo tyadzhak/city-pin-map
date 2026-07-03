@@ -358,60 +358,109 @@ function deviceScale(mapInstance) {
   return window.devicePixelRatio || 1;
 }
 
-// PO-007 — Decorative frame composition. Allocates a larger canvas
-// (inner + 2*thickness on each axis), fills it with the frame color, then
-// drawImages the inner composite at offset (thickness, thickness). When
-// `frame.shadow` is true, a soft drop shadow is cast by the inner image
-// onto the frame area — like a printed photo on a card.
+// PO-007 (+ this milestone's live-preview parity work) — Decorative frame
+// composition. Layers from OUTSIDE in: margin (white) → thickness (frame
+// band, frame.color) → padding (white mat) → map. This is the same
+// geometry the live on-map overlay draws, documented once here and in that
+// module's header; the two differ only in WHERE the frame sits relative to
+// the captured map pixels (see that module's WYSIWYG note).
 //
-// Defensive: enabled=false OR thickness<=0 returns the inner canvas
-// untouched, satisfying the acceptance criterion that thickness=0 with
-// the toggle on produces the same output as the toggle off.
+// Allocates a canvas sized innerCanvas + 2*(margin+thickness+padding) on
+// each axis, fills it white (the margin ring), paints the band and mat as
+// concentric rounded rects, then draws the map image inset by all three,
+// clipped to its own concentric radius. When `frame.shadow` is true, a
+// soft drop shadow is cast by the map's shape onto the mat — like a
+// printed photo on a card.
 //
-// Shadow recipe (tuned visually for the "soft Polaroid" look):
+// Defensive: enabled=false, or margin/thickness/padding all <= 0, returns
+// the inner canvas untouched — same "thickness=0 with the toggle on ==
+// toggle off" acceptance criterion PO-007 established, extended to the two
+// new outer layers (a margin-only or padding-only setup is still nothing
+// to draw if the band itself has no width).
+//
+// Shadow recipe (tuned visually for the "soft Polaroid" look, unchanged
+// from PO-007 — padding/margin/radius don't affect it):
 //   shadowColor   = "rgba(0,0,0,0.25)"
 //   shadowBlur    = round(thickness * 0.4)
 //   shadowOffsetY = round(thickness * 0.15)
-// Expressing every shadow dimension as a fraction of `thickness` means
-// at thickness=0 every dimension is also 0, so the disabled / thickness=0
-// short-circuit isn't strictly required for shadow correctness — it's just
-// there to skip the canvas allocation entirely.
 //
-// Implementation note (deliberate deviation from the task prompt): the
-// task prompt described setting shadow → fillRect → reset → drawImage,
-// but a fillRect that covers the entire canvas is fully self-occluding —
-// its own shadow would only fall outside the canvas (clipped). To get the
-// described "soft drop shadow within the frame area" effect, the shadow
-// has to be active when the INNER composite is drawn so the inner image
-// (the photo) casts onto the frame fill (the card).
+// Implementation note on shadow + rounded corners: PO-007 could draw the
+// map image directly with the shadow active because that image was a
+// plain rectangle — the shadow naturally spilled past its edges onto the
+// frame fill underneath. Once the map itself is clipped to a rounded rect
+// (radius > 0), clipping-then-drawing would also clip the shadow to that
+// same shape, erasing the very spill onto the mat the effect needs. So
+// when frame.shadow is on, an opaque stand-in of the map's rounded-rect
+// shape is painted first (shadow active, unclipped, so the blur spills
+// outward onto the mat), then the real map is drawn on top clipped to the
+// identical shape — fully covering the stand-in, leaving only its shadow
+// visible.
 function wrapFrame(innerCanvas, frame, scale = 1) {
   if (!frame || !frame.enabled) return innerCanvas;
-  // frame.thickness is stored/clamped (storage.js: 0–200) in CSS pixels.
-  // Multiply by the inner canvas's CSS→pixel scale (dpr for a device-res
-  // current-view canvas, 1 for a preset canvas) so the same stored value
-  // reads at the same visual proportion on every path (FBL-005).
-  const cssThickness = Math.max(0, Number(frame.thickness) || 0);
-  const thickness = Math.round(cssThickness * scale);
-  if (thickness <= 0) return innerCanvas;
 
+  // Every dimension is stored/clamped (storage.js: 0–200) in CSS pixels.
+  // Multiply by the inner canvas's CSS→pixel scale (dpr for a device-res
+  // current-view canvas, 1 for a preset canvas) so the same stored values
+  // read at the same visual proportion on every path (FBL-005).
+  const margin = Math.round(Math.max(0, Number(frame.margin) || 0) * scale);
+  const thickness = Math.round(Math.max(0, Number(frame.thickness) || 0) * scale);
+  const padding = Math.round(Math.max(0, Number(frame.padding) || 0) * scale);
+  const radius = Math.round(Math.max(0, Number(frame.radius) || 0) * scale);
+
+  if (margin <= 0 && thickness <= 0 && padding <= 0) return innerCanvas;
+
+  const inset = margin + thickness + padding;
   const out = document.createElement("canvas");
-  out.width = innerCanvas.width + 2 * thickness;
-  out.height = innerCanvas.height + 2 * thickness;
+  out.width = innerCanvas.width + 2 * inset;
+  out.height = innerCanvas.height + 2 * inset;
   const ctx = out.getContext("2d");
 
-  // Fill the frame card with no shadow set, so the fill itself doesn't
-  // try (and fail) to cast a shadow.
-  ctx.fillStyle = frame.color;
+  // Margin ring: plain white background. The band (next) is inset by
+  // `margin`, so whatever it doesn't cover shows through as the margin.
+  ctx.fillStyle = CANVAS_BACKGROUND;
   ctx.fillRect(0, 0, out.width, out.height);
 
+  // Frame band: frame.color, inset by margin, outer corner radius `radius`.
+  ctx.fillStyle = frame.color;
+  drawRoundedRect(ctx, margin, margin, out.width - 2 * margin, out.height - 2 * margin, radius);
+  ctx.fill();
+
+  // White mat: inset by margin+thickness, concentric radius (radius minus
+  // the band's own width) so the corners nest visually inside the band.
+  const matInset = margin + thickness;
+  const matRadius = Math.max(0, radius - thickness);
+  ctx.fillStyle = CANVAS_BACKGROUND;
+  drawRoundedRect(
+    ctx,
+    matInset,
+    matInset,
+    out.width - 2 * matInset,
+    out.height - 2 * matInset,
+    matRadius
+  );
+  ctx.fill();
+
+  // Map placement: inset by margin+thickness+padding, concentric radius
+  // (radius minus band width minus padding width) for the same nesting.
+  const mapRadius = Math.max(0, radius - thickness - padding);
+
   if (frame.shadow) {
+    ctx.save();
     ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
     ctx.shadowBlur = Math.round(thickness * 0.4);
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = Math.round(thickness * 0.15);
+    ctx.fillStyle = "#000";
+    drawRoundedRect(ctx, inset, inset, innerCanvas.width, innerCanvas.height, mapRadius);
+    ctx.fill();
+    ctx.restore();
   }
 
-  ctx.drawImage(innerCanvas, thickness, thickness);
+  ctx.save();
+  drawRoundedRect(ctx, inset, inset, innerCanvas.width, innerCanvas.height, mapRadius);
+  ctx.clip();
+  ctx.drawImage(innerCanvas, inset, inset);
+  ctx.restore();
 
   return out;
 }

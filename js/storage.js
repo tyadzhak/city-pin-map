@@ -65,17 +65,32 @@ const EMPTY_ON_MAP_TITLE = Object.freeze({
   size: DEFAULT_ON_MAP_TITLE_SIZE,
 });
 
-// PO-007: a single-key object covers the four frame sub-settings. Same
+// PO-007: a single-key object covers the frame sub-settings. Same
 // granularity NICE-006 used for `{ title, subtitle }` — keeps storage.js
-// from sprouting four sibling keys for one feature.
+// from sprouting sibling keys for one feature. padding/margin/radius (this
+// milestone) extend the live-preview-capable frame; see the live overlay
+// module for the shared geometry contract (margin → thickness → padding →
+// map, outside in).
 const DEFAULT_EXPORT_FRAME = Object.freeze({
   enabled: false,
   thickness: 60,
   color: "#ffffff",
   shadow: false,
+  padding: 0,
+  margin: 0,
+  radius: 0,
 });
 const FRAME_THICKNESS_MIN = 0;
 const FRAME_THICKNESS_MAX = 200;
+// padding/margin/radius share thickness's 0–200 range — same physical
+// scale (a frame band/mat/corner can't usefully exceed that on any
+// preset), so one pair of bounds covers all four dimensions.
+const FRAME_PADDING_MIN = 0;
+const FRAME_PADDING_MAX = 200;
+const FRAME_MARGIN_MIN = 0;
+const FRAME_MARGIN_MAX = 200;
+const FRAME_RADIUS_MIN = 0;
+const FRAME_RADIUS_MAX = 200;
 
 let bannerTimer = null;
 
@@ -315,11 +330,26 @@ function normalizeFrame(value) {
     typeof v.color === "string" && /^#[0-9a-fA-F]{6}$/.test(v.color)
       ? v.color
       : DEFAULT_EXPORT_FRAME.color;
+  const paddingNum = Number(v.padding);
+  const padding = Number.isFinite(paddingNum)
+    ? Math.max(FRAME_PADDING_MIN, Math.min(FRAME_PADDING_MAX, Math.round(paddingNum)))
+    : DEFAULT_EXPORT_FRAME.padding;
+  const marginNum = Number(v.margin);
+  const margin = Number.isFinite(marginNum)
+    ? Math.max(FRAME_MARGIN_MIN, Math.min(FRAME_MARGIN_MAX, Math.round(marginNum)))
+    : DEFAULT_EXPORT_FRAME.margin;
+  const radiusNum = Number(v.radius);
+  const radius = Number.isFinite(radiusNum)
+    ? Math.max(FRAME_RADIUS_MIN, Math.min(FRAME_RADIUS_MAX, Math.round(radiusNum)))
+    : DEFAULT_EXPORT_FRAME.radius;
   return {
     enabled: Boolean(v.enabled),
     thickness,
     color,
     shadow: Boolean(v.shadow),
+    padding,
+    margin,
+    radius,
   };
 }
 

@@ -224,12 +224,15 @@
               10×15 cm portrait (300 DPI)
             </option>
           </select>
-          <!-- Frame controls (PO-007). The "Add frame" toggle drives the
-               visibility of the thickness / color / shadow inputs via the
+          <!-- Frame controls (PO-007, extended with padding/margin/radius).
+               The "Add frame" toggle drives the visibility of the thickness /
+               color / padding / margin / radius / shadow inputs via the
                data-frame-enabled attribute on the wrapper — app.js flips it
                on hydration and on every change. The dependent controls are
                kept in the DOM at all times so tab order and ARIA stay
-               consistent; only their `display` is suppressed. -->
+               consistent; only their `display` is suppressed. A live WYSIWYG
+               preview of this frame renders on the map itself via
+               js/map-frame.js. -->
           <label class="export-frame-toggle" title="Decorative frame around the exported PNG">
             <input
               id="export-frame-enabled"
@@ -259,6 +262,36 @@
               class="export-frame-controls__color"
               aria-label="Frame color"
               title="Frame color"
+            />
+            <input
+              id="export-frame-padding"
+              type="number"
+              min="0"
+              max="200"
+              step="1"
+              class="export-frame-controls__padding"
+              aria-label="Frame padding in pixels"
+              title="Padding — white mat between map edge and frame band (px)"
+            />
+            <input
+              id="export-frame-margin"
+              type="number"
+              min="0"
+              max="200"
+              step="1"
+              class="export-frame-controls__margin"
+              aria-label="Frame margin in pixels"
+              title="Margin — white outer gap around the frame band (px)"
+            />
+            <input
+              id="export-frame-radius"
+              type="number"
+              min="0"
+              max="200"
+              step="1"
+              class="export-frame-controls__radius"
+              aria-label="Frame corner radius in pixels"
+              title="Corner radius of the frame band (px)"
             />
             <label class="export-frame-shadow-toggle" title="Soft drop shadow inside the frame">
               <input
