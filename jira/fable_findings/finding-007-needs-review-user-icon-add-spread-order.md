@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `FBL-007`                                   |
 | **Milestone**   | `Fable findings`                            |
-| **Status**      | `Needs review` (latent — no current caller triggers it) |
+| **Status**      | `Done` (latent — no current caller triggers it) |
 | **Severity**    | `Low`                                       |
 | **Priority**    | `Low`                                       |
 | **Estimate**    | `S` (≤1h)                                   |
@@ -59,10 +59,10 @@ export function add(icon) {
 
 ## Acceptance criteria
 
-- [ ] `add()` always generates `id` and `createdAt` regardless of caller input.
-- [ ] The icon-picker add flow works unchanged (add, render, select, delete).
-- [ ] `replaceAll()` semantics untouched (backup restore keeps stored ids).
-- [ ] No errors in browser console.
+- [x] `add()` always generates `id` and `createdAt` regardless of caller input.
+- [x] The icon-picker add flow works unchanged (add, render, select, delete).
+- [x] `replaceAll()` semantics untouched (backup restore keeps stored ids).
+- [x] No errors in browser console.
 
 ## Files affected
 
