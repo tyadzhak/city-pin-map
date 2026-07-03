@@ -43,6 +43,7 @@ import { initGroupPanel } from "./group-panel.js";
 import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
 import { initStylePicker } from "./style-picker.js";
 import * as mapTitle from "./map-title.js";
+import * as mapFrame from "./map-frame.js";
 
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
@@ -233,38 +234,77 @@ function initExportFormatSelector() {
   });
 }
 
-// Hydrates the four Frame inputs (PO-007) from localStorage and persists
-// every change. The wrapper's data-frame-enabled attribute drives CSS
-// visibility for the dependent controls — see .export-frame-controls in
-// css/styles.css. The export pipeline reads each input back out of the
-// DOM at click time, so this function only owns hydration + persistence
-// and does not need to notify any other module on flip.
+// Hydrates the seven Frame inputs (PO-007, extended with padding/margin/
+// radius) from localStorage, persists every change, and drives the live
+// WYSIWYG overlay (js/map-frame.js) so the frame is previewed on the map
+// itself instead of only appearing after export. The wrapper's
+// data-frame-enabled attribute still drives CSS visibility for the
+// dependent controls — see .export-frame-controls in css/styles.css. The
+// export pipeline reads each input back out of the DOM at click time, so
+// this function's persistence half doesn't need to notify anything else.
 //
-// Persistence reads ALL FOUR inputs on every change so saveExportFrame
+// Persistence reads ALL SEVEN inputs on every change so saveExportFrame
 // always receives a complete object — required because normalizeFrame
 // fills missing fields from the static defaults, not from prior state.
 function initExportFrameOptions() {
   const enabled = document.getElementById("export-frame-enabled");
   const thickness = document.getElementById("export-frame-thickness");
   const color = document.getElementById("export-frame-color");
+  const padding = document.getElementById("export-frame-padding");
+  const margin = document.getElementById("export-frame-margin");
+  const radius = document.getElementById("export-frame-radius");
   const shadow = document.getElementById("export-frame-shadow");
   const wrapper = document.getElementById("export-frame-controls");
-  if (!enabled || !thickness || !color || !shadow || !wrapper) return;
+  if (
+    !enabled ||
+    !thickness ||
+    !color ||
+    !padding ||
+    !margin ||
+    !radius ||
+    !shadow ||
+    !wrapper
+  )
+    return;
+
+  // The live overlay needs a map to attach to; on a boot path where initMap
+  // failed outright there's nothing to preview, so just skip that half and
+  // still let the (non-visual) persistence wiring below work normally.
+  const map = getMap();
+  if (map) mapFrame.init(map);
+
+  // Builds the full 7-field FRAME OBJECT straight from the DOM — the single
+  // read path both persist() and the live-overlay update share, so they can
+  // never disagree about what's currently on screen.
+  const readFrame = () => ({
+    enabled: enabled.checked,
+    thickness: thickness.valueAsNumber,
+    color: color.value,
+    shadow: shadow.checked,
+    padding: padding.valueAsNumber,
+    margin: margin.valueAsNumber,
+    radius: radius.valueAsNumber,
+  });
 
   const saved = loadExportFrame();
   enabled.checked = saved.enabled;
   thickness.value = String(saved.thickness);
   color.value = saved.color;
+  padding.value = String(saved.padding);
+  margin.value = String(saved.margin);
+  radius.value = String(saved.radius);
   shadow.checked = saved.shadow;
   wrapper.dataset.frameEnabled = saved.enabled ? "true" : "false";
 
+  // Reflect the persisted state on the overlay at boot, same as
+  // mapTitle.update(saved) in initOnMapTitle — otherwise the live preview
+  // would stay blank until the user next touches a frame control.
+  if (map) mapFrame.update(saved);
+
   const persist = () => {
-    saveExportFrame({
-      enabled: enabled.checked,
-      thickness: thickness.valueAsNumber,
-      color: color.value,
-      shadow: shadow.checked,
-    });
+    const next = readFrame();
+    saveExportFrame(next);
+    if (map) mapFrame.update(next);
   };
 
   enabled.addEventListener("change", () => {
@@ -272,10 +312,14 @@ function initExportFrameOptions() {
     persist();
   });
   // `input` instead of `change` for the number/color inputs so the user
-  // sees the persisted state update as they scrub a value, mirroring the
-  // immediate-save behaviour of the title/subtitle text inputs.
+  // sees the persisted state (and the live overlay) update as they scrub a
+  // value, mirroring the immediate-save behaviour of the title/subtitle
+  // text inputs.
   thickness.addEventListener("input", persist);
   color.addEventListener("input", persist);
+  padding.addEventListener("input", persist);
+  margin.addEventListener("input", persist);
+  radius.addEventListener("input", persist);
   shadow.addEventListener("change", persist);
 }
 
