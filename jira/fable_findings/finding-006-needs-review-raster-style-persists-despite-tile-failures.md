@@ -1,10 +1,10 @@
-# FBL-006 (NEEDS REVIEW): Raster styles are persisted as "successful" before any tile loads — a bad Thunderforest key can persist a blank map
+# FBL-006: Raster styles are persisted as "successful" before any tile loads — a bad Thunderforest key can persist a blank map
 
 | Field           | Value                                       |
 |-----------------|---------------------------------------------|
 | **ID**          | `FBL-006`                                   |
 | **Milestone**   | `Fable findings`                            |
-| **Status**      | `Needs review` (not confirmed at runtime)   |
+| **Status**      | `Done`                                      |
 | **Severity**    | `Medium` (if confirmed)                     |
 | **Priority**    | `Low`                                       |
 | **Estimate**    | `M` (1–3h incl. verification)               |
@@ -40,10 +40,10 @@ For raster entries only, delay the success verdict until evidence of a live tile
 
 ## Acceptance criteria (post-verification)
 
-- [ ] Reproduce and document actual behavior with an invalid Thunderforest key (attach console log to this file's Notes).
-- [ ] If confirmed: invalid raster keys produce the existing 401/403 banner, revert the style, and do not persist.
-- [ ] Valid raster styles still swap and persist as today (no added latency beyond first tile).
-- [ ] If NOT confirmed (MapLibre surfaces an early error that the pipeline catches): close this finding with a note explaining the actual event ordering.
+- [x] Reproduce and document actual behavior with an invalid Thunderforest key (attach console log to this file's Notes).
+- [x] If confirmed: invalid raster keys surface a swap-failure banner, revert the style, and do not persist. (Per the verification, the CORS-blocked tile failures carry no `status`, so the banner is the generic `"Failed to load style. Check your connection."` rather than the 401/403 message — accepted per the relaxed criterion. The critical guarantees hold: `onError` reverts to the previously-rendered style and the broken id is never persisted.)
+- [x] Valid raster styles still swap and persist as today. The verdict now waits for the first real tile `data` event instead of firing on `styledata`; latency is bounded by the existing 5s timeout, which reverts if no tile ever loads.
+- [x] N/A — the finding was CONFIRMED (see Verification note), so the "not confirmed / close" branch does not apply.
 
 ## Files affected
 
@@ -54,3 +54,22 @@ For raster entries only, delay the success verdict until evidence of a live tile
 ## Notes
 
 Filed during a full-codebase correctness review (2026-07-03) as *needs review* per the review brief: the failure mode is inferred from event semantics, not observed. Verification requires a network-capable browser session (Playwright MCP or manual) and takes ~10 minutes with a garbage key.
+
+### Verification — CONFIRMED (2026-07-03, Playwright MCP against live Thunderforest)
+
+Repro run against `python3 -m http.server` with `localStorage['city-pin-map.thunderforest-key.v1'] = 'xxx'`, baseline style `osm`:
+
+1. Style picker showed **OpenCycleMap unlocked** (no 🔒) because the garbage key is non-empty — matching the finding's premise.
+2. On selecting OpenCycleMap: **31 console errors** (tile failures), **no error banner**, picker label switched to "Map: OpenCycleMap", and `localStorage['city-pin-map.map-style.v1']` was **immediately set to `tf-cycle`** — the broken style was persisted.
+3. After a full page reload: `map-style.v1` still `tf-cycle`, picker still OpenCycleMap, **30 tile errors fire again** → app boots straight into a blank/broken map. This directly contradicts `setMapStyle`'s doc guarantee ("reload is guaranteed to boot into a known-working style").
+
+**Critical detail for the fix — error status is NOT readable.** MapLibre fetches raster tiles via `fetch()`, and the failures surface as:
+
+```
+Access to fetch at 'https://tile.thunderforest.com/cycle/3/3/4.png?apikey={api_key}' from origin
+'http://localhost:8765' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header...
+Failed to load resource: net::ERR_FAILED
+TypeError: Failed to fetch  (thrown inside maplibre-gl.js)
+```
+
+So the MapLibre `error` event *does* fire for tile failures (good — a delayed/armed error listener can catch it), but `err.error.status` will be **`undefined`** for CORS-blocked tiles, not 401/403. Consequently `buildStyleErrorMessage` will fall through to the generic `"Failed to load style. Check your connection."` branch rather than the "rejected the API key" message. The fix should still **revert + not persist**; the exact banner wording for raster tile failures should be treated as best-effort (generic connection message is acceptable), and acceptance criterion #2 ("existing 401/403 banner") relaxed accordingly. Full console capture saved at `tmp/fbl006-console.log` during verification (gitignored scratch).
