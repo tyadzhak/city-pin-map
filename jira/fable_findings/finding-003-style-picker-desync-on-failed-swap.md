@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `FBL-003`                                   |
 | **Milestone**   | `Fable findings`                            |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Severity**    | `Medium`                                    |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M` (1–3h)                                  |
@@ -43,13 +43,13 @@ Persistence is *not* affected (`saveMapStyle` only runs on success), so a reload
 
 ## Acceptance criteria
 
-- [ ] After a failed swap, the picker trigger label shows the style actually rendered on the map.
-- [ ] After a failed swap, reopening the picker highlights the actually-rendered style as active.
-- [ ] The hide-labels raster notice is computed from the actually-rendered style after a failed swap.
-- [ ] Successful swaps behave exactly as before (label updates, persistence on success only).
-- [ ] `getCurrentStyleId` (or its replacement) returns the live style id, not the boot-time id.
-- [ ] No regressions in the locked-row → settings deep-link flow.
-- [ ] No errors in browser console.
+- [x] After a failed swap, the picker trigger label shows the style actually rendered on the map.
+- [x] After a failed swap, reopening the picker highlights the actually-rendered style as active.
+- [x] The hide-labels raster notice is computed from the actually-rendered style after a failed swap.
+- [x] Successful swaps behave exactly as before (label updates, persistence on success only).
+- [x] `getCurrentStyleId` (or its replacement) returns the live style id, not the boot-time id.
+- [x] No regressions in the locked-row → settings deep-link flow.
+- [x] No errors in browser console.
 
 ## Files affected
 

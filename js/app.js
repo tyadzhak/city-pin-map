@@ -7,6 +7,7 @@ import {
   renderRoute,
   getMap,
   setMapStyle,
+  onStyleRendered,
   MAP_STYLES,
   DEFAULT_MAP_STYLE_ID,
   applyLabelVisibility,
@@ -79,8 +80,14 @@ function init() {
   // the hide-labels notice re-evaluate whenever the basemap swaps.
   let activeStyleId = initialStyleId;
   const pickerHandle = initStylePicker({
-    getCurrentStyleId: () => initialStyleId,
+    // Read the LIVE mirror, not the boot-time id — the picker may re-read
+    // this at any time and must see the currently-active style.
+    getCurrentStyleId: () => activeStyleId,
     onSelect: (id) => {
+      // Optimistic: update UI immediately for responsiveness. If the swap
+      // FAILS, map.js reverts and fires onStyleRendered with the reverted
+      // id, and the subscription below corrects activeStyleId + the picker
+      // + the notice back to the actually-rendered style.
       activeStyleId = id;
       setMapStyle(id);
       // The map's styledata handler re-applies label visibility; we just
@@ -92,6 +99,17 @@ function init() {
       // to the first section (Stadia).
       openSettingsScrolledTo(provider ?? "stadia");
     },
+  });
+
+  // Authoritative correction path: fires whenever a style actually RENDERS
+  // (successful swap OR the revert after a failed swap). This is what keeps
+  // the trigger label, active row, activeStyleId mirror, and hide-labels
+  // notice pointing at the real rendered style. We only update UI state
+  // here — never call setMapStyle — so the revert can't loop.
+  onStyleRendered((styleId) => {
+    activeStyleId = styleId;
+    pickerHandle.setActive(styleId);
+    refreshHideLabelsNotice();
   });
   attachStorage(pinStore);
   // Hydrate the group store BEFORE initGroupPanel — same rationale as

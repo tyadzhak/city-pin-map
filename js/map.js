@@ -633,6 +633,32 @@ function buildStyleErrorMessage(entry, status) {
 // swap; null until then means "whatever initMap painted".
 let currentRenderedStyleId = null;
 
+// Subscribers notified whenever a style swap actually RENDERS (the
+// styledata success path in setMapStyle). Mirrors the pins.js pub/sub
+// shape. The key subtlety: a failed swap reverts by RE-ENTERING
+// setMapStyle(previousId, { persist: false }), which itself reaches
+// onSuccess when the revert renders — so the revert flows through this
+// same notification with the reverted (actually-rendered) style id. That
+// lets the UI (js/app.js) correct its optimistic state after a failure
+// without any extra failure-specific wiring. Fired on RENDER, never on
+// request, so a subscriber must NOT call back into setMapStyle (that would
+// loop).
+const styleRenderedSubscribers = new Set();
+
+/**
+ * Subscribe to style-render events. The callback receives the style id
+ * that just finished rendering on the map (success or post-revert).
+ * Returns an unsubscribe function. Mirrors pins.js/settings.js.
+ */
+export function onStyleRendered(fn) {
+  styleRenderedSubscribers.add(fn);
+  return () => styleRenderedSubscribers.delete(fn);
+}
+
+function notifyStyleRendered(styleId) {
+  for (const fn of styleRenderedSubscribers) fn(styleId);
+}
+
 // Tracks the in-flight style swap's cleanup so a later setMapStyle call
 // can cancel a prior pending swap. Without this, stale onError listeners
 // from a swap that's still loading can fire on a later swap's events
@@ -697,6 +723,13 @@ export function setMapStyle(styleId, { persist = true } = {}) {
     renderPins(lastPinsSnapshot);
     renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
     if (persist) saveMapStyle(entry.id);
+    // Fire AFTER currentRenderedStyleId is updated so subscribers reading
+    // it see the just-rendered style. The failed-swap revert re-enters
+    // setMapStyle(previousId, { persist:false }) and reaches this same
+    // path, so the UI naturally hears the reverted id — no failure-specific
+    // notification needed. Subscribers only update UI state; they must not
+    // re-invoke setMapStyle, or the revert would loop.
+    notifyStyleRendered(entry.id);
   };
   const onError = (err) => {
     if (settled) return;
