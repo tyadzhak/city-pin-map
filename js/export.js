@@ -359,42 +359,29 @@ function deviceScale(mapInstance) {
 }
 
 // PO-007 (+ this milestone's live-preview parity work) — Decorative frame
-// composition. Layers from OUTSIDE in: margin (white) → thickness (frame
-// band, frame.color) → padding (white mat) → map. This is the same
-// geometry the live on-map overlay draws, documented once here and in that
-// module's header; the two differ only in WHERE the frame sits relative to
-// the captured map pixels (see that module's WYSIWYG note).
+// composition. FLOATING MODEL: the frame is a coloured BAND drawn ONTO the
+// captured map, not around it — the output stays map-sized and the map shows
+// through everywhere except the band. `margin` insets the band from the
+// canvas edge (map shows there), `thickness` is the band width, `radius` is
+// its outer corner radius. `padding` is a gap just inside the band (also map)
+// with no separate fill, so it doesn't affect what's painted. This matches
+// the live overlay (js/map-frame.js) 1:1 at current-view scale, so the
+// preview and the PNG agree.
 //
-// Allocates a canvas sized innerCanvas + 2*(margin+thickness+padding) on
-// each axis, fills it white (the margin ring), paints the band and mat as
-// concentric rounded rects, then draws the map image inset by all three,
-// clipped to its own concentric radius. When `frame.shadow` is true, a
-// soft drop shadow is cast by the map's shape onto the mat — like a
-// printed photo on a card.
+// Defensive: enabled=false, or thickness <= 0, returns the inner canvas
+// untouched — a frame with no band width is nothing to draw (margin/padding
+// alone are just transparent map gaps). Preserves the PO-007 "thickness=0 ==
+// toggle off" acceptance criterion.
 //
-// Defensive: enabled=false, or margin/thickness/padding all <= 0, returns
-// the inner canvas untouched — same "thickness=0 with the toggle on ==
-// toggle off" acceptance criterion PO-007 established, extended to the two
-// new outer layers (a margin-only or padding-only setup is still nothing
-// to draw if the band itself has no width).
-//
-// Shadow recipe (tuned visually for the "soft Polaroid" look, unchanged
-// from PO-007 — padding/margin/radius don't affect it):
-//   shadowColor   = "rgba(0,0,0,0.25)"
+// The band is one even-odd fill: an outer rounded rect (inset by margin,
+// radius) with an inner rounded rect (inset by margin+thickness, radius minus
+// the band width) punched out, so the map shows through the hole. When
+// `frame.shadow` is true the fill carries a soft drop shadow, which — because
+// the filled shape is the ring itself — casts onto the map along BOTH the
+// band's inner and outer edges (a raised-frame look).
+//   shadowColor   = "rgba(0,0,0,0.35)"
 //   shadowBlur    = round(thickness * 0.4)
 //   shadowOffsetY = round(thickness * 0.15)
-//
-// Implementation note on shadow + rounded corners: PO-007 could draw the
-// map image directly with the shadow active because that image was a
-// plain rectangle — the shadow naturally spilled past its edges onto the
-// frame fill underneath. Once the map itself is clipped to a rounded rect
-// (radius > 0), clipping-then-drawing would also clip the shadow to that
-// same shape, erasing the very spill onto the mat the effect needs. So
-// when frame.shadow is on, an opaque stand-in of the map's rounded-rect
-// shape is painted first (shadow active, unclipped, so the blur spills
-// outward onto the mat), then the real map is drawn on top clipped to the
-// identical shape — fully covering the stand-in, leaving only its shadow
-// visible.
 function wrapFrame(innerCanvas, frame, scale = 1) {
   if (!frame || !frame.enabled) return innerCanvas;
 
@@ -404,62 +391,49 @@ function wrapFrame(innerCanvas, frame, scale = 1) {
   // read at the same visual proportion on every path (FBL-005).
   const margin = Math.round(Math.max(0, Number(frame.margin) || 0) * scale);
   const thickness = Math.round(Math.max(0, Number(frame.thickness) || 0) * scale);
-  const padding = Math.round(Math.max(0, Number(frame.padding) || 0) * scale);
   const radius = Math.round(Math.max(0, Number(frame.radius) || 0) * scale);
 
-  if (margin <= 0 && thickness <= 0 && padding <= 0) return innerCanvas;
+  if (thickness <= 0) return innerCanvas;
 
-  const inset = margin + thickness + padding;
   const out = document.createElement("canvas");
-  out.width = innerCanvas.width + 2 * inset;
-  out.height = innerCanvas.height + 2 * inset;
+  out.width = innerCanvas.width;
+  out.height = innerCanvas.height;
   const ctx = out.getContext("2d");
 
-  // Margin ring: plain white background. The band (next) is inset by
-  // `margin`, so whatever it doesn't cover shows through as the margin.
-  ctx.fillStyle = CANVAS_BACKGROUND;
-  ctx.fillRect(0, 0, out.width, out.height);
+  // The map fills the whole canvas; the band is painted on top of it.
+  ctx.drawImage(innerCanvas, 0, 0);
 
-  // Frame band: frame.color, inset by margin, outer corner radius `radius`.
-  ctx.fillStyle = frame.color;
-  drawRoundedRect(ctx, margin, margin, out.width - 2 * margin, out.height - 2 * margin, radius);
-  ctx.fill();
-
-  // White mat: inset by margin+thickness, concentric radius (radius minus
-  // the band's own width) so the corners nest visually inside the band.
-  const matInset = margin + thickness;
-  const matRadius = Math.max(0, radius - thickness);
-  ctx.fillStyle = CANVAS_BACKGROUND;
-  drawRoundedRect(
-    ctx,
-    matInset,
-    matInset,
-    out.width - 2 * matInset,
-    out.height - 2 * matInset,
-    matRadius
-  );
-  ctx.fill();
-
-  // Map placement: inset by margin+thickness+padding, concentric radius
-  // (radius minus band width minus padding width) for the same nesting.
-  const mapRadius = Math.max(0, radius - thickness - padding);
-
+  // Band ring: outer rounded rect minus inner rounded rect, even-odd filled
+  // with frame.color, so the map shows through the hole (and the surrounding
+  // margin). The inner radius is the outer radius minus the band width,
+  // floored at 0 — the same concentric nesting CSS border-radius does.
+  const innerRadius = Math.max(0, radius - thickness);
+  ctx.save();
   if (frame.shadow) {
-    ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
     ctx.shadowBlur = Math.round(thickness * 0.4);
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = Math.round(thickness * 0.15);
-    ctx.fillStyle = "#000";
-    drawRoundedRect(ctx, inset, inset, innerCanvas.width, innerCanvas.height, mapRadius);
-    ctx.fill();
-    ctx.restore();
   }
-
-  ctx.save();
-  drawRoundedRect(ctx, inset, inset, innerCanvas.width, innerCanvas.height, mapRadius);
-  ctx.clip();
-  ctx.drawImage(innerCanvas, inset, inset);
+  ctx.beginPath();
+  addRoundedRectSubpath(
+    ctx,
+    margin,
+    margin,
+    out.width - 2 * margin,
+    out.height - 2 * margin,
+    radius
+  );
+  addRoundedRectSubpath(
+    ctx,
+    margin + thickness,
+    margin + thickness,
+    out.width - 2 * (margin + thickness),
+    out.height - 2 * (margin + thickness),
+    innerRadius
+  );
+  ctx.fillStyle = frame.color;
+  ctx.fill("evenodd");
   ctx.restore();
 
   return out;
@@ -548,8 +522,17 @@ function drawOnMapTitle(ctx, { x, y, style, text, coeff }) {
 }
 
 function drawRoundedRect(ctx, x, y, w, h, r) {
-  const radius = Math.max(0, Math.min(r, Math.min(w, h) / 2));
   ctx.beginPath();
+  addRoundedRectSubpath(ctx, x, y, w, h, r);
+}
+
+// Adds a rounded-rect SUBPATH to the current path WITHOUT beginPath, so two
+// calls under one beginPath + fill("evenodd") produce a frame ring (outer
+// minus inner). A non-positive w/h (e.g. a band thicker than half the map)
+// adds nothing, so the even-odd fill degrades to a solid rounded rect.
+function addRoundedRectSubpath(ctx, x, y, w, h, r) {
+  if (w <= 0 || h <= 0) return;
+  const radius = Math.max(0, Math.min(r, Math.min(w, h) / 2));
   if (typeof ctx.roundRect === "function") {
     ctx.roundRect(x, y, w, h, radius);
     return;
