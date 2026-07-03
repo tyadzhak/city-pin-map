@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `FBL-004`                                   |
 | **Milestone**   | `Fable findings`                            |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Severity**    | `Medium` (defense-in-depth security + robustness) |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M` (1–3h)                                  |
@@ -47,13 +47,13 @@ Threat model note: this is a local, personal app; the realistic scenario is not 
 
 ## Acceptance criteria
 
-- [ ] On import, every `userIcons[].fillSvg` is passed through `ingestSvg()`; entries that fail are dropped with a user-visible summary (banner or alert) naming how many were skipped.
-- [ ] On import, pins are normalized: entries without finite in-range `lat`/`lon` or a non-empty string `name` are dropped (counted in the summary); missing `id`/`createdAt` are regenerated; `color` falls back to `DEFAULT_PIN_COLOR`; `group`/`icon` coerce to `null` when not strings.
-- [ ] Groups get the equivalent treatment (string `name`, hex `color` fallback, regenerated `id`/`createdAt` when missing).
-- [ ] A fully valid v1 and v2 backup imports byte-identically to today's behavior (no false rejections).
-- [ ] The import summary never silently swallows dropped entries (CLAUDE.md error-handling convention).
-- [ ] No regressions in HARDEN-001 / PIL-001 export-import round-trips.
-- [ ] No errors in browser console.
+- [x] On import, every `userIcons[].fillSvg` is passed through `ingestSvg()`; entries that fail are dropped with a user-visible summary (banner or alert) naming how many were skipped.
+- [x] On import, pins are normalized: entries without finite in-range `lat`/`lon` or a non-empty string `name` are dropped (counted in the summary); missing `id`/`createdAt` are regenerated; `color` falls back to `DEFAULT_PIN_COLOR`; `group`/`icon` coerce to `null` when not strings.
+- [x] Groups get the equivalent treatment (string `name`, hex `color` fallback, regenerated `id`/`createdAt` when missing).
+- [x] A fully valid v1 and v2 backup imports byte-identically to today's behavior (no false rejections).
+- [x] The import summary never silently swallows dropped entries (CLAUDE.md error-handling convention).
+- [x] No regressions in HARDEN-001 / PIL-001 export-import round-trips.
+- [x] No errors in browser console.
 
 ## Files affected
 
