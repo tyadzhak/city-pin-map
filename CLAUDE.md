@@ -156,6 +156,8 @@ Two flavors live in this repo, both still active:
 
 **Plan-driven milestones under `docs/superpowers/`:** Larger features (e.g. expanded basemap styles) live under `docs/superpowers/specs/` (design) + `docs/superpowers/plans/` (implementation), with each plan splitting work into checkbox-tracked tasks. Execute these via the `superpowers:executing-plans` or `superpowers:subagent-driven-development` skills. The plan file is the source of truth for "done" within that milestone.
 
+**Agent-orchestrated batch fixes:** When asked to fix one or more findings "using agents", follow the workflow in `jira/agent-fix-findings-workflow.md`. In short: delegate each finding's fix to an **Opus** subagent (it edits + updates the task file, runs no git), then a **Sonnet** subagent build-checks (`node --check` on changed modules + `node --test js/svg-ingest.test.mjs`) and makes ONE commit per finding. One commit per finding; serialize findings that touch the same file; STOP and ask before touching any `Needs review`/unconfirmed finding or a change only verifiable at runtime. The full prompt template lives in that file.
+
 ## Definition of done
 
 A task is only `Done` when:
