@@ -868,6 +868,31 @@ body.dragging-on-map-title * {
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
 }
 
+/* PO-004: foreign-file import row, directly under the Pins header bar.
+   Its own row (rather than squeezing into .backup-controls) because the
+   320px side panel has no width left once a fourth, longer-labeled
+   button joins the gear + Export JSON + Import JSON on one line. */
+.import-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e4e7eb;
+}
+
+/* Inline import status. Same :empty-hides-itself convention as
+   .export-status so the row collapses to just the button at rest. */
+.import-status {
+  font-size: 12px;
+  font-style: italic;
+  color: #6b7280;
+}
+
+.import-status:empty {
+  display: none;
+}
+
 /* Groups panel (NICE-004). Sits above the pin list. Capped max-height +
    internal scroll keeps the pin list visible no matter how many groups
    the user creates; min-height: 0 on the inner <ul> is the standard

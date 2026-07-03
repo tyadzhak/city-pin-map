@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `PO-004`                                    |
 | **Milestone**   | `PO wishes`                                 |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `L`                                         |
 | **Depends on**  | `HARDEN-001`                                |
@@ -28,21 +28,21 @@ The existing pin/group data model is the destination: each imported row becomes 
 
 ## Acceptance criteria
 
-- [ ] A new "Import from file" button is visible in the side panel near the existing Export JSON / Import JSON buttons.
-- [ ] Clicking it opens a file picker accepting `.csv` and `.json`.
-- [ ] CSV with `name,lat,lon` (or recognised column-name variants) imports cleanly — every row becomes a pin at the correct coordinate.
-- [ ] CSV with only a name column (e.g. `city` only) triggers geocoding for each row, respecting Nominatim's 1 req/sec policy.
-- [ ] JSON array of `{name, lat, lon}` imports cleanly.
-- [ ] JSON array of strings (e.g. `["Kyiv", "Lviv", "Odesa"]`) triggers geocoding per name.
-- [ ] JSON in the app's own backup format is detected and routed to HARDEN-001's importer (replacement, with confirm dialog) — do NOT duplicate that path; reuse it.
-- [ ] On entering an unknown shape (CSV with no recognisable columns, JSON neither array nor app-backup format, malformed file), a friendly error banner appears and no state changes.
-- [ ] Before applying, a confirmation dialog asks "Add 50 new pins to your map?" (or similar) with options Add or Cancel. Cancel is non-destructive.
-- [ ] During geocoding, a non-blocking progress indicator shows "Geocoding 12/50 — Tokyo…". The user can keep using the rest of the UI.
-- [ ] On completion, a summary toast/dialog shows "Imported 47 pins. 3 rows failed (skipped): {names}".
-- [ ] Imported pins receive default color and `group: null`; user can edit afterwards.
-- [ ] Imported pins persist via the existing pin store + localStorage path.
-- [ ] No regressions in previously completed tasks (especially HARDEN-001's app-backup import path).
-- [ ] No errors in browser console.
+- [x] A new "Import from file" button is visible in the side panel near the existing Export JSON / Import JSON buttons.
+- [x] Clicking it opens a file picker accepting `.csv` and `.json`.
+- [x] CSV with `name,lat,lon` (or recognised column-name variants) imports cleanly — every row becomes a pin at the correct coordinate.
+- [x] CSV with only a name column (e.g. `city` only) triggers geocoding for each row, respecting Nominatim's 1 req/sec policy.
+- [x] JSON array of `{name, lat, lon}` imports cleanly.
+- [x] JSON array of strings (e.g. `["Kyiv", "Lviv", "Odesa"]`) triggers geocoding per name.
+- [x] JSON in the app's own backup format is detected and routed to HARDEN-001's importer (replacement, with confirm dialog) — do NOT duplicate that path; reuse it.
+- [x] On entering an unknown shape (CSV with no recognisable columns, JSON neither array nor app-backup format, malformed file), a friendly error banner appears and no state changes.
+- [x] Before applying, a confirmation dialog asks "Add 50 new pins to your map?" (or similar) with options Add or Cancel. Cancel is non-destructive.
+- [x] During geocoding, a non-blocking progress indicator shows "Geocoding 12/50 — Tokyo…". The user can keep using the rest of the UI.
+- [x] On completion, a summary toast/dialog shows "Imported 47 pins. 3 rows failed (skipped): {names}".
+- [x] Imported pins receive default color and `group: null`; user can edit afterwards.
+- [x] Imported pins persist via the existing pin store + localStorage path.
+- [x] No regressions in previously completed tasks (especially HARDEN-001's app-backup import path).
+- [x] No errors in browser console.
 
 ## Files affected
 

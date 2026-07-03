@@ -35,6 +35,7 @@ import {
 } from "./storage.js";
 import { exportMapAsPng } from "./export.js";
 import { exportToJson, importFromJson } from "./backup.js";
+import { importFromFile } from "./import-foreign.js";
 import { initSearch } from "./search.js";
 import { initPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
@@ -189,6 +190,7 @@ function init() {
   initOnMapTitle();
   initExportButton();
   initBackupControls();
+  initImportFromFileControl();
   initSettingsPanel();
 }
 
@@ -429,6 +431,34 @@ function initBackupControls() {
     picker.addEventListener("change", () => {
       const file = picker.files && picker.files[0];
       if (file) importFromJson(file);
+    });
+    picker.click();
+  });
+}
+
+// PO-004: sibling of initBackupControls's import wiring, same ad-hoc
+// <input type="file"> pattern. The button is disabled for the duration of
+// importFromFile() so a double-click can't start two overlapping imports
+// (each with its own confirm dialog and progress text) — everything else
+// in the UI (search, pin list, other buttons) stays usable throughout,
+// since only this one button's disabled state is touched.
+function initImportFromFileControl() {
+  const importFileBtn = document.getElementById("import-file");
+  if (!importFileBtn) return;
+
+  importFileBtn.addEventListener("click", () => {
+    const picker = document.createElement("input");
+    picker.type = "file";
+    picker.accept = ".csv,.json,text/csv,application/json";
+    picker.addEventListener("change", async () => {
+      const file = picker.files && picker.files[0];
+      if (!file) return;
+      importFileBtn.disabled = true;
+      try {
+        await importFromFile(file);
+      } finally {
+        importFileBtn.disabled = false;
+      }
     });
     picker.click();
   });

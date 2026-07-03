@@ -12,10 +12,9 @@
 // re-renders via the pin store's pub/sub (see app.js bootstrap).
 
 import { searchCities } from "./geocode.js";
-import { addPin } from "./pins.js";
+import { addPin, DEFAULT_PIN_COLOR } from "./pins.js";
 import { showError } from "./storage.js";
 
-const DEFAULT_PIN_COLOR = "#e63946";
 const DEBOUNCE_MS = 350;
 const MIN_QUERY_LEN = 2;
 
