@@ -17,3 +17,4 @@
 
 # Local git worktrees (subagent-driven development sessions)
 .worktrees/
+/pin-1-svgrepo-com.svg
