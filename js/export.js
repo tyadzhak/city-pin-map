@@ -12,6 +12,26 @@
 // pass on the composite — picked over the strip because a draggable
 // labelled location does the same poster-header job and lets the user
 // place the text wherever it complements the map best.
+//
+// PIXEL-SPACE CONTRACT (FBL-005). One rule, decided once:
+//   • "Current view" exports are DEVICE resolution — the output canvas is
+//     the WebGL framebuffer's own pixel size (CSS size × devicePixelRatio).
+//     The fast path returns getCanvas() as-is; the composite path (title
+//     present) allocates its output at mapCanvas.width/height. Both therefore
+//     produce the SAME dimensions and sharpness for the same view, whether or
+//     not a title/frame is present.
+//   • Preset exports (EXPORT_PRESETS: 1080², A4 794×1123, …) are a UI
+//     contract: their output is EXACTLY the documented CSS-pixel dimensions,
+//     independent of the display's dpr. Scaling happens INSIDE the render
+//     (the device-pixel map canvas is downscaled into the preset canvas), but
+//     the final width/height never changes.
+//   • Everything drawn onto the 2D canvas by us (the title chip) and the
+//     frame thickness is expressed in CSS pixels and multiplied by that
+//     canvas's effective CSS→output scale — `chipScale` for the title,
+//     `innerScale` for the frame — so a given view / frame / chip reads at the
+//     same visual proportion on both paths regardless of dpr. MapLibre-drawn
+//     content (tiles, markers, pin labels) is scaled by the GL context's own
+//     pixelRatio, so it needs no extra factor.
 
 import { showError, loadExportFrame, loadOnMapTitle } from "./storage.js";
 import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
@@ -106,23 +126,34 @@ export async function exportMapAsPng(mapInstance) {
     const onMapTitleRaw = loadOnMapTitle();
     const onMapTitleProjection = projectOnMapTitle(mapInstance, onMapTitleRaw);
 
-    // Both paths produce a canvas. The optional frame-wrap pass and the
-    // single toDataURL conversion happen at the end so they share the
-    // exact same code regardless of which capture path ran.
+    // Both paths produce a canvas plus its CSS→canvas-pixel scale (so
+    // wrapFrame can express a CSS-pixel thickness in the inner canvas's own
+    // pixel space). The optional frame-wrap pass and the single toDataURL
+    // conversion happen at the end so they share the exact same code
+    // regardless of which capture path ran.
     let innerCanvas;
+    let innerScale;
     if (!preset && !onMapTitleProjection) {
-      // Fast path: live map, no resize, no overlay text. Capture the
-      // canvas as-is. triggerRepaint + once('render') ensures the
-      // framebuffer reflects the current state before we read it.
+      // Fast path: live map, no resize, no overlay text, no extra canvas.
+      // Capture the framebuffer as-is (device resolution). triggerRepaint +
+      // once('render') ensures it reflects the current state before we read
+      // it. The frame wrap only allocates a canvas if a frame is enabled.
       await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
       mapInstance.triggerRepaint();
       await waitForRender(mapInstance);
       innerCanvas = mapInstance.getCanvas();
+      innerScale = deviceScale(mapInstance);
     } else {
-      innerCanvas = await captureFramed(mapInstance, preset, onMapTitleProjection);
+      const captured = await captureFramed(
+        mapInstance,
+        preset,
+        onMapTitleProjection
+      );
+      innerCanvas = captured.canvas;
+      innerScale = captured.scale;
     }
 
-    const finalCanvas = wrapFrame(innerCanvas, frame);
+    const finalCanvas = wrapFrame(innerCanvas, frame, innerScale);
     const dataUrl = finalCanvas.toDataURL("image/png");
 
     triggerDownload(dataUrl, `city-pin-map-${todayStamp()}.png`);
@@ -199,15 +230,30 @@ async function captureFramed(mapInstance, preset, onMapTitle) {
     mapInstance.triggerRepaint();
     await waitForRender(mapInstance);
 
-    return composite({
-      mapCanvas: mapInstance.getCanvas(),
-      mapWidthCss: frameWidth,
-      mapHeightCss: frameHeight,
-      outputWidth: frameWidth,
-      outputHeight: frameHeight,
-      onMapTitle,
-      coeff,
-    });
+    // FBL-005 pixel-space contract:
+    //   • Preset → output is EXACTLY the contractual CSS-pixel dims; the
+    //     device-pixel map canvas downscales into it. scale = 1.
+    //   • Current view (no preset) → output is the framebuffer's device
+    //     resolution, matching the fast path bit-for-bit. scale = dpr.
+    // `scale` (= outputWidth / frameWidth) is 1 for presets and dpr for
+    // current view, and drives both the title-chip typography and, back in
+    // the caller, the frame thickness.
+    const mapCanvas = mapInstance.getCanvas();
+    const outputWidth = preset ? frameWidth : mapCanvas.width;
+    const outputHeight = preset ? frameHeight : mapCanvas.height;
+    const scale = frameWidth > 0 ? outputWidth / frameWidth : 1;
+
+    return {
+      canvas: composite({
+        mapCanvas,
+        outputWidth,
+        outputHeight,
+        onMapTitle,
+        coeff,
+        chipScale: scale,
+      }),
+      scale,
+    };
   } finally {
     // Restore live pin-label size first — independent of DOM state, so
     // even if any re-attach step throws, the live UI returns to default.
@@ -241,18 +287,19 @@ function computeCoeff(width, height) {
   return Math.min(COEFF_MAX, Math.max(COEFF_MIN, raw));
 }
 
-// Composite the map canvas + on-map title chip into one output canvas
-// and return the canvas. The output canvas is sized in CSS pixels. The
+// Composite the map canvas + on-map title chip into one output canvas and
+// return the canvas. The output canvas is sized in whatever pixel space the
+// caller chose (device resolution for current view, contractual CSS pixels
+// for a preset — see the FBL-005 contract at the top of this file). The
 // caller (exportMapAsPng) handles the optional PO-007 frame wrap and the
 // final toDataURL conversion.
 function composite({
   mapCanvas,
-  mapWidthCss,
-  mapHeightCss,
   outputWidth,
   outputHeight,
   onMapTitle,
   coeff,
+  chipScale,
 }) {
   const out = document.createElement("canvas");
   out.width = outputWidth;
@@ -265,9 +312,10 @@ function composite({
   ctx.fillStyle = CANVAS_BACKGROUND;
   ctx.fillRect(0, 0, outputWidth, outputHeight);
 
-  // Map canvas, scaled to CSS pixel dims. mapCanvas.width/.height are
-  // device pixels (CSS × dpr); drawImage's 9-arg form rescales to the
-  // destination rect.
+  // Map framebuffer → output. mapCanvas.width/.height are device pixels
+  // (CSS × dpr). For current view the destination equals those dims (1:1,
+  // crisp); for a preset drawImage's 9-arg form downscales into the smaller
+  // contractual canvas.
   ctx.drawImage(
     mapCanvas,
     0,
@@ -276,25 +324,38 @@ function composite({
     mapCanvas.height,
     0,
     0,
-    mapWidthCss,
-    mapHeightCss
+    outputWidth,
+    outputHeight
   );
 
   // PO-008/009 — draw the on-map title chip AFTER the map pixels (so it
-  // floats on top of tiles + markers) and BEFORE wrapFrame (which runs
-  // in the caller, so the decorative frame never paints over the title).
-  // Pixel position scales the live-map ratio by the export's map area.
+  // floats on top of tiles + markers) and BEFORE wrapFrame (which runs in
+  // the caller, so the decorative frame never paints over the title). The
+  // position ratio multiplies the ACTUAL output dims (device or CSS), and
+  // the chip typography multiplies `coeff` by `chipScale` (dpr for current
+  // view, 1 for a preset) so the pill keeps the same visual proportion in
+  // both pixel spaces.
   if (onMapTitle) {
     drawOnMapTitle(ctx, {
-      x: onMapTitle.xRatio * mapWidthCss,
-      y: onMapTitle.yRatio * mapHeightCss,
+      x: onMapTitle.xRatio * outputWidth,
+      y: onMapTitle.yRatio * outputHeight,
       style: onMapTitle.style,
       text: onMapTitle.text,
-      coeff,
+      coeff: coeff * chipScale,
     });
   }
 
   return out;
+}
+
+// CSS→device-pixel scale of the live map framebuffer (the GL context's
+// pixelRatio, typically window.devicePixelRatio). Used to express a
+// CSS-pixel frame thickness in the fast path's device-resolution canvas.
+function deviceScale(mapInstance) {
+  const canvas = mapInstance.getCanvas();
+  const cssWidth = mapInstance.getContainer().getBoundingClientRect().width;
+  if (cssWidth > 0) return canvas.width / cssWidth;
+  return window.devicePixelRatio || 1;
 }
 
 // PO-007 — Decorative frame composition. Allocates a larger canvas
@@ -323,9 +384,14 @@ function composite({
 // described "soft drop shadow within the frame area" effect, the shadow
 // has to be active when the INNER composite is drawn so the inner image
 // (the photo) casts onto the frame fill (the card).
-function wrapFrame(innerCanvas, frame) {
+function wrapFrame(innerCanvas, frame, scale = 1) {
   if (!frame || !frame.enabled) return innerCanvas;
-  const thickness = Math.max(0, Math.round(Number(frame.thickness) || 0));
+  // frame.thickness is stored/clamped (storage.js: 0–200) in CSS pixels.
+  // Multiply by the inner canvas's CSS→pixel scale (dpr for a device-res
+  // current-view canvas, 1 for a preset canvas) so the same stored value
+  // reads at the same visual proportion on every path (FBL-005).
+  const cssThickness = Math.max(0, Number(frame.thickness) || 0);
+  const thickness = Math.round(cssThickness * scale);
   if (thickness <= 0) return innerCanvas;
 
   const out = document.createElement("canvas");

@@ -29,8 +29,11 @@ function notify() {
 export function add(icon) {
   userIcons.push({
     id: crypto.randomUUID(),
+    name: icon.name,
+    tintable: Boolean(icon.tintable),
+    fillSvg: icon.fillSvg,
+    attribution: icon.attribution ?? null,
     createdAt: Date.now(),
-    ...icon,
   });
   notify();
 }

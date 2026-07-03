@@ -109,8 +109,8 @@ export function update(next) {
   // user's font picks.
   position = {
     text: typeof next.text === "string" ? next.text : position.text,
-    lon: Number.isFinite(next.lon) ? next.lon : null,
-    lat: Number.isFinite(next.lat) ? next.lat : null,
+    lon: Number.isFinite(next.lon) ? next.lon : position.lon,
+    lat: Number.isFinite(next.lat) ? next.lat : position.lat,
     font: typeof next.font === "string" ? next.font : position.font,
     bold: typeof next.bold === "boolean" ? next.bold : position.bold,
     italic: typeof next.italic === "boolean" ? next.italic : position.italic,

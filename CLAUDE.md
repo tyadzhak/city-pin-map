@@ -24,6 +24,7 @@ All four milestones — Core (CORE-001 → CORE-012), Nice-to-have (NICE-001 →
 - Polished drop-pin markers (PO-003) and per-pin label rendering (PO-002): pins render as SVG silhouettes via a single MapLibre `symbol`-type layer with `icon-color` SDF tinting from `effectiveColor()` and a programmatic white halo (`icon-halo-color`/`icon-halo-width`/`icon-halo-blur`) replacing PO-003's two-image stack. Labels sit on a sibling `symbol` layer above the pins layer, reading `text-field` from the same source.
 - Pin icon library (PIL-001, this milestone): one neutral built-in (`circle`) intentionally — the user grows their own library through the add-icon flow rather than picking from a curated set, since pre-shipped icons rarely match a personal map's vibe. Replaced PI-001's per-row popover with a modal hosted in `js/icon-picker.js`. New module `js/icons.js` is the registry — merging built-in icons (`BUILTIN_ICONS`) with user-uploaded custom icons (`js/user-icons.js`, `localStorage` key `city-pin-map.user-icons.v1`). Users add custom icons via a sub-view in the modal: file drop, textarea paste, or URL field (URL is attribution-only — never fetched, since browser CORS + Flaticon login wall make download impossible from a no-backend page). New module `js/svg-ingest.js` sanitizes incoming SVG via an allowlist (rejects `<script>`, `<foreignObject>`, `on*` handlers, `javascript:` hrefs; allows `data-*` and `aria-*` so Heroicons-shaped uploads work verbatim) and returns a tintable heuristic. Hybrid color: tintable icons (the entire starter set, monochrome user uploads) keep the SDF + halo treatment; non-tintable icons render in original colors with a circle layer underneath (`pins-color-ring`) showing group/pin color so the group-color contract stays visible. Backup format bumped v1 → v2 with `userIcons` included; v1 backups still import (user-icon library left untouched on v1 import, same as API keys). Sprite-id namespacing under `city-pin-map.icon.<id>` keeps the registry collision-free against basemap atlases. Per-pin appearance now uses two side-by-side affordances in each pin row: an icon tile (opens modal) + a small native color swatch (opens browser color picker).
 - Import pins from a CSV or JSON file (PO-004): a new "Import from file" button (side panel, next to Export JSON / Import JSON) accepts `.csv` and `.json` and turns rows into pins, delegating anything shaped like the app's own backup format to the existing `importFromJson()` (HARDEN-001) rather than duplicating it. New module `js/import-foreign.js` owns CSV parsing (a small hand-rolled RFC4180-ish tokenizer — quoted fields, embedded commas, CRLF/LF, UTF-8 BOM strip) and foreign-JSON shape detection (array of `{name,lat,lon}` objects, or array of bare city-name strings). Rows without valid coordinates (including blank/`null` cells and out-of-range values, which are treated as "not provided" rather than a `(0,0)` pin) are geocoded sequentially through the existing `js/geocode.js` wrapper, so Nominatim's rate gate is never bypassed; a confirm dialog precedes the batch and a completion summary reports successes plus any un-geocodable names. `DEFAULT_PIN_COLOR` moved from `search.js` to `pins.js` (and is now exported) so both add-pin paths share one source of truth.
+- Fixed on-map title anchor loss on partial updates (FBL-001): `mapTitle.update()` now merges `lon`/`lat` over the existing anchor like every other field, so editing the title text or toggling bold/italic/font/color/size after dragging the overlay no longer resets it to map center or persists a corrupted position.
 
 ## Considered and parked
 
@@ -102,7 +103,9 @@ Every pin must conform to:
   color: string,         // hex like "#e63946" — overridden visually by group color when grouped
   group: string | null,  // group id from the group store, or null
   icon: string | null,   // icon id from the registry (PIL-001); null falls back to DEFAULT_ICON_ID at render time
-  createdAt: number      // Date.now()
+  createdAt: number,     // Date.now()
+  originalLat?: number,  // geocoded origin captured once at creation (FBL-008); powers the pin-list "reset position" affordance for Alt-dragged pins
+  originalLon?: number   // paired with originalLat; both optional — absent on pre-FBL-008 pins, never crash on absence (mirrors the stale-group contract)
 }
 ```
 
@@ -152,6 +155,8 @@ Two flavors live in this repo, both still active:
 5. Set `Status` to `Done` and commit.
 
 **Plan-driven milestones under `docs/superpowers/`:** Larger features (e.g. expanded basemap styles) live under `docs/superpowers/specs/` (design) + `docs/superpowers/plans/` (implementation), with each plan splitting work into checkbox-tracked tasks. Execute these via the `superpowers:executing-plans` or `superpowers:subagent-driven-development` skills. The plan file is the source of truth for "done" within that milestone.
+
+**Agent-orchestrated batch fixes:** When asked to fix one or more findings "using agents", follow the workflow in `jira/agent-fix-findings-workflow.md`. In short: delegate each finding's fix to an **Opus** subagent (it edits + updates the task file, runs no git), then a **Sonnet** subagent build-checks (`node --check` on changed modules + `node --test js/svg-ingest.test.mjs`) and makes ONE commit per finding. One commit per finding; serialize findings that touch the same file; STOP and ask before touching any `Needs review`/unconfirmed finding or a change only verifiable at runtime. The full prompt template lives in that file.
 
 ## Definition of done
 

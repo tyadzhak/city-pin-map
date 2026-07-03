@@ -470,14 +470,14 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   // (setStyle wipes the registry; the missing icon won't be re-added).
   subscribeIcons(async (mergedIcons) => {
     if (!mapInstance) return;
-    try {
-      await loadPinIconImages(mergedIcons);
-    } catch (err) {
-      showError(`${err.message}. Custom icon may not render.`);
-      return;
-    }
+    // Per-icon fault tolerance (mirrors addPinAndRouteLayers): one failed
+    // sprite is skipped, not fatal, so adding a valid icon still registers
+    // even while a corrupt one sits in the registry.
+    const failedIds = await loadPinIconImages(mergedIcons);
     if (!mapInstance) return;
+    reportFailedIcons(failedIds);
     for (const icon of mergedIcons) {
+      if (!pinIconImages.has(icon.id)) continue; // failed to load; skip
       const imageId = PIN_ICON_IMAGE_PREFIX + icon.id;
       if (!mapInstance.hasImage(imageId)) {
         mapInstance.addImage(imageId, pinIconImages.get(icon.id), {
@@ -633,6 +633,32 @@ function buildStyleErrorMessage(entry, status) {
 // swap; null until then means "whatever initMap painted".
 let currentRenderedStyleId = null;
 
+// Subscribers notified whenever a style swap actually RENDERS (the
+// styledata success path in setMapStyle). Mirrors the pins.js pub/sub
+// shape. The key subtlety: a failed swap reverts by RE-ENTERING
+// setMapStyle(previousId, { persist: false }), which itself reaches
+// onSuccess when the revert renders — so the revert flows through this
+// same notification with the reverted (actually-rendered) style id. That
+// lets the UI (js/app.js) correct its optimistic state after a failure
+// without any extra failure-specific wiring. Fired on RENDER, never on
+// request, so a subscriber must NOT call back into setMapStyle (that would
+// loop).
+const styleRenderedSubscribers = new Set();
+
+/**
+ * Subscribe to style-render events. The callback receives the style id
+ * that just finished rendering on the map (success or post-revert).
+ * Returns an unsubscribe function. Mirrors pins.js/settings.js.
+ */
+export function onStyleRendered(fn) {
+  styleRenderedSubscribers.add(fn);
+  return () => styleRenderedSubscribers.delete(fn);
+}
+
+function notifyStyleRendered(styleId) {
+  for (const fn of styleRenderedSubscribers) fn(styleId);
+}
+
 // Tracks the in-flight style swap's cleanup so a later setMapStyle call
 // can cancel a prior pending swap. Without this, stale onError listeners
 // from a swap that's still loading can fire on a later swap's events
@@ -697,6 +723,13 @@ export function setMapStyle(styleId, { persist = true } = {}) {
     renderPins(lastPinsSnapshot);
     renderRoute(lastPinsSnapshot, { visible: lastRouteVisible });
     if (persist) saveMapStyle(entry.id);
+    // Fire AFTER currentRenderedStyleId is updated so subscribers reading
+    // it see the just-rendered style. The failed-swap revert re-enters
+    // setMapStyle(previousId, { persist:false }) and reaches this same
+    // path, so the UI naturally hears the reverted id — no failure-specific
+    // notification needed. Subscribers only update UI state; they must not
+    // re-invoke setMapStyle, or the revert would loop.
+    notifyStyleRendered(entry.id);
   };
   const onError = (err) => {
     if (settled) return;
@@ -847,7 +880,15 @@ function pinsToFeatureCollection(pins) {
   return {
     type: "FeatureCollection",
     features: pins.map((pin) => {
-      const iconId = effectiveIcon(pin);
+      let iconId = effectiveIcon(pin);
+      // effectiveIcon's clamp only guards *unknown* ids. A known id whose
+      // *image* failed to load (corrupt user SVG, missing built-in file)
+      // isn't in the cache — referencing its unregistered MapLibre image
+      // would make MapLibre drop the whole feature. Fall back to the default
+      // icon so the pin still renders. (If even the default failed to load,
+      // this leaves iconId at the default and only that single feature's
+      // icon is dropped — the layers themselves are still created.)
+      if (!pinIconImages.has(iconId)) iconId = DEFAULT_ICON_ID;
       const iconEntry = getIcon(iconId);
       // tintable defaults to true so a transient pre-registry-load state
       // still renders sensibly. The default-pin built-in is always
@@ -880,15 +921,51 @@ function emptyLineFeatureCollection() {
 // under assets/icons/ and the browser HTTP-caches them.
 const pinIconImages = new Map();
 
+// Remembers the last set of failed icon ids we surfaced a banner for. Each
+// basemap swap re-runs the load path (and re-retries the still-failing
+// icons), so without this guard the same failure would re-spam a banner on
+// every styledata cycle. Keyed by the sorted failed-id list; reset to "" on
+// full recovery so a genuinely new failure later still reports.
+let lastReportedFailedKey = "";
+
+// Load pin sprites into the `pinIconImages` cache, one Image per icon.
+//
+// Fault-tolerant per icon: a single undecodable sprite (corrupt user SVG,
+// missing built-in file) must NOT reject the batch and blank out every pin.
+// Uses Promise.allSettled so successful loads always land in the cache; the
+// returned Set names the icon ids that FAILED so callers can skip their
+// addImage and surface a banner. Already-cached icons short-circuit, so
+// style swaps stay cheap and only ever retry the ids not yet loaded.
 async function loadPinIconImages(targetIcons) {
+  const failed = new Set();
   const missing = targetIcons.filter((icon) => !pinIconImages.has(icon.id));
-  if (missing.length === 0) return;
-  await Promise.all(
-    missing.map((icon) =>
-      fetchImage(iconImageHref(icon)).then((img) =>
-        pinIconImages.set(icon.id, img)
-      )
-    )
+  if (missing.length === 0) return failed;
+  const results = await Promise.allSettled(
+    missing.map((icon) => fetchImage(iconImageHref(icon)))
+  );
+  results.forEach((result, i) => {
+    const icon = missing[i];
+    if (result.status === "fulfilled") {
+      pinIconImages.set(icon.id, result.value);
+    } else {
+      failed.add(icon.id);
+    }
+  });
+  return failed;
+}
+
+// Surface at most one banner per distinct failed-icon set. Debounced across
+// styledata cycles via lastReportedFailedKey. Names the icons by their
+// registry label so the user can find and remove the offending upload.
+function reportFailedIcons(failedIds) {
+  const key = [...failedIds].sort().join("|");
+  if (key === lastReportedFailedKey) return;
+  lastReportedFailedKey = key;
+  if (failedIds.size === 0) return; // recovered — reset only, no banner
+  const names = [...failedIds].map((id) => getIcon(id)?.label ?? id).join(", ");
+  const noun = failedIds.size === 1 ? "icon" : "icons";
+  showError(
+    `Could not load pin ${noun}: ${names}. Affected pins use the default icon.`
   );
 }
 
@@ -919,14 +996,13 @@ async function addPinAndRouteLayers() {
   // reference them by id. The loader caches per-icon, so subsequent
   // style swaps and registry-tick re-runs are cheap.
   const icons = getMergedIcons();
-  try {
-    await loadPinIconImages(icons);
-  } catch (err) {
-    showError(`${err.message}. Markers will not render.`);
-    return;
-  }
+  // Per-icon fault tolerance: a failed sprite is skipped, never fatal. We
+  // still create every source and layer below so one corrupt icon can't
+  // blank out all pins, labels, and the route.
+  const failedIds = await loadPinIconImages(icons);
   // Defensive against a teardown that snuck in during the await.
   if (!mapInstance) return;
+  reportFailedIcons(failedIds);
 
   // Re-register every pin icon on every styledata cycle. setStyle() wipes
   // the image registry; the hasImage() check short-circuits the rare path
@@ -942,6 +1018,11 @@ async function addPinAndRouteLayers() {
   // tints them); non-tintable ones get raster RGBA (color-ring layer
   // shows group color underneath).
   for (const icon of icons) {
+    // Skip icons whose image failed to load — their sprite isn't in the
+    // cache, so addImage would register `undefined` and throw. Pins that
+    // referenced them already fell back to the default icon in
+    // pinsToFeatureCollection().
+    if (!pinIconImages.has(icon.id)) continue;
     const imageId = PIN_ICON_IMAGE_PREFIX + icon.id;
     if (!mapInstance.hasImage(imageId)) {
       mapInstance.addImage(imageId, pinIconImages.get(icon.id), {
@@ -1093,15 +1174,44 @@ async function addPinAndRouteLayers() {
 function attachPinInteractions() {
   if (!mapInstance) return;
 
-  mapInstance.on("mouseenter", PINS_LAYER_ID, () => {
-    mapInstance.getCanvas().style.cursor = "grab";
+  // A pin drag is deliberate-only (FBL-008): it moves a city off its real
+  // geocoded location, so it fires ONLY while the Alt/Option modifier is
+  // held. Plain hover/drag over a pin behaves exactly like anywhere else on
+  // the map — so we must not advertise a grab cursor unless Alt is down, or
+  // the cursor would promise a drag that a plain mousedown won't deliver.
+  //
+  // `hoveringPin` remembers whether the cursor is currently over the pins
+  // layer so the document-level keydown/keyup handlers can refresh the
+  // cursor the moment Alt is pressed or released without the mouse moving.
+  let hoveringPin = false;
+  const refreshHoverCursor = (altDown) => {
+    if (!mapInstance || dragState) return;
+    mapInstance.getCanvas().style.cursor =
+      hoveringPin && altDown ? "grab" : "";
+  };
+
+  mapInstance.on("mouseenter", PINS_LAYER_ID, (e) => {
+    hoveringPin = true;
+    refreshHoverCursor(e.originalEvent?.altKey);
   });
   mapInstance.on("mouseleave", PINS_LAYER_ID, () => {
+    hoveringPin = false;
     if (!dragState) mapInstance.getCanvas().style.cursor = "";
+  });
+  // Toggle the grab affordance live as Alt is pressed/released over a pin.
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Alt") refreshHoverCursor(true);
+  });
+  document.addEventListener("keyup", (ev) => {
+    if (ev.key === "Alt") refreshHoverCursor(false);
   });
 
   mapInstance.on("mousedown", PINS_LAYER_ID, (e) => {
     if (e.originalEvent.button !== 0) return;
+    // Guard: without Alt held, do NOT start a drag. Fall through with no
+    // preventDefault and no dragPan.disable() so MapLibre pans the map
+    // normally even though the cursor is over a pin (FBL-008).
+    if (!e.originalEvent.altKey) return;
     const feature = e.features?.[0];
     if (!feature) return;
 
