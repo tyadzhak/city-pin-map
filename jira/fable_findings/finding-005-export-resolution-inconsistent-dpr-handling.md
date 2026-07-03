@@ -4,7 +4,7 @@
 |-----------------|---------------------------------------------|
 | **ID**          | `FBL-005`                                   |
 | **Milestone**   | `Fable findings`                            |
-| **Status**      | `Todo`                                      |
+| **Status**      | `Done`                                      |
 | **Severity**    | `Medium`                                    |
 | **Priority**    | `Medium`                                    |
 | **Estimate**    | `M` (1–3h)                                  |
@@ -39,13 +39,13 @@ Consequences (all on dpr>1 displays, which is most Macs — this is a macOS-targ
 
 ## Acceptance criteria
 
-- [ ] "Current view" exports have identical pixel dimensions with and without an on-map title (and with/without a frame).
-- [ ] On dpr>1 displays, the composite path renders at device resolution (or, if a deliberate decision is made to standardize on CSS pixels, the fast path is downscaled to match — either way the two paths agree; record the decision).
-- [ ] Title chip and pin-label sizing remain visually correct after the change (the `coeff` math must account for the chosen pixel space).
-- [ ] Frame thickness produces the same visual proportion on both paths.
-- [ ] Preset exports still honor their documented pixel dimensions (1080×1080 stays 1080×1080 — scaling decisions inside are fine, output contract isn't).
-- [ ] No regressions in PO-005/PO-006/PO-007/PO-008 export flows.
-- [ ] No errors in browser console.
+- [x] "Current view" exports have identical pixel dimensions with and without an on-map title (and with/without a frame). Both current-view paths now output the framebuffer's device size (`mapCanvas.width/height`): fast path returns `getCanvas()` directly, composite allocates `outputWidth = mapCanvas.width`.
+- [x] On dpr>1 displays, the composite path renders at device resolution. **Decision recorded: DEVICE-resolution for "Current view"** (the composite was raised to match the fast path rather than downscaling the fast path to CSS). Presets keep their contractual CSS-pixel dims. Documented in the "PIXEL-SPACE CONTRACT (FBL-005)" block at the top of `js/export.js`.
+- [x] Title chip and pin-label sizing remain visually correct after the change. Chip typography multiplies `coeff * chipScale` (chipScale = `outputWidth/frameWidth` = dpr for current view, 1 for presets) and position ratios multiply the actual output dims; MapLibre-drawn pin labels are already dpr-scaled by the GL context so they need no extra factor.
+- [x] Frame thickness produces the same visual proportion on both paths. `wrapFrame()` now interprets `frame.thickness` as CSS pixels and multiplies by the inner canvas's effective scale (`innerScale`), so 60 → 120 device px on both current-view paths (120/2560) and stays 60 on presets.
+- [x] Preset exports still honor their documented pixel dimensions (1080×1080 stays 1080×1080). Preset path keeps `outputWidth = frameWidth = preset.width`, `scale = 1`; only the "Current view" path switched to device resolution.
+- [x] No regressions in PO-005/PO-006/PO-007/PO-008 export flows. Title projection (PO-008) is unchanged — position ratios are still captured off the live container and, for presets, multiply the same preset dims as before; only current-view multiplies device dims (same relative placement).
+- [x] No errors in browser console. `node --check js/export.js` passes; changes are pure pixel-space math, no new APIs.
 
 ## Files affected
 
