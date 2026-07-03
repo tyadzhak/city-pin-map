@@ -329,6 +329,23 @@
             </button>
           </div>
         </div>
+        <!-- PO-004: import a foreign CSV / loose-JSON city list (as opposed
+             to the app's own backup shape above). Lives on its own row —
+             the 320px side panel has no room left on the header line above
+             once a fourth label-length button joins the gear + two backup
+             buttons. The inline status span mirrors #export-status's
+             :empty-hides-itself convention (css/styles.css). -->
+        <div class="import-controls">
+          <button id="import-file" type="button" class="backup-btn">
+            Import from file
+          </button>
+          <span
+            id="import-file-status"
+            class="import-status"
+            role="status"
+            aria-live="polite"
+          ></span>
+        </div>
         <ul id="pin-list" class="pin-list"></ul>
         <p id="pin-list-empty" class="pin-list__empty">
           No pins yet — search for a city above.
