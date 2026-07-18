@@ -18,7 +18,7 @@ import { DEFAULT_PIN_COLOR } from "./pins.js";
 import * as groupStore from "./groups.js";
 import * as userIconStore from "./user-icons.js";
 import { ingestSvg } from "./svg-ingest.js";
-import { showError } from "./storage.js";
+import { showError, prewriteImportPayloads } from "./storage.js";
 
 const BACKUP_VERSION = 2;
 const SUPPORTED_IMPORT_VERSIONS = new Set([1, 2]);
@@ -135,6 +135,28 @@ export async function importFromJson(file) {
   const groups = normalizeGroups(parsed.groups, dropped);
   const pins = normalizePins(parsed.pins, dropped);
   const userIcons = isV2 ? normalizeUserIcons(parsed.userIcons, dropped) : null;
+
+  // FBL-016: persist the whole import as a unit BEFORE mutating any store.
+  // The three replaceAll cascades below each fire their own save subscriber;
+  // if a later one (saveUserIcons — the largest payload) hit quota it would
+  // swallow the failure with only a transient banner, leaving groups + pins
+  // persisted but user icons gone — a torn on-disk state that looks fully
+  // imported in memory yet loses part of itself on reload. Pre-writing all
+  // three keys up front (with rollback on any failure) turns that silent
+  // partial loss into a clean, fully-aborted import. v1 imports pass
+  // userIcons: null so the local library is left untouched, mirroring the
+  // isV2 gate on the replaceAll below.
+  const persisted = prewriteImportPayloads({
+    pins,
+    groups,
+    userIcons: isV2 ? userIcons : null,
+  });
+  if (!persisted) {
+    showError(
+      "Import was NOT applied: this backup does not fit in your browser's storage. Your existing pins, groups, and custom icons are unchanged — free up space and try again."
+    );
+    return;
+  }
 
   // Replace groups before pins. Either order is safe — the existing
   // stale-reference handling in effectiveColor() and the pin-list group

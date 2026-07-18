@@ -231,6 +231,70 @@ export function attachUserIconStorage(userIconStore) {
   return userIconStore.subscribe(saveUserIcons);
 }
 
+// ── Import pre-verify (FBL-016) ───────────────────────────────────────────
+//
+// backup.js's importFromJson replaces three stores in sequence — groups,
+// pins, user icons — each firing its own save subscriber. saveUserIcons is
+// the largest payload (icon SVGs) and, like the other save functions,
+// catches a setItem quota failure with only a transient banner and no
+// rethrow. So a quota-busting import used to persist groups + pins while
+// user icons silently fell on the floor: in memory everything looked
+// imported, but on reload part of it was gone and pins referencing the
+// missing icons degraded to the default.
+//
+// This helper proves the ENTIRE import fits BEFORE any store is mutated. It
+// serializes each payload exactly as its save function would (JSON.stringify
+// of the store array) and writes all three keys up front inside one
+// try/catch. On ANY failure it restores every key it already overwrote to
+// the exact raw bytes read before the attempt — so a partial pre-verify
+// can't itself tear on-disk state — and returns false; the caller then
+// aborts the import without touching a single store. On success it returns
+// true and the subsequent replaceAll subscribers rewrite the identical
+// bytes (idempotent: the store's post-replaceAll snapshot is the same array
+// this pre-write serialized).
+//
+// `userIcons` is written only when provided (non-null): a v1 import leaves
+// the user-icon library untouched, mirroring importFromJson's isV2 gate.
+// Keys live here (storage.js owns every localStorage key) so backup.js need
+// not learn their names.
+export function prewriteImportPayloads({ pins, groups, userIcons }) {
+  const writes = [
+    [STORAGE_KEY, JSON.stringify(pins)],
+    [GROUPS_STORAGE_KEY, JSON.stringify(groups)],
+  ];
+  if (userIcons != null) {
+    writes.push([USER_ICONS_KEY, JSON.stringify(userIcons)]);
+  }
+
+  // Snapshot the pre-attempt raw bytes of every key we're about to touch so
+  // any mid-way failure can roll each one back to exactly what it held.
+  const previous = writes.map(([key]) => [key, localStorage.getItem(key)]);
+
+  const writtenKeys = [];
+  try {
+    for (const [key, serialized] of writes) {
+      localStorage.setItem(key, serialized);
+      writtenKeys.push(key);
+    }
+    return true;
+  } catch (err) {
+    console.error("import pre-verify failed to persist; aborting import:", err);
+    for (const [key, raw] of previous) {
+      if (!writtenKeys.includes(key)) continue;
+      try {
+        if (raw === null) {
+          localStorage.removeItem(key);
+        } else {
+          localStorage.setItem(key, raw);
+        }
+      } catch (restoreErr) {
+        console.error("failed to restore key during import rollback:", key, restoreErr);
+      }
+    }
+    return false;
+  }
+}
+
 // ── Boot-time element normalizers (FBL-014) ──────────────────────────────
 //
 // The load functions above used to pass array elements through verbatim
