@@ -89,12 +89,22 @@ const EMPTY_ON_MAP_TITLE = Object.freeze({
   size: DEFAULT_ON_MAP_TITLE_SIZE,
 });
 
-// PO-007: a single-key object covers the frame sub-settings. Same
-// granularity NICE-006 used for `{ title, subtitle }` — keeps storage.js
-// from sprouting sibling keys for one feature. padding/margin/radius (this
-// milestone) extend the live-preview-capable frame; see the live overlay
-// module for the shared geometry contract (margin → thickness → padding →
-// map, outside in).
+// PO-007 (+ two-frames extension, this milestone): a single-key object
+// covers the frame sub-settings. Same granularity NICE-006 used for
+// `{ title, subtitle }` — keeps storage.js from sprouting sibling keys for
+// one feature. padding/margin/radius extend the live-preview-capable frame;
+// see the live overlay module for the shared geometry contract (margin →
+// thickness → padding → map, outside in).
+//
+// The persisted shape is a FRAME SET: `{ frames: [frameElement, frameElement] }`,
+// always exactly two elements ("Frame 1" at index 0, "Frame 2" at index 1),
+// each the same 7-field shape a single frame always had. Two independently
+// nested bands (different margins) produce the double-frame look. Frame 1's
+// defaults are unchanged from the original single-frame feature; Frame 2
+// defaults to a thin black band nested just inside Frame 1 so enabling it
+// immediately shows a sensible result. A legacy pre-two-frames value (a bare
+// single frame object, no `frames` array) is migrated into Frame 1 on load,
+// with Frame 2 seeded from its own defaults — see loadExportFrame.
 const DEFAULT_EXPORT_FRAME = Object.freeze({
   enabled: false,
   thickness: 60,
@@ -104,6 +114,29 @@ const DEFAULT_EXPORT_FRAME = Object.freeze({
   margin: 0,
   radius: 0,
 });
+const DEFAULT_EXPORT_FRAME_2 = Object.freeze({
+  enabled: false,
+  thickness: 4,
+  color: "#000000",
+  shadow: false,
+  padding: 0,
+  margin: 16,
+  radius: 0,
+});
+// Field names that make a parsed object "look like" a legacy single-frame
+// value (pre-two-frames). Any one present (and no `frames` array) is enough
+// to trigger the migration path in loadExportFrame — a corrupt object with
+// none of these fields is treated as unrecognizable and falls back to
+// defaults + banner instead.
+const LEGACY_FRAME_FIELDS = Object.freeze([
+  "enabled",
+  "thickness",
+  "color",
+  "padding",
+  "margin",
+  "radius",
+  "shadow",
+]);
 const FRAME_THICKNESS_MIN = 0;
 const FRAME_THICKNESS_MAX = 200;
 // padding/margin/radius share thickness's 0–200 range — same physical
@@ -115,6 +148,15 @@ const FRAME_MARGIN_MIN = 0;
 const FRAME_MARGIN_MAX = 200;
 const FRAME_RADIUS_MIN = 0;
 const FRAME_RADIUS_MAX = 200;
+
+// Fresh (unfrozen, independently mutable) frame-set defaults. Never return
+// DEFAULT_EXPORT_FRAME/DEFAULT_EXPORT_FRAME_2 directly here — those are
+// frozen module-level singletons; a caller mutating the returned object
+// (e.g. app.js's readFrame-style DOM hydration) must never reach back and
+// corrupt the shared default.
+function freshDefaultFrameSet() {
+  return { frames: [{ ...DEFAULT_EXPORT_FRAME }, { ...DEFAULT_EXPORT_FRAME_2 }] };
+}
 
 let bannerTimer = null;
 
@@ -594,11 +636,21 @@ export function saveActiveSideTab(id) {
   }
 }
 
-// Decorative export frame (PO-007). Single-key object — see
-// DEFAULT_EXPORT_FRAME above. Same defensive shape as loadOnMapTitle:
-// missing key → defaults; corrupt key → defaults + banner. Each field is
-// individually validated so a partial / hand-edited object can never poison
-// the export pipeline (e.g. NaN thickness, non-string color).
+// Decorative export frame SET (PO-007 + two-frames extension). Single-key
+// object — see DEFAULT_EXPORT_FRAME / DEFAULT_EXPORT_FRAME_2 above. Same
+// defensive shape as loadOnMapTitle: missing key → defaults; corrupt key →
+// defaults + banner. Always returns exactly `{ frames: [f0, f1] }`, each
+// element individually validated (via normalizeFrame) so a partial /
+// hand-edited object can never poison the export pipeline (e.g. NaN
+// thickness, non-string color).
+//
+// Migration: a value saved by the pre-two-frames build is a bare single
+// frame object (no `frames` array). That legacy shape is detected by the
+// presence of any of LEGACY_FRAME_FIELDS and migrated into Frame 1,
+// preserving the user's existing configuration; Frame 2 is seeded from its
+// own defaults. The storage KEY is unchanged — this migration is shape-only,
+// not a key bump — and the frame is a UI preference, not part of the JSON
+// backup format, so no backup version bump applies here either.
 export function loadExportFrame() {
   let raw;
   try {
@@ -606,25 +658,34 @@ export function loadExportFrame() {
   } catch (err) {
     console.error("localStorage unavailable on read:", err);
     showError("Saved frame settings could not be read; using defaults.");
-    return { ...DEFAULT_EXPORT_FRAME };
+    return freshDefaultFrameSet();
   }
-  if (raw === null) return { ...DEFAULT_EXPORT_FRAME };
+  if (raw === null) return freshDefaultFrameSet();
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") {
       throw new Error("saved frame settings is not an object");
     }
-    return normalizeFrame(parsed);
+    if (Array.isArray(parsed.frames)) {
+      return normalizeFrameSet(parsed);
+    }
+    const looksLikeLegacyFrame = LEGACY_FRAME_FIELDS.some((key) =>
+      Object.prototype.hasOwnProperty.call(parsed, key)
+    );
+    if (looksLikeLegacyFrame) {
+      return { frames: [normalizeFrame(parsed), { ...DEFAULT_EXPORT_FRAME_2 }] };
+    }
+    throw new Error("saved frame settings is neither a frame set nor a recognizable legacy frame");
   } catch (err) {
     console.error("saved frame settings corrupt; ignoring:", err);
     showError("Saved frame settings were corrupted and have been ignored.");
-    return { ...DEFAULT_EXPORT_FRAME };
+    return freshDefaultFrameSet();
   }
 }
 
 export function saveExportFrame(value) {
   try {
-    localStorage.setItem(EXPORT_FRAME_KEY, JSON.stringify(normalizeFrame(value)));
+    localStorage.setItem(EXPORT_FRAME_KEY, JSON.stringify(normalizeFrameSet(value)));
   } catch (err) {
     console.error("failed to save frame settings:", err);
     showError(
@@ -671,6 +732,24 @@ export function normalizeFrame(value) {
     padding,
     margin,
     radius,
+  };
+}
+
+// Normalizes a FRAME SET — `{ frames: [frameElement, frameElement] }` —
+// element-by-element through normalizeFrame above. Always returns exactly
+// two elements: a missing/non-array `frames`, or a missing element within
+// it, falls back to that slot's own default (DEFAULT_EXPORT_FRAME for index
+// 0, DEFAULT_EXPORT_FRAME_2 for index 1); any elements beyond index 1 are
+// dropped defensively. Exported (mirrors normalizeFrame's FBL-013 export) so
+// app.js can normalize a LIVE two-frame DOM read into the exact same shape
+// loadExportFrame() returns before handing it to the export pipeline.
+export function normalizeFrameSet(value) {
+  const frames = Array.isArray(value?.frames) ? value.frames : [];
+  return {
+    frames: [
+      normalizeFrame(frames[0] ?? DEFAULT_EXPORT_FRAME),
+      normalizeFrame(frames[1] ?? DEFAULT_EXPORT_FRAME_2),
+    ],
   };
 }
 

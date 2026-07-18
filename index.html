@@ -288,85 +288,160 @@
             </div>
 
             <div class="design-group">
-              <h2 class="design-group__heading">Frame</h2>
-              <!-- Frame controls (PO-007, extended with padding/margin/radius).
-                   The "Add frame" toggle drives the visibility of the thickness /
-                   color / padding / margin / radius / shadow inputs via the
-                   data-frame-enabled attribute on the wrapper — app.js flips it
-                   on hydration and on every change. The dependent controls are
-                   kept in the DOM at all times so tab order and ARIA stay
-                   consistent; only their `display` is suppressed. A live WYSIWYG
-                   preview of this frame renders on the map itself via
-                   js/map-frame.js. -->
-              <label class="export-frame-toggle" title="Decorative frame around the exported PNG">
-                <input
-                  id="export-frame-enabled"
-                  type="checkbox"
-                  class="export-frame-toggle__input"
-                />
-                <span class="export-frame-toggle__label">Frame</span>
-              </label>
-              <span
-                id="export-frame-controls"
-                class="export-frame-controls"
-                data-frame-enabled="false"
-              >
-                <input
-                  id="export-frame-thickness"
-                  type="number"
-                  min="0"
-                  max="200"
-                  step="1"
-                  class="export-frame-controls__thickness"
-                  aria-label="Frame thickness in pixels"
-                  title="Frame thickness (px)"
-                />
-                <input
-                  id="export-frame-color"
-                  type="color"
-                  class="export-frame-controls__color"
-                  aria-label="Frame color"
-                  title="Frame color"
-                />
-                <input
-                  id="export-frame-padding"
-                  type="number"
-                  min="0"
-                  max="200"
-                  step="1"
-                  class="export-frame-controls__padding"
-                  aria-label="Frame padding in pixels"
-                  title="Padding — white mat between map edge and frame band (px)"
-                />
-                <input
-                  id="export-frame-margin"
-                  type="number"
-                  min="0"
-                  max="200"
-                  step="1"
-                  class="export-frame-controls__margin"
-                  aria-label="Frame margin in pixels"
-                  title="Margin — white outer gap around the frame band (px)"
-                />
-                <input
-                  id="export-frame-radius"
-                  type="number"
-                  min="0"
-                  max="200"
-                  step="1"
-                  class="export-frame-controls__radius"
-                  aria-label="Frame corner radius in pixels"
-                  title="Corner radius of the frame band (px)"
-                />
-                <label class="export-frame-shadow-toggle" title="Soft drop shadow inside the frame">
+              <h2 class="design-group__heading">Frames</h2>
+              <!-- Two independently configured frames (PO-007, extended to two
+                   nested bands). Each "Frame N" toggle drives the visibility of
+                   its own thickness / color / padding / margin / radius / shadow
+                   inputs via the data-frame-enabled attribute on its wrapper —
+                   app.js flips it on hydration and on every change. The
+                   dependent controls are kept in the DOM at all times so tab
+                   order and ARIA stay consistent; only their `display` is
+                   suppressed. A live WYSIWYG preview of both frames renders on
+                   the map itself via js/map-frame.js. Different margins mean
+                   the two bands nest without overlapping (outer band, map gap,
+                   inner band). -->
+              <div class="export-frame-block">
+                <label class="export-frame-toggle" title="Decorative frame around the exported PNG">
                   <input
-                    id="export-frame-shadow"
+                    id="export-frame-enabled-1"
                     type="checkbox"
-                    class="export-frame-shadow-toggle__input"
+                    class="export-frame-toggle__input"
                   />
-                  <span class="export-frame-shadow-toggle__label">Shadow</span>
+                  <span class="export-frame-toggle__label">Frame 1</span>
                 </label>
-              </span>
+                <span
+                  id="export-frame-controls-1"
+                  class="export-frame-controls"
+                  data-frame-enabled="false"
+                >
+                  <input
+                    id="export-frame-thickness-1"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="1"
+                    class="export-frame-controls__thickness"
+                    aria-label="Frame thickness in pixels"
+                    title="Frame thickness (px)"
+                  />
+                  <input
+                    id="export-frame-color-1"
+                    type="color"
+                    class="export-frame-controls__color"
+                    aria-label="Frame color"
+                    title="Frame color"
+                  />
+                  <input
+                    id="export-frame-padding-1"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="1"
+                    class="export-frame-controls__padding"
+                    aria-label="Frame padding in pixels"
+                    title="Padding — white mat between map edge and frame band (px)"
+                  />
+                  <input
+                    id="export-frame-margin-1"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="1"
+                    class="export-frame-controls__margin"
+                    aria-label="Frame margin in pixels"
+                    title="Margin — white outer gap around the frame band (px)"
+                  />
+                  <input
+                    id="export-frame-radius-1"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="1"
+                    class="export-frame-controls__radius"
+                    aria-label="Frame corner radius in pixels"
+                    title="Corner radius of the frame band (px)"
+                  />
+                  <label class="export-frame-shadow-toggle" title="Soft drop shadow inside the frame">
+                    <input
+                      id="export-frame-shadow-1"
+                      type="checkbox"
+                      class="export-frame-shadow-toggle__input"
+                    />
+                    <span class="export-frame-shadow-toggle__label">Shadow</span>
+                  </label>
+                </span>
+              </div>
+              <div class="export-frame-block">
+                <label class="export-frame-toggle" title="Second decorative frame around the exported PNG">
+                  <input
+                    id="export-frame-enabled-2"
+                    type="checkbox"
+                    class="export-frame-toggle__input"
+                  />
+                  <span class="export-frame-toggle__label">Frame 2</span>
+                </label>
+                <span
+                  id="export-frame-controls-2"
+                  class="export-frame-controls"
+                  data-frame-enabled="false"
+                >
+                  <input
+                    id="export-frame-thickness-2"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="1"
+                    class="export-frame-controls__thickness"
+                    aria-label="Frame 2 thickness in pixels"
+                    title="Frame 2 thickness (px)"
+                  />
+                  <input
+                    id="export-frame-color-2"
+                    type="color"
+                    class="export-frame-controls__color"
+                    aria-label="Frame 2 color"
+                    title="Frame 2 color"
+                  />
+                  <input
+                    id="export-frame-padding-2"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="1"
+                    class="export-frame-controls__padding"
+                    aria-label="Frame 2 padding in pixels"
+                    title="Padding — white mat between map edge and frame band (px)"
+                  />
+                  <input
+                    id="export-frame-margin-2"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="1"
+                    class="export-frame-controls__margin"
+                    aria-label="Frame 2 margin in pixels"
+                    title="Margin — white outer gap around the frame band (px)"
+                  />
+                  <input
+                    id="export-frame-radius-2"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="1"
+                    class="export-frame-controls__radius"
+                    aria-label="Frame 2 corner radius in pixels"
+                    title="Corner radius of the frame band (px)"
+                  />
+                  <label class="export-frame-shadow-toggle" title="Soft drop shadow inside frame 2">
+                    <input
+                      id="export-frame-shadow-2"
+                      type="checkbox"
+                      class="export-frame-shadow-toggle__input"
+                    />
+                    <span class="export-frame-shadow-toggle__label">Shadow</span>
+                  </label>
+                </span>
+              </div>
             </div>
           </div>
           <div class="design-actions">

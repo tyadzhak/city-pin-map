@@ -399,58 +399,96 @@ function deviceScale(mapInstance) {
   return window.devicePixelRatio || 1;
 }
 
-// PO-007 (+ this milestone's live-preview parity work) — Decorative frame
-// composition. FLOATING MODEL: the frame is a coloured BAND drawn ONTO the
+// PO-007 (+ two-frames extension, this milestone) — Decorative frame
+// composition. FLOATING MODEL: each frame is a coloured BAND drawn ONTO the
 // captured map, not around it — the output stays map-sized and the map shows
-// through everywhere except the band. `margin` insets the band from the
+// through everywhere except the band(s). `margin` insets a band from the
 // canvas edge (map shows there), `thickness` is the band width, `radius` is
 // its outer corner radius. `padding` is a gap just inside the band (also map)
 // with no separate fill, so it doesn't affect what's painted. This matches
 // the live overlay (js/map-frame.js) 1:1 at current-view scale, so the
 // preview and the PNG agree.
 //
-// Defensive: enabled=false, or thickness <= 0, returns the inner canvas
-// untouched — a frame with no band width is nothing to draw (margin/padding
-// alone are just transparent map gaps). Preserves the PO-007 "thickness=0 ==
-// toggle off" acceptance criterion.
+// `frame` is now a FRAME SET — `{ frames: [frameElement, frameElement] }` —
+// so a user can configure two independently nested bands (an outer thin
+// band, a map gap, then an inner thin band) for a double-frame look. Each
+// band's own `margin` places it at a different distance from the edge, so
+// bands never overlap and paint order doesn't matter; they're drawn in
+// array order (Frame 1 then Frame 2). `frames` is derived defensively so a
+// bare single legacy frame object (not wrapped in a set) is still tolerated.
 //
-// The band is one even-odd fill: an outer rounded rect (inset by margin,
+// Defensive: if NO frame element is enabled with thickness > 0 (after
+// scaling), the inner canvas is returned untouched — nothing to draw.
+// Preserves the PO-007 "thickness=0 == toggle off" acceptance criterion per
+// element.
+//
+// Each band is one even-odd fill: an outer rounded rect (inset by margin,
 // radius) with an inner rounded rect (inset by margin+thickness, radius minus
-// the band width) punched out, so the map shows through the hole. When
-// `frame.shadow` is true the fill carries a soft drop shadow, which — because
-// the filled shape is the ring itself — casts onto the map along BOTH the
-// band's inner and outer edges (a raised-frame look).
+// the band width) punched out, so the map shows through the hole. When that
+// element's `shadow` is true the fill carries a soft drop shadow, which —
+// because the filled shape is the ring itself — casts onto the map along
+// BOTH the band's inner and outer edges (a raised-frame look).
 //   shadowColor   = "rgba(0,0,0,0.35)"
 //   shadowBlur    = round(thickness * 0.4)
 //   shadowOffsetY = round(thickness * 0.15)
 function wrapFrame(innerCanvas, frame, scale = 1) {
-  if (!frame || !frame.enabled) return innerCanvas;
+  const frames = Array.isArray(frame?.frames)
+    ? frame.frames
+    : frame
+    ? [frame]
+    : [];
 
-  // Every dimension is stored/clamped (storage.js: 0–200) in CSS pixels.
-  // Multiply by the inner canvas's CSS→pixel scale (dpr for a device-res
-  // current-view canvas, 1 for a preset canvas) so the same stored values
-  // read at the same visual proportion on every path (FBL-005).
-  const margin = Math.round(Math.max(0, Number(frame.margin) || 0) * scale);
-  const thickness = Math.round(Math.max(0, Number(frame.thickness) || 0) * scale);
-  const radius = Math.round(Math.max(0, Number(frame.radius) || 0) * scale);
-
-  if (thickness <= 0) return innerCanvas;
+  const drawable = frames.filter((frameEl) => isFrameDrawable(frameEl, scale));
+  if (drawable.length === 0) return innerCanvas;
 
   const out = document.createElement("canvas");
   out.width = innerCanvas.width;
   out.height = innerCanvas.height;
   const ctx = out.getContext("2d");
 
-  // The map fills the whole canvas; the band is painted on top of it.
+  // The map fills the whole canvas; each band is painted on top of it. Bands
+  // sit at different margins (no overlap), so paint order is not critical —
+  // painted in array order (Frame 1, then Frame 2).
   ctx.drawImage(innerCanvas, 0, 0);
 
+  for (const frameEl of drawable) {
+    paintFrameBand(ctx, frameEl, scale, out.width, out.height);
+  }
+
+  return out;
+}
+
+// True when `frameEl` has any band width to paint at all, after scaling —
+// mirrors the per-element early-outs wrapFrame used to do inline before the
+// two-frames extension (enabled=false or thickness<=0 means nothing drawn).
+function isFrameDrawable(frameEl, scale) {
+  if (!frameEl || !frameEl.enabled) return false;
+  const thickness = Math.round(Math.max(0, Number(frameEl.thickness) || 0) * scale);
+  return thickness > 0;
+}
+
+// Paints ONE frame element's band ring onto `ctx`, isolated in its own
+// save/restore so one element's shadow settings never bleed into the next
+// element's fill. `canvasWidth`/`canvasHeight` are the output canvas's own
+// pixel dimensions (both elements share the same output canvas).
+function paintFrameBand(ctx, frameEl, scale, canvasWidth, canvasHeight) {
+  // Every dimension is stored/clamped (storage.js: 0–200) in CSS pixels.
+  // Multiply by the inner canvas's CSS→pixel scale (dpr for a device-res
+  // current-view canvas, 1 for a preset canvas) so the same stored values
+  // read at the same visual proportion on every path (FBL-005).
+  const margin = Math.round(Math.max(0, Number(frameEl.margin) || 0) * scale);
+  const thickness = Math.round(Math.max(0, Number(frameEl.thickness) || 0) * scale);
+  const radius = Math.round(Math.max(0, Number(frameEl.radius) || 0) * scale);
+
+  if (thickness <= 0) return;
+
   // Band ring: outer rounded rect minus inner rounded rect, even-odd filled
-  // with frame.color, so the map shows through the hole (and the surrounding
-  // margin). The inner radius is the outer radius minus the band width,
-  // floored at 0 — the same concentric nesting CSS border-radius does.
+  // with frameEl.color, so the map shows through the hole (and the
+  // surrounding margin). The inner radius is the outer radius minus the band
+  // width, floored at 0 — the same concentric nesting CSS border-radius does.
   const innerRadius = Math.max(0, radius - thickness);
   ctx.save();
-  if (frame.shadow) {
+  if (frameEl.shadow) {
     ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
     ctx.shadowBlur = Math.round(thickness * 0.4);
     ctx.shadowOffsetX = 0;
@@ -461,23 +499,21 @@ function wrapFrame(innerCanvas, frame, scale = 1) {
     ctx,
     margin,
     margin,
-    out.width - 2 * margin,
-    out.height - 2 * margin,
+    canvasWidth - 2 * margin,
+    canvasHeight - 2 * margin,
     radius
   );
   addRoundedRectSubpath(
     ctx,
     margin + thickness,
     margin + thickness,
-    out.width - 2 * (margin + thickness),
-    out.height - 2 * (margin + thickness),
+    canvasWidth - 2 * (margin + thickness),
+    canvasHeight - 2 * (margin + thickness),
     innerRadius
   );
-  ctx.fillStyle = frame.color;
+  ctx.fillStyle = frameEl.color;
   ctx.fill("evenodd");
   ctx.restore();
-
-  return out;
 }
 
 // PO-008/009. Validates the stored on-map title and extracts what the export

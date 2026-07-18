@@ -539,6 +539,20 @@ body {
   line-height: 1;
 }
 
+/* One block per frame (Frame 1 / Frame 2, two-frames extension) — stacks the
+   toggle above its own dependent controls with a small gap so the two
+   independently-configured frames read as separate groups in the narrow
+   Design panel column, rather than running into each other. */
+.export-frame-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.export-frame-block + .export-frame-block {
+  margin-top: 10px;
+}
+
 /* Wrapper for the three dependent inputs (thickness, color, shadow).
    data-frame-enabled="false" hides them all in one shot; "true" reveals
    the cluster. The cluster itself stays as inline-flex so its children
@@ -829,17 +843,6 @@ body.dragging-on-map-title * {
   border-style: solid;
   border-color: transparent;
   border-width: 0;
-  background: transparent;
-  pointer-events: none;
-}
-
-/* Transparent box over the map window whose only job is to cast the frame's
-   drop shadow onto the mat (js/map-frame.js sets box-shadow inline when the
-   Shadow toggle is on). Background stays transparent so the map shows through;
-   pointer-events:none so it's never a hit target. */
-.map-frame-overlay__window {
-  position: absolute;
-  box-sizing: border-box;
   background: transparent;
   pointer-events: none;
 }
