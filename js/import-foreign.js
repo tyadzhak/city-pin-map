@@ -46,11 +46,11 @@ export async function importFromFile(file) {
   }
 
   const name = file.name || "";
-  let rows;
+  let parsed;
   if (/\.json$/i.test(name)) {
-    rows = await parseJsonImport(text, file);
+    parsed = await parseJsonImport(text, file);
   } else if (/\.csv$/i.test(name)) {
-    rows = parseCsvImport(text);
+    parsed = parseCsvImport(text);
   } else {
     showError("Unsupported file type. Choose a .csv or .json file.");
     return;
@@ -58,7 +58,12 @@ export async function importFromFile(file) {
 
   // null means "already handled" — either delegated to importFromJson or
   // showError was already called. Neither case should fall through here.
-  if (rows === null) return;
+  if (parsed === null) return;
+
+  // Parse paths return { rows, skippedBlank }: `rows` are the importable
+  // rows, `skippedBlank` counts rows dropped for having no name so the
+  // completion summary can report them (parallel to un-geocodable names).
+  const { rows, skippedBlank } = parsed;
 
   if (rows.length === 0) {
     showError("No rows found in that file.");
@@ -69,7 +74,7 @@ export async function importFromFile(file) {
     return;
   }
 
-  await applyRows(rows);
+  await applyRows(rows, skippedBlank);
 }
 
 // ---- JSON shape detection ----------------------------------------------
@@ -93,10 +98,11 @@ async function parseJsonImport(text, file) {
   }
 
   if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
-    return parsed
-      .map((s) => s.trim())
+    const trimmed = parsed.map((s) => s.trim());
+    const rows = trimmed
       .filter((s) => s.length > 0)
       .map((cityName) => ({ name: cityName, lat: null, lon: null }));
+    return { rows, skippedBlank: trimmed.length - rows.length };
   }
 
   if (
@@ -104,7 +110,9 @@ async function parseJsonImport(text, file) {
     parsed.length > 0 &&
     parsed.every((item) => item !== null && typeof item === "object" && !Array.isArray(item) && findKeyCI(item, NAME_KEYS) !== undefined)
   ) {
-    return parsed.map(rowFromObject).filter((row) => row.name.length > 0);
+    const mapped = parsed.map(rowFromObject);
+    const rows = mapped.filter((row) => row.name.length > 0);
+    return { rows, skippedBlank: mapped.length - rows.length };
   }
 
   showError(
@@ -223,7 +231,7 @@ function parseCsvImport(rawText) {
   // header row is tokenized, otherwise the first column reads as "﻿name".
   const text = rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText;
   const table = tokenizeCsv(text);
-  if (table.length === 0) return [];
+  if (table.length === 0) return { rows: [], skippedBlank: 0 };
 
   const header = table[0].map((h) => h.trim().toLowerCase());
   const nameIdx = header.findIndex((h) => NAME_KEYS.includes(h));
@@ -236,20 +244,24 @@ function parseCsvImport(rawText) {
   }
 
   const rows = [];
+  let skippedBlank = 0;
   for (const cols of table.slice(1)) {
     const rowName = (cols[nameIdx] ?? "").trim();
-    if (!rowName) continue;
+    if (!rowName) {
+      skippedBlank++;
+      continue;
+    }
     const lat = latIdx !== -1 ? parseCoord(cols[latIdx]) : null;
     const lon = lonIdx !== -1 ? parseCoord(cols[lonIdx]) : null;
     const hasCoords = hasValidCoords(lat, lon);
     rows.push({ name: rowName, lat: hasCoords ? lat : null, lon: hasCoords ? lon : null });
   }
-  return rows;
+  return { rows, skippedBlank };
 }
 
 // ---- Apply: immediate pins + sequential geocode loop --------------------
 
-async function applyRows(rows) {
+async function applyRows(rows, skippedBlank = 0) {
   const immediate = rows.filter((r) => r.lat !== null && r.lon !== null);
   const needsGeocode = rows.filter((r) => r.lat === null || r.lon === null);
 
@@ -297,7 +309,7 @@ async function applyRows(rows) {
   }
 
   const successCount = immediate.length + (needsGeocode.length - failed.length);
-  showSummary(successCount, failed);
+  showSummary(successCount, failed, skippedBlank);
 }
 
 function setImportStatus(text) {
@@ -305,12 +317,15 @@ function setImportStatus(text) {
   if (el) el.textContent = text;
 }
 
-function showSummary(successCount, failed) {
+function showSummary(successCount, failed, skippedBlank = 0) {
   let message = `Imported ${successCount} pin${successCount === 1 ? "" : "s"}.`;
   if (failed.length > 0) {
     const shownNames = failed.slice(0, MAX_FAILED_NAMES_SHOWN).map((f) => f.name).join(", ");
     const suffix = failed.length > MAX_FAILED_NAMES_SHOWN ? ", …" : "";
     message += ` Could not geocode ${failed.length}: ${shownNames}${suffix}`;
+  }
+  if (skippedBlank > 0) {
+    message += ` Skipped ${skippedBlank} row${skippedBlank === 1 ? "" : "s"} with no name.`;
   }
   alert(message);
 }
