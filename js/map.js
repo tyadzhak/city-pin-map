@@ -422,15 +422,36 @@ let dragState = null;
 export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   if (mapInstance) return mapInstance;
 
-  const initial =
+  let initial =
     MAP_STYLES.find((s) => s.id === initialStyleId) ??
     MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
+
+  // Substitute any `{api_key}` placeholder before the first paint. The raw
+  // MAP_STYLES entry carries the literal token (e.g. "…?key={api_key}"), and
+  // the constructor fetches the style immediately — unlike the runtime swap
+  // path, which always resolves via setMapStyle → resolveStyleUrl. Without
+  // this, booting into a persisted token-required style would fetch the
+  // literal placeholder → 403 → blank map.
+  //
+  // resolveStyleUrl throws when a token-required style has no key set. app.js's
+  // boot gate normally diverts that case to the keyless default, but initMap
+  // must not crash if reached directly, so degrade to the default here with a
+  // banner (the default is keyless, so its resolve never throws) — mirroring
+  // setMapStyle's missing-key handling.
+  let resolvedStyle;
+  try {
+    resolvedStyle = resolveStyleUrl(initial);
+  } catch (err) {
+    showError(`${err.message}. Open Settings (⚙ in side panel) to add one.`);
+    initial = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
+    resolvedStyle = resolveStyleUrl(initial);
+  }
 
   // MapLibre uses [lon, lat]; our previous Leaflet code used [lat, lon].
   // Center [0, 20] → 20° north, 0° east, matching the previous setView.
   mapInstance = new maplibregl.Map({
     container: containerId,
-    style: initial.style,
+    style: resolvedStyle,
     center: [0, 20],
     zoom: 2,
     preserveDrawingBuffer: true,
