@@ -160,6 +160,40 @@ export function getPosition() {
   return { ...position };
 }
 
+/**
+ * Re-anchor the title to the bottom-center of the map's CURRENT pixel
+ * viewport, then re-project immediately and persist via onAnchorChange.
+ *
+ * Why: the title's anchor is a geographic lon/lat so it survives pan/zoom,
+ * but js/map-viewport.js letterboxes #map to a new aspect ratio whenever
+ * the export-size preset changes — that can push a geography-anchored
+ * title outside the new visible crop entirely. Snapping to bottom-center
+ * of the (post-resize) container keeps the title inside the letterboxed
+ * view — and inside the lower caption zone the default frame margins
+ * leave clear — at any aspect ratio. Called from app.js's export-format
+ * `change` handler, AFTER mapViewport.setPreset() has already resized the
+ * map, so getContainer()'s clientWidth/clientHeight reflect the new crop.
+ */
+export function anchorToBottomCenter() {
+  if (!element || !mapInstance) return;
+
+  const c = mapInstance.getContainer();
+  const w = c.clientWidth;
+  const h = c.clientHeight;
+  if (w <= 0 || h <= 0) return;
+
+  const x = w / 2;
+  const inset = Math.max(h * 0.12, 48);
+  const y = h - inset;
+
+  const lngLat = mapInstance.unproject([x, y]);
+  position = { ...position, lon: lngLat.lng, lat: lngLat.lat };
+
+  if (!element.hidden) reproject();
+
+  if (onAnchorChange) onAnchorChange({ ...position });
+}
+
 // Re-runs on every map "move" event (pan/zoom/rotate, basemap swap re-emits
 // move once tiles paint). Bails during drag so the cursor stays the source
 // of truth until pointerup — see module header.

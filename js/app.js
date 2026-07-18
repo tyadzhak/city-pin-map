@@ -264,7 +264,13 @@ function initExportFormatSelector() {
 
   select.addEventListener("change", (event) => {
     saveExportFormat(event.target.value);
+    // setPreset() resizes #map synchronously, so the map's transform
+    // already reflects the new letterbox crop by the time we re-anchor —
+    // ordering matters here. Only on user-driven change, never on the
+    // initial boot setPreset() above, so a reloaded page doesn't clobber a
+    // manually-dragged title position on every load.
     viewport?.setPreset(EXPORT_PRESETS[event.target.value] ?? null);
+    mapTitle.anchorToBottomCenter();
   });
 }
 

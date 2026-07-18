@@ -832,7 +832,11 @@ body.dragging-pin * {
   font-weight: 700;
   line-height: 1.2;
   color: #1f2937;
-  white-space: nowrap;
+  /* pre-line (not nowrap) so a user-typed "\n" renders as a real line
+     break for multi-line titles; center-align so a shorter second line
+     doesn't read as left-hung against a longer first line. */
+  white-space: pre-line;
+  text-align: center;
 
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid rgba(0, 0, 0, 0.06);
@@ -2208,6 +2212,17 @@ body.dragging-on-map-title * {
 .side-panel--design #export-on-map-title,
 .side-panel--design #export-format {
   width: 100%;
+}
+
+/* #export-on-map-title is now a <textarea> (multi-line titles). It should
+   NOT inherit the live overlay's white-space: pre-line — a textarea already
+   wraps and shows newlines natively in its own edit box; this just keeps
+   the panel control comfortable to type/read in and resizable by the user. */
+.side-panel--design #export-on-map-title {
+  resize: vertical;
+  min-height: 2.5em;
+  line-height: normal;
+  font: inherit;
 }
 
 .side-panel--design .design-row #otm-font {
