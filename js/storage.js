@@ -314,7 +314,7 @@ export function prewriteImportPayloads({ pins, groups, userIcons }) {
 //
 // Kept here rather than imported from backup.js: backup.js already imports
 // from this module, so importing back would form a cycle. The small
-// duplication is the smaller, more localized change (F4 owns only storage.js).
+// duplication is the smaller, more localized change.
 
 // Coerce a raw coordinate to a finite number, or null when blank/absent/
 // unparseable. Mirrors backup.js toFiniteNumber — Number("") and Number(null)
