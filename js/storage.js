@@ -15,6 +15,10 @@ const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
 // add quote noise.
 const SIDE_TAB_KEY = "city-pin-map.side-tab.v1";
 const EXPORT_FRAME_KEY = "city-pin-map.export-frame.v1";
+// Bottom fade (poster-style caption zone): a white/color gradient that
+// dissolves the map into a solid color at the bottom edge. Own standalone
+// key, independent of the frame set above — see DEFAULT_BOTTOM_FADE.
+const BOTTOM_FADE_KEY = "city-pin-map.bottom-fade.v1";
 const HIDE_LABELS_KEY = "city-pin-map.hide-labels.v1";
 // PO-008/009 — single on-map title with formatting. PO-009 retired the
 // separate NICE-006 title strip (city-pin-map.export-text.v1); existing
@@ -89,12 +93,22 @@ const EMPTY_ON_MAP_TITLE = Object.freeze({
   size: DEFAULT_ON_MAP_TITLE_SIZE,
 });
 
-// PO-007: a single-key object covers the frame sub-settings. Same
-// granularity NICE-006 used for `{ title, subtitle }` — keeps storage.js
-// from sprouting sibling keys for one feature. padding/margin/radius (this
-// milestone) extend the live-preview-capable frame; see the live overlay
-// module for the shared geometry contract (margin → thickness → padding →
-// map, outside in).
+// PO-007 (+ two-frames extension, this milestone): a single-key object
+// covers the frame sub-settings. Same granularity NICE-006 used for
+// `{ title, subtitle }` — keeps storage.js from sprouting sibling keys for
+// one feature. padding/margin/radius extend the live-preview-capable frame;
+// see the live overlay module for the shared geometry contract (margin →
+// thickness → padding → map, outside in).
+//
+// The persisted shape is a FRAME SET: `{ frames: [frameElement, frameElement] }`,
+// always exactly two elements ("Frame 1" at index 0, "Frame 2" at index 1),
+// each the same 7-field shape a single frame always had. Two independently
+// nested bands (different margins) produce the double-frame look. Frame 1's
+// defaults are unchanged from the original single-frame feature; Frame 2
+// defaults to a thin black band nested just inside Frame 1 so enabling it
+// immediately shows a sensible result. A legacy pre-two-frames value (a bare
+// single frame object, no `frames` array) is migrated into Frame 1 on load,
+// with Frame 2 seeded from its own defaults — see loadExportFrame.
 const DEFAULT_EXPORT_FRAME = Object.freeze({
   enabled: false,
   thickness: 60,
@@ -104,6 +118,29 @@ const DEFAULT_EXPORT_FRAME = Object.freeze({
   margin: 0,
   radius: 0,
 });
+const DEFAULT_EXPORT_FRAME_2 = Object.freeze({
+  enabled: false,
+  thickness: 4,
+  color: "#000000",
+  shadow: false,
+  padding: 0,
+  margin: 16,
+  radius: 0,
+});
+// Field names that make a parsed object "look like" a legacy single-frame
+// value (pre-two-frames). Any one present (and no `frames` array) is enough
+// to trigger the migration path in loadExportFrame — a corrupt object with
+// none of these fields is treated as unrecognizable and falls back to
+// defaults + banner instead.
+const LEGACY_FRAME_FIELDS = Object.freeze([
+  "enabled",
+  "thickness",
+  "color",
+  "padding",
+  "margin",
+  "radius",
+  "shadow",
+]);
 const FRAME_THICKNESS_MIN = 0;
 const FRAME_THICKNESS_MAX = 200;
 // padding/margin/radius share thickness's 0–200 range — same physical
@@ -115,6 +152,33 @@ const FRAME_MARGIN_MIN = 0;
 const FRAME_MARGIN_MAX = 200;
 const FRAME_RADIUS_MIN = 0;
 const FRAME_RADIUS_MAX = 200;
+
+// Fresh (unfrozen, independently mutable) frame-set defaults. Never return
+// DEFAULT_EXPORT_FRAME/DEFAULT_EXPORT_FRAME_2 directly here — those are
+// frozen module-level singletons; a caller mutating the returned object
+// (e.g. app.js's readFrame-style DOM hydration) must never reach back and
+// corrupt the shared default.
+function freshDefaultFrameSet() {
+  return { frames: [{ ...DEFAULT_EXPORT_FRAME }, { ...DEFAULT_EXPORT_FRAME_2 }] };
+}
+
+// Bottom fade: `height` is a PERCENTAGE of the map/canvas height (0-100),
+// not a pixel count — unlike the frame's px-based thickness/margin/padding.
+// The live preview (js/map-fade.js) and the exported PNG (js/export.js) are
+// two different pixel spaces (CSS pixels for the on-screen overlay, device
+// or preset pixels for the export canvas) that can also differ from each
+// OTHER preset to preset. A percentage of each surface's own height is the
+// only value that reads identically on-screen and across every export
+// preset without a per-path conversion factor — the same rationale
+// EXPORT_PRESETS documents for coeff-based typography scaling, applied here
+// to geometry instead.
+const DEFAULT_BOTTOM_FADE = Object.freeze({
+  enabled: false,
+  height: 30,
+  color: "#ffffff",
+});
+const FADE_HEIGHT_MIN = 0;
+const FADE_HEIGHT_MAX = 100;
 
 let bannerTimer = null;
 
@@ -594,11 +658,21 @@ export function saveActiveSideTab(id) {
   }
 }
 
-// Decorative export frame (PO-007). Single-key object — see
-// DEFAULT_EXPORT_FRAME above. Same defensive shape as loadOnMapTitle:
-// missing key → defaults; corrupt key → defaults + banner. Each field is
-// individually validated so a partial / hand-edited object can never poison
-// the export pipeline (e.g. NaN thickness, non-string color).
+// Decorative export frame SET (PO-007 + two-frames extension). Single-key
+// object — see DEFAULT_EXPORT_FRAME / DEFAULT_EXPORT_FRAME_2 above. Same
+// defensive shape as loadOnMapTitle: missing key → defaults; corrupt key →
+// defaults + banner. Always returns exactly `{ frames: [f0, f1] }`, each
+// element individually validated (via normalizeFrame) so a partial /
+// hand-edited object can never poison the export pipeline (e.g. NaN
+// thickness, non-string color).
+//
+// Migration: a value saved by the pre-two-frames build is a bare single
+// frame object (no `frames` array). That legacy shape is detected by the
+// presence of any of LEGACY_FRAME_FIELDS and migrated into Frame 1,
+// preserving the user's existing configuration; Frame 2 is seeded from its
+// own defaults. The storage KEY is unchanged — this migration is shape-only,
+// not a key bump — and the frame is a UI preference, not part of the JSON
+// backup format, so no backup version bump applies here either.
 export function loadExportFrame() {
   let raw;
   try {
@@ -606,25 +680,34 @@ export function loadExportFrame() {
   } catch (err) {
     console.error("localStorage unavailable on read:", err);
     showError("Saved frame settings could not be read; using defaults.");
-    return { ...DEFAULT_EXPORT_FRAME };
+    return freshDefaultFrameSet();
   }
-  if (raw === null) return { ...DEFAULT_EXPORT_FRAME };
+  if (raw === null) return freshDefaultFrameSet();
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") {
       throw new Error("saved frame settings is not an object");
     }
-    return normalizeFrame(parsed);
+    if (Array.isArray(parsed.frames)) {
+      return normalizeFrameSet(parsed);
+    }
+    const looksLikeLegacyFrame = LEGACY_FRAME_FIELDS.some((key) =>
+      Object.prototype.hasOwnProperty.call(parsed, key)
+    );
+    if (looksLikeLegacyFrame) {
+      return { frames: [normalizeFrame(parsed), { ...DEFAULT_EXPORT_FRAME_2 }] };
+    }
+    throw new Error("saved frame settings is neither a frame set nor a recognizable legacy frame");
   } catch (err) {
     console.error("saved frame settings corrupt; ignoring:", err);
     showError("Saved frame settings were corrupted and have been ignored.");
-    return { ...DEFAULT_EXPORT_FRAME };
+    return freshDefaultFrameSet();
   }
 }
 
 export function saveExportFrame(value) {
   try {
-    localStorage.setItem(EXPORT_FRAME_KEY, JSON.stringify(normalizeFrame(value)));
+    localStorage.setItem(EXPORT_FRAME_KEY, JSON.stringify(normalizeFrameSet(value)));
   } catch (err) {
     console.error("failed to save frame settings:", err);
     showError(
@@ -671,6 +754,88 @@ export function normalizeFrame(value) {
     padding,
     margin,
     radius,
+  };
+}
+
+// Normalizes a FRAME SET — `{ frames: [frameElement, frameElement] }` —
+// element-by-element through normalizeFrame above. Always returns exactly
+// two elements: a missing/non-array `frames`, or a missing element within
+// it, falls back to that slot's own default (DEFAULT_EXPORT_FRAME for index
+// 0, DEFAULT_EXPORT_FRAME_2 for index 1); any elements beyond index 1 are
+// dropped defensively. Exported (mirrors normalizeFrame's FBL-013 export) so
+// app.js can normalize a LIVE two-frame DOM read into the exact same shape
+// loadExportFrame() returns before handing it to the export pipeline.
+export function normalizeFrameSet(value) {
+  const frames = Array.isArray(value?.frames) ? value.frames : [];
+  return {
+    frames: [
+      normalizeFrame(frames[0] ?? DEFAULT_EXPORT_FRAME),
+      normalizeFrame(frames[1] ?? DEFAULT_EXPORT_FRAME_2),
+    ],
+  };
+}
+
+// Bottom fade (poster-style caption zone dissolving the map into a solid
+// color at the bottom edge). Same defensive load shape as loadExportFrame:
+// missing key → fresh default clone; corrupt key → fresh default clone +
+// banner. Never returns the frozen DEFAULT_BOTTOM_FADE singleton directly —
+// callers (app.js's readFade-style DOM hydration) may mutate the returned
+// object.
+export function loadBottomFade() {
+  let raw;
+  try {
+    raw = localStorage.getItem(BOTTOM_FADE_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved bottom fade settings could not be read; using defaults.");
+    return { ...DEFAULT_BOTTOM_FADE };
+  }
+  if (raw === null) return { ...DEFAULT_BOTTOM_FADE };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("saved bottom fade settings is not an object");
+    }
+    return normalizeBottomFade(parsed);
+  } catch (err) {
+    console.error("saved bottom fade settings corrupt; ignoring:", err);
+    showError("Saved bottom fade settings were corrupted and have been ignored.");
+    return { ...DEFAULT_BOTTOM_FADE };
+  }
+}
+
+export function saveBottomFade(value) {
+  try {
+    localStorage.setItem(BOTTOM_FADE_KEY, JSON.stringify(normalizeBottomFade(value)));
+  } catch (err) {
+    console.error("failed to save bottom fade settings:", err);
+    showError(
+      "Could not save bottom fade settings (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Field-by-field clamp/coerce, mirroring normalizeFrame's contract — a
+// caller can pass a partial object (e.g. `{ enabled: true }` from a single
+// change event, or a live DOM read with a briefly-NaN valueAsNumber) and
+// get a complete, well-formed value back. Unknown keys are dropped.
+// Exported so app.js can normalize a LIVE DOM read into the exact same
+// shape loadBottomFade() returns before handing it to the export pipeline
+// (same FBL-013 rationale normalizeFrame/normalizeFrameSet document).
+export function normalizeBottomFade(value) {
+  const v = value || {};
+  const heightNum = Number(v.height);
+  const height = Number.isFinite(heightNum)
+    ? Math.max(FADE_HEIGHT_MIN, Math.min(FADE_HEIGHT_MAX, Math.round(heightNum)))
+    : DEFAULT_BOTTOM_FADE.height;
+  const color =
+    typeof v.color === "string" && /^#[0-9a-fA-F]{6}$/.test(v.color)
+      ? v.color
+      : DEFAULT_BOTTOM_FADE.color;
+  return {
+    enabled: Boolean(v.enabled),
+    height,
+    color,
   };
 }
 

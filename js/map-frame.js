@@ -1,34 +1,42 @@
-// Live WYSIWYG preview of the decorative export frame (PO-007, extended).
-// An overlay div inside the MapLibre container renders the same frame the
-// export pipeline (js/export.js) paints onto the PNG, so toggling "Frame"
-// (or scrubbing its px inputs) shows the result on the map itself instead
-// of only after exporting.
+// Live WYSIWYG preview of the decorative export frame SET (PO-007, extended
+// to two independently configured frames). An overlay div inside the
+// MapLibre container renders the same frame(s) the export pipeline
+// (js/export.js) paints onto the PNG, so toggling "Frame 1"/"Frame 2" (or
+// scrubbing their px inputs) shows the result on the map itself instead of
+// only after exporting.
 //
-// FLOATING MODEL: the frame is a coloured BAND that floats ON the map — the
+// FLOATING MODEL: each frame is a coloured BAND that floats ON the map — the
 // map shows through everywhere except the band itself. `margin` is the gap
 // from the container edge to the band's outer edge (map shows there);
 // `thickness` is the band width; `padding` is a gap just inside the band
 // (also map). Only the band is opaque, so nothing here (or in export) grows
 // the image or paints white over the map. This mirrors the export exactly:
-// export draws the band onto the captured map at the same size, so the live
-// preview and the PNG match 1:1 at current-view scale.
+// export draws each band onto the captured map at the same size, so the
+// live preview and the PNG match 1:1 at current-view scale.
 //
-// Implementation: the band is a single ring div — a plain border-box with
-// only its `border` painted (background transparent), so the map shows
-// through both its transparent centre AND the surrounding container. Radius
-// is the band's OUTER corner radius; the inner corner follows from CSS's
-// native border-radius/border-width interaction. The two other ring divs
-// (marginRing/matRing) are legacy from the earlier mat model and paint
-// nothing now — kept only for DOM stability. Shadow is a `filter:
-// drop-shadow` on the band ring, which follows the band's actual painted
-// shape (a raised frame casting onto the map along both edges).
+// Implementation: a DYNAMIC POOL of ring divs (class
+// `map-frame-overlay__ring`), one per enabled frame element (enabled &&
+// thickness>0). The pool grows lazily as needed and never shrinks — extra
+// rings from a previous update are simply hidden — so repeated updates don't
+// churn the DOM. Each ring is a plain border-box with only its `border`
+// painted (background transparent), so the map shows through both its
+// transparent centre AND the surrounding container. Radius is the band's
+// OUTER corner radius; the inner corner follows from CSS's native
+// border-radius/border-width interaction. Shadow is a `filter: drop-shadow`
+// on that ring, which follows the band's actual painted shape (a raised
+// frame casting onto the map along both edges) — set independently per
+// element from that element's own `shadow` flag.
 //
 // Public surface:
-//   init(map)          — create the overlay (idempotent) and return { update }.
-//   update(frame)       — given the normalized FRAME OBJECT (enabled, thickness,
-//                         color, shadow, padding, margin, radius), show/hide and
-//                         redraw the band. Coerces/clamps defensively so a
-//                         partial or corrupt-looking object never throws.
+//   init(map)      — create the overlay (idempotent) and return { update }.
+//   update(frameSet) — given the normalized FRAME SET
+//                      `{ frames: [frameElement, frameElement] }` (each
+//                      frameElement: enabled, thickness, color, shadow,
+//                      padding, margin, radius), show/hide and redraw one
+//                      ring per drawable element. Coerces/clamps every field
+//                      defensively so a partial or corrupt-looking object
+//                      never throws. Also tolerates a bare single legacy
+//                      frame object for safety.
 
 const OVERLAY_ID = "map-frame-overlay";
 const LENGTH_MIN = 0;
@@ -36,13 +44,9 @@ const LENGTH_MAX = 200;
 
 let mapInstance = null;
 let overlay = null;
-let marginRing = null;
-let bandRing = null;
-let matRing = null;
-// Transparent element sitting exactly over the map window; carries the drop
-// shadow (when enabled) so the preview reflects frame.shadow too — a border
-// ring can't cast a shadow onto the mat the way export.js's stand-in does.
-let shadowWindow = null;
+// Pool of ring divs, one per drawable frame element. Grows lazily (see
+// getOrCreateRing); never shrinks — unused rings are just hidden.
+let ringPool = [];
 
 /**
  * Wire the overlay to `map`. Idempotent: a second call reuses the existing
@@ -57,21 +61,6 @@ export function init(map) {
     overlay.className = "map-frame-overlay";
     overlay.hidden = true;
 
-    marginRing = document.createElement("div");
-    marginRing.className = "map-frame-overlay__ring";
-    bandRing = document.createElement("div");
-    bandRing.className = "map-frame-overlay__ring";
-    matRing = document.createElement("div");
-    matRing.className = "map-frame-overlay__ring";
-    shadowWindow = document.createElement("div");
-    shadowWindow.className = "map-frame-overlay__window";
-    overlay.appendChild(marginRing);
-    overlay.appendChild(bandRing);
-    overlay.appendChild(matRing);
-    // Last child so its drop shadow paints over the mat ring, matching the
-    // export where the shadow lands on the mat.
-    overlay.appendChild(shadowWindow);
-
     // Sibling of the canvas-container, like map-title.js's overlay, so it
     // paints above the tiles/markers without ever intercepting pointer
     // events (pointer-events:none is set in CSS on .map-frame-overlay).
@@ -81,51 +70,83 @@ export function init(map) {
   return { update };
 }
 
+// Returns the ring div at `index` in the pool, creating it (and appending it
+// to the overlay) the first time that index is needed. Growing lazily means
+// a two-element frame set never allocates more than two rings, and a future
+// larger set (unlikely per this task's fixed-two-slot contract, but the pool
+// doesn't care) would grow the same way.
+function getOrCreateRing(index) {
+  if (!ringPool[index]) {
+    const ring = document.createElement("div");
+    ring.className = "map-frame-overlay__ring";
+    overlay.appendChild(ring);
+    ringPool[index] = ring;
+  }
+  return ringPool[index];
+}
+
 /**
- * Redraw the floating band from the normalized FRAME OBJECT. Every field is
+ * Redraw the floating band(s) from the normalized FRAME SET. Every field is
  * re-coerced here (not just trusted from the caller) because app.js may
  * pass live `valueAsNumber` reads straight off the number inputs, which
  * can be NaN mid-edit (e.g. the field is briefly empty) — never let that
- * reach a CSS length and silently drop the frame.
+ * reach a CSS length and silently drop a frame. Tolerates a bare single
+ * legacy frame object (not wrapped in `{ frames: [...] }`) as a defensive
+ * fallback, mirroring js/export.js's wrapFrame.
  */
-export function update(frame) {
-  if (!overlay || !marginRing || !bandRing || !matRing || !shadowWindow) return;
+export function update(frameSet) {
+  if (!overlay) return;
 
-  const f = frame || {};
-  const margin = clampLength(f.margin);
-  const thickness = clampLength(f.thickness);
-  const radius = clampLength(f.radius);
-  const color = typeof f.color === "string" && f.color ? f.color : "#000000";
-  const shadow = Boolean(f.shadow);
+  const frames = Array.isArray(frameSet?.frames)
+    ? frameSet.frames
+    : frameSet
+    ? [frameSet]
+    : [];
 
-  // Floating model: the band is the ONLY opaque part, so a frame with no band
-  // width has nothing to draw — the map already fills the container.
-  if (!f.enabled || thickness === 0) {
-    overlay.hidden = true;
-    return;
+  let drawnCount = 0;
+  frames.forEach((f) => {
+    const frameEl = f || {};
+    const margin = clampLength(frameEl.margin);
+    const thickness = clampLength(frameEl.thickness);
+    const radius = clampLength(frameEl.radius);
+    const color =
+      typeof frameEl.color === "string" && frameEl.color ? frameEl.color : "#000000";
+    const shadow = Boolean(frameEl.shadow);
+
+    // Floating model: the band is the ONLY opaque part, so a frame element
+    // with no band width has nothing to draw.
+    if (!frameEl.enabled || thickness === 0) return;
+
+    const ring = getOrCreateRing(drawnCount);
+    ring.hidden = false;
+
+    // Band: inset from the container edge by `margin`, `thickness` wide,
+    // outer corner radius `radius` (the inner corner follows from CSS's
+    // border-radius vs border-width interaction). Map shows through inside
+    // and out.
+    setRing(ring, { inset: margin, width: thickness, color, radius });
+
+    // Shadow: drop-shadow follows the band's actual painted RING shape, so
+    // it casts a soft shadow onto the map along both edges (the "raised
+    // frame" look). Same thickness-based recipe the export uses, applied
+    // independently per element.
+    ring.style.filter = shadow
+      ? `drop-shadow(0 ${Math.round(thickness * 0.15)}px ${Math.round(
+          thickness * 0.4
+        )}px rgba(0, 0, 0, 0.35))`
+      : "none";
+
+    drawnCount++;
+  });
+
+  // Hide any pool rings beyond the ones just drawn — leftovers from a
+  // previous update with more drawable elements (not reachable with today's
+  // fixed two-slot contract, but keeps the pool model correct in general).
+  for (let i = drawnCount; i < ringPool.length; i++) {
+    ringPool[i].hidden = true;
   }
-  overlay.hidden = false;
 
-  // The margin (outside the band) and padding (inside the band) gaps are just
-  // map, so these two legacy rings paint nothing now — keep them out of the
-  // way. Only the band ring is coloured.
-  marginRing.style.borderWidth = "0px";
-  matRing.style.borderWidth = "0px";
-  shadowWindow.style.boxShadow = "none";
-
-  // Band: inset from the container edge by `margin`, `thickness` wide, outer
-  // corner radius `radius` (the inner corner follows from CSS's border-radius
-  // vs border-width interaction). Map shows through inside and out.
-  setRing(bandRing, { inset: margin, width: thickness, color, radius });
-
-  // Shadow: drop-shadow follows the band's actual painted RING shape, so it
-  // casts a soft shadow onto the map along both edges (the "raised frame"
-  // look). Same thickness-based recipe the export uses.
-  bandRing.style.filter = shadow
-    ? `drop-shadow(0 ${Math.round(thickness * 0.15)}px ${Math.round(
-        thickness * 0.4
-      )}px rgba(0, 0, 0, 0.35))`
-    : "none";
+  overlay.hidden = drawnCount === 0;
 }
 
 function setRing(el, { inset, width, color, radius }) {

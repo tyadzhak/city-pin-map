@@ -28,7 +28,10 @@ import {
   saveExportFormat,
   loadExportFrame,
   saveExportFrame,
-  normalizeFrame,
+  normalizeFrameSet,
+  loadBottomFade,
+  saveBottomFade,
+  normalizeBottomFade,
   loadHideLabels,
   saveHideLabels,
   loadOnMapTitle,
@@ -46,6 +49,7 @@ import { initStylePicker } from "./style-picker.js";
 import { initSideTabs } from "./side-tabs.js";
 import * as mapTitle from "./map-title.js";
 import * as mapFrame from "./map-frame.js";
+import * as mapFade from "./map-fade.js";
 
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
@@ -218,10 +222,12 @@ function init() {
   // undefined if its init bailed (missing DOM / no map); the button then
   // passes nothing and export.js falls back to the persisted value.
   const exportFrameHandle = initExportFrameOptions();
+  const bottomFadeHandle = initBottomFadeOptions();
   const onMapTitleHandle = initOnMapTitle();
   initExportButton({
     getFrame: exportFrameHandle?.getLiveFrame,
     getOnMapTitle: onMapTitleHandle?.getLivePosition,
+    getBottomFade: bottomFadeHandle?.getLiveFade,
   });
   initBackupControls();
   initImportFromFileControl();
@@ -249,27 +255,81 @@ function initExportFormatSelector() {
   });
 }
 
-// Hydrates the seven Frame inputs (PO-007, extended with padding/margin/
-// radius) from localStorage, persists every change, and drives the live
-// WYSIWYG overlay (js/map-frame.js) so the frame is previewed on the map
-// itself instead of only appearing after export. The wrapper's
-// data-frame-enabled attribute still drives CSS visibility for the
-// dependent controls — see .export-frame-controls in css/styles.css. The
-// export pipeline reads each input back out of the DOM at click time, so
-// this function's persistence half doesn't need to notify anything else.
+// Hydrates BOTH frames' seven inputs each (PO-007, extended to two
+// independently configured frames sharing the same 7-field shape) from
+// localStorage, persists every change, and drives the live WYSIWYG overlay
+// (js/map-frame.js) so both frames are previewed on the map itself instead
+// of only appearing after export. Each frame's wrapper `data-frame-enabled`
+// attribute still drives CSS visibility for its own dependent controls — see
+// .export-frame-controls in css/styles.css. The export pipeline reads each
+// frame's inputs back out of the DOM at click time, so this function's
+// persistence half doesn't need to notify anything else.
 //
-// Persistence reads ALL SEVEN inputs on every change so saveExportFrame
-// always receives a complete object — required because normalizeFrame
-// fills missing fields from the static defaults, not from prior state.
+// wireFrameControls(suffix) below wires ONE frame's cluster (e.g. "-1" or
+// "-2") and returns its own readFrame() closure; if any of that frame's
+// seven elements is missing from the DOM, that frame is skipped defensively
+// (returns null) rather than crashing the whole init — the other frame (and
+// the rest of the app) still wires up normally.
 function initExportFrameOptions() {
-  const enabled = document.getElementById("export-frame-enabled");
-  const thickness = document.getElementById("export-frame-thickness");
-  const color = document.getElementById("export-frame-color");
-  const padding = document.getElementById("export-frame-padding");
-  const margin = document.getElementById("export-frame-margin");
-  const radius = document.getElementById("export-frame-radius");
-  const shadow = document.getElementById("export-frame-shadow");
-  const wrapper = document.getElementById("export-frame-controls");
+  // The live overlay needs a map to attach to; on a boot path where initMap
+  // failed outright there's nothing to preview, so just skip that half and
+  // still let the (non-visual) persistence wiring below work normally.
+  const map = getMap();
+  if (map) mapFrame.init(map);
+
+  const saved = loadExportFrame();
+  const frame1 = wireFrameControls("-1", saved.frames[0]);
+  const frame2 = wireFrameControls("-2", saved.frames[1]);
+  if (!frame1 && !frame2) return undefined;
+
+  // Builds the full 2-element FRAME SET straight from the DOM — the single
+  // read path both persist() and the live-overlay update share, so they can
+  // never disagree about what's currently on screen. A frame whose controls
+  // are missing from the DOM falls back to its own stored/default value
+  // (never crashes, never silently vanishes from the persisted set).
+  const readFrameSet = () => ({
+    frames: [
+      frame1 ? frame1.readFrame() : saved.frames[0],
+      frame2 ? frame2.readFrame() : saved.frames[1],
+    ],
+  });
+
+  const persist = () => {
+    const next = readFrameSet();
+    saveExportFrame(next);
+    if (map) mapFrame.update(next);
+  };
+  if (frame1) frame1.onChange(persist);
+  if (frame2) frame2.onChange(persist);
+
+  // Reflect the persisted state on the overlay at boot, same as
+  // mapTitle.update(saved) in initOnMapTitle — otherwise the live preview
+  // would stay blank until the user next touches a frame control.
+  if (map) mapFrame.update(saved);
+
+  // FBL-013: expose a LIVE frame-set accessor so the export button reads the
+  // same in-memory state the overlay renders from — normalized through the
+  // very same normalizeFrameSet() that loadExportFrame() applies — instead
+  // of re-reading (possibly stale) localStorage at click time. readFrameSet()
+  // is the same DOM read persist()/mapFrame.update() use, so the export and
+  // the preview can never disagree, even after a "kept in memory only" save.
+  return { getLiveFrame: () => normalizeFrameSet(readFrameSet()) };
+}
+
+// Wires one frame's 7-field control cluster (ids suffixed by `suffix`, e.g.
+// "-1"/"-2"): hydrates from `savedFrameEl`, wires input listeners, and
+// returns `{ readFrame, onChange }` — or null if any of the seven elements
+// is missing, so a malformed/edited-by-hand index.html degrades to "skip
+// this frame" rather than crashing every frame's init.
+function wireFrameControls(suffix, savedFrameEl) {
+  const enabled = document.getElementById(`export-frame-enabled${suffix}`);
+  const thickness = document.getElementById(`export-frame-thickness${suffix}`);
+  const color = document.getElementById(`export-frame-color${suffix}`);
+  const padding = document.getElementById(`export-frame-padding${suffix}`);
+  const margin = document.getElementById(`export-frame-margin${suffix}`);
+  const radius = document.getElementById(`export-frame-radius${suffix}`);
+  const shadow = document.getElementById(`export-frame-shadow${suffix}`);
+  const wrapper = document.getElementById(`export-frame-controls${suffix}`);
   if (
     !enabled ||
     !thickness ||
@@ -280,17 +340,11 @@ function initExportFrameOptions() {
     !shadow ||
     !wrapper
   )
-    return;
+    return null;
 
-  // The live overlay needs a map to attach to; on a boot path where initMap
-  // failed outright there's nothing to preview, so just skip that half and
-  // still let the (non-visual) persistence wiring below work normally.
-  const map = getMap();
-  if (map) mapFrame.init(map);
-
-  // Builds the full 7-field FRAME OBJECT straight from the DOM — the single
-  // read path both persist() and the live-overlay update share, so they can
-  // never disagree about what's currently on screen.
+  // Builds this frame's 7-field FRAME OBJECT straight from the DOM — the
+  // single read path both persist() and the live-overlay update share, so
+  // they can never disagree about what's currently on screen.
   const readFrame = () => ({
     enabled: enabled.checked,
     thickness: thickness.valueAsNumber,
@@ -301,49 +355,96 @@ function initExportFrameOptions() {
     radius: radius.valueAsNumber,
   });
 
-  const saved = loadExportFrame();
+  enabled.checked = savedFrameEl.enabled;
+  thickness.value = String(savedFrameEl.thickness);
+  color.value = savedFrameEl.color;
+  padding.value = String(savedFrameEl.padding);
+  margin.value = String(savedFrameEl.margin);
+  radius.value = String(savedFrameEl.radius);
+  shadow.checked = savedFrameEl.shadow;
+  wrapper.dataset.frameEnabled = savedFrameEl.enabled ? "true" : "false";
+
+  const onChange = (persist) => {
+    enabled.addEventListener("change", () => {
+      wrapper.dataset.frameEnabled = enabled.checked ? "true" : "false";
+      persist();
+    });
+    // `input` instead of `change` for the number/color inputs so the user
+    // sees the persisted state (and the live overlay) update as they scrub a
+    // value, mirroring the immediate-save behaviour of the title/subtitle
+    // text inputs.
+    thickness.addEventListener("input", persist);
+    color.addEventListener("input", persist);
+    padding.addEventListener("input", persist);
+    margin.addEventListener("input", persist);
+    radius.addEventListener("input", persist);
+    shadow.addEventListener("change", persist);
+  };
+
+  return { readFrame, onChange };
+}
+
+// Bottom fade (poster-style caption zone). Sibling of initExportFrameOptions:
+// hydrates the toggle/height/color inputs from localStorage, persists every
+// change, and drives the live WYSIWYG overlay (js/map-fade.js) so the fade
+// previews on the map itself instead of only appearing after export. The
+// wrapper's `data-fade-enabled` attribute drives CSS visibility for the
+// dependent height/color inputs — see .bottom-fade-controls in
+// css/styles.css. Defensive-returns undefined if any control (or the map
+// itself) is missing, mirroring initExportFrameOptions's per-cluster bail.
+function initBottomFadeOptions() {
+  const enabled = document.getElementById("bottom-fade-enabled");
+  const height = document.getElementById("bottom-fade-height");
+  const color = document.getElementById("bottom-fade-color");
+  const controls = document.getElementById("bottom-fade-controls");
+  if (!enabled || !height || !color || !controls) return undefined;
+
+  // The live overlay needs a map to attach to; on a boot path where initMap
+  // failed outright there's nothing to preview, so just skip that half and
+  // still let the (non-visual) persistence wiring below work normally.
+  const map = getMap();
+  if (map) mapFade.init(map);
+
+  // Single read path both persist() and the live-overlay update share, so
+  // they can never disagree about what's currently on screen.
+  const readFade = () => ({
+    enabled: enabled.checked,
+    height: Number.isFinite(height.valueAsNumber) ? height.valueAsNumber : 0,
+    color: color.value,
+  });
+
+  const saved = loadBottomFade();
   enabled.checked = saved.enabled;
-  thickness.value = String(saved.thickness);
+  height.value = String(saved.height);
   color.value = saved.color;
-  padding.value = String(saved.padding);
-  margin.value = String(saved.margin);
-  radius.value = String(saved.radius);
-  shadow.checked = saved.shadow;
-  wrapper.dataset.frameEnabled = saved.enabled ? "true" : "false";
+  controls.dataset.fadeEnabled = saved.enabled ? "true" : "false";
 
   // Reflect the persisted state on the overlay at boot, same as
-  // mapTitle.update(saved) in initOnMapTitle — otherwise the live preview
-  // would stay blank until the user next touches a frame control.
-  if (map) mapFrame.update(saved);
+  // mapFrame.update(saved) in initExportFrameOptions — otherwise the live
+  // preview would stay blank until the user next touches a fade control.
+  if (map) mapFade.update(saved);
 
   const persist = () => {
-    const next = readFrame();
-    saveExportFrame(next);
-    if (map) mapFrame.update(next);
+    const next = readFade();
+    saveBottomFade(next);
+    if (map) mapFade.update(next);
   };
 
   enabled.addEventListener("change", () => {
-    wrapper.dataset.frameEnabled = enabled.checked ? "true" : "false";
+    controls.dataset.fadeEnabled = enabled.checked ? "true" : "false";
     persist();
   });
-  // `input` instead of `change` for the number/color inputs so the user
-  // sees the persisted state (and the live overlay) update as they scrub a
-  // value, mirroring the immediate-save behaviour of the title/subtitle
-  // text inputs.
-  thickness.addEventListener("input", persist);
+  // `input` instead of `change` for the number/color inputs so the live
+  // overlay updates as the user scrubs a value, mirroring the frame
+  // controls' behaviour.
+  height.addEventListener("input", persist);
   color.addEventListener("input", persist);
-  padding.addEventListener("input", persist);
-  margin.addEventListener("input", persist);
-  radius.addEventListener("input", persist);
-  shadow.addEventListener("change", persist);
 
-  // FBL-013: expose a LIVE frame accessor so the export button reads the same
+  // FBL-013-style live accessor so the export button reads the same
   // in-memory state the overlay renders from — normalized through the very
-  // same normalizeFrame() that loadExportFrame() applies — instead of
-  // re-reading (possibly stale) localStorage at click time. readFrame() is
-  // the same DOM read persist()/mapFrame.update() use, so the export and the
-  // preview can never disagree, even after a "kept in memory only" save.
-  return { getLiveFrame: () => normalizeFrame(readFrame()) };
+  // same normalizeBottomFade() that loadBottomFade() applies — instead of
+  // re-reading (possibly stale) localStorage at click time.
+  return { getLiveFade: () => normalizeBottomFade(readFade()) };
 }
 
 // Reflects the persisted preference on the checkbox at boot and forwards
@@ -480,7 +581,7 @@ function initOnMapTitle() {
 // exports (current view, no on-map title) typically resolve before the
 // timer fires, so no label flash. The timer handle is cleared in the
 // finally branch whether the export resolved before or after the threshold.
-function initExportButton({ getFrame, getOnMapTitle } = {}) {
+function initExportButton({ getFrame, getOnMapTitle, getBottomFade } = {}) {
   const button = document.getElementById("export-png");
   const status = document.getElementById("export-status");
   if (!button) return;
@@ -495,6 +596,7 @@ function initExportButton({ getFrame, getOnMapTitle } = {}) {
       await exportMapAsPng(getMap(), {
         frame: getFrame ? getFrame() : undefined,
         onMapTitle: getOnMapTitle ? getOnMapTitle() : undefined,
+        bottomFade: getBottomFade ? getBottomFade() : undefined,
       });
     } finally {
       window.clearTimeout(statusTimer);

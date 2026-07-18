@@ -499,8 +499,12 @@ body {
 /* "Add frame" toggle (PO-007). Same chrome as .route-toggle so the cluster
    reads as one toolbar. The checked state doesn't drive any visual change
    on the toggle itself — the affordance is the dependent controls
-   appearing/disappearing next to it (see [data-frame-enabled]). */
-.export-frame-toggle {
+   appearing/disappearing next to it (see [data-frame-enabled]).
+   .bottom-fade-toggle (bottom-fade feature) reuses this exact chrome — same
+   "toggle + dependent controls" affordance family — so it's folded into the
+   same selector list rather than duplicated. */
+.export-frame-toggle,
+.bottom-fade-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -516,17 +520,20 @@ body {
     box-shadow 120ms ease;
 }
 
-.export-frame-toggle:hover {
+.export-frame-toggle:hover,
+.bottom-fade-toggle:hover {
   background: #ffffff;
 }
 
-.export-frame-toggle:focus-within {
+.export-frame-toggle:focus-within,
+.bottom-fade-toggle:focus-within {
   border-color: #4c6ef5;
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
 }
 
-.export-frame-toggle__input {
+.export-frame-toggle__input,
+.bottom-fade-toggle__input {
   width: 14px;
   height: 14px;
   margin: 0;
@@ -534,33 +541,53 @@ body {
   cursor: pointer;
 }
 
-.export-frame-toggle__label {
+.export-frame-toggle__label,
+.bottom-fade-toggle__label {
   font: inherit;
   line-height: 1;
+}
+
+/* One block per frame (Frame 1 / Frame 2, two-frames extension) — stacks the
+   toggle above its own dependent controls with a small gap so the two
+   independently-configured frames read as separate groups in the narrow
+   Design panel column, rather than running into each other. */
+.export-frame-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.export-frame-block + .export-frame-block {
+  margin-top: 10px;
 }
 
 /* Wrapper for the three dependent inputs (thickness, color, shadow).
    data-frame-enabled="false" hides them all in one shot; "true" reveals
    the cluster. The cluster itself stays as inline-flex so its children
    sit on the toolbar's row when visible. */
-.export-frame-controls {
+.export-frame-controls,
+.bottom-fade-controls {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.export-frame-controls[data-frame-enabled="false"] {
+.export-frame-controls[data-frame-enabled="false"],
+.bottom-fade-controls[data-fade-enabled="false"] {
   display: none;
 }
 
 /* Padding/margin/radius (frame live-overlay extension) reuse the exact
    chrome as thickness — all four are the same "px number field" affordance
    in the toolbar, just feeding different GEOMETRY layers (see
-   js/map-frame.js). Grouped into one selector list to stay DRY. */
+   js/map-frame.js). .bottom-fade-controls__height (bottom-fade feature) is
+   the same "number field" affordance too (a 0-100 percent instead of a px
+   value), so it's folded into the same selector list to stay DRY. */
 .export-frame-controls__thickness,
 .export-frame-controls__padding,
 .export-frame-controls__margin,
-.export-frame-controls__radius {
+.export-frame-controls__radius,
+.bottom-fade-controls__height {
   width: 64px;
   height: 32px;
   padding: 0 6px;
@@ -577,14 +604,16 @@ body {
 .export-frame-controls__thickness:hover,
 .export-frame-controls__padding:hover,
 .export-frame-controls__margin:hover,
-.export-frame-controls__radius:hover {
+.export-frame-controls__radius:hover,
+.bottom-fade-controls__height:hover {
   background: #ffffff;
 }
 
 .export-frame-controls__thickness:focus,
 .export-frame-controls__padding:focus,
 .export-frame-controls__margin:focus,
-.export-frame-controls__radius:focus {
+.export-frame-controls__radius:focus,
+.bottom-fade-controls__height:focus {
   border-color: #4c6ef5;
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
@@ -593,8 +622,11 @@ body {
 /* Native color input. The browsers' default chrome varies wildly, so we
    strip padding and rely on the picked color filling the inner swatch.
    Geometry mirrors .group-list__color so the two color affordances feel
-   like the same control family. */
-.export-frame-controls__color {
+   like the same control family. .bottom-fade-controls__color (bottom-fade
+   feature) is the same native color-input affordance, folded into the same
+   selector list to stay DRY. */
+.export-frame-controls__color,
+.bottom-fade-controls__color {
   width: 32px;
   height: 32px;
   padding: 0;
@@ -607,21 +639,25 @@ body {
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.export-frame-controls__color::-webkit-color-swatch-wrapper {
+.export-frame-controls__color::-webkit-color-swatch-wrapper,
+.bottom-fade-controls__color::-webkit-color-swatch-wrapper {
   padding: 0;
 }
 
-.export-frame-controls__color::-webkit-color-swatch {
+.export-frame-controls__color::-webkit-color-swatch,
+.bottom-fade-controls__color::-webkit-color-swatch {
   border: none;
   border-radius: 5px;
 }
 
-.export-frame-controls__color::-moz-color-swatch {
+.export-frame-controls__color::-moz-color-swatch,
+.bottom-fade-controls__color::-moz-color-swatch {
   border: none;
   border-radius: 5px;
 }
 
-.export-frame-controls__color:focus-visible {
+.export-frame-controls__color:focus-visible,
+.bottom-fade-controls__color:focus-visible {
   border-color: #4c6ef5;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
 }
@@ -833,15 +869,25 @@ body.dragging-on-map-title * {
   pointer-events: none;
 }
 
-/* Transparent box over the map window whose only job is to cast the frame's
-   drop shadow onto the mat (js/map-frame.js sets box-shadow inline when the
-   Shadow toggle is on). Background stays transparent so the map shows through;
-   pointer-events:none so it's never a hit target. */
-.map-frame-overlay__window {
+/* Live WYSIWYG bottom-fade preview (js/map-fade.js). Bottom-anchored,
+   full-width band; z-index 3 sits BELOW the frame overlay (4) and the title
+   overlay (5) so a frame still paints outermost and the title still reads
+   on top of the fade — same order js/export.js's composite pipeline uses.
+   height/background are set inline by the module (percentage + gradient
+   both depend on the live fade value); only stacking/positioning lives
+   here, mirroring how .map-frame-overlay/.map-title-overlay split
+   responsibilities with their own JS modules. */
+.map-fade-overlay {
   position: absolute;
-  box-sizing: border-box;
-  background: transparent;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
   pointer-events: none;
+}
+
+.map-fade-overlay[hidden] {
+  display: none;
 }
 
 .app-side {
