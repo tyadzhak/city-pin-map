@@ -647,11 +647,20 @@ function drawOnMapTitle(ctx, { x, y, style, text, coeff }) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  const metrics = ctx.measureText(text);
-  const textWidth = metrics.width;
-  const textHeight = fontSize * ON_MAP_TITLE_BOX.lineHeightMultiplier;
+  // Multi-line support (mirrors the live overlay's `white-space: pre-line`,
+  // which renders "\n" as a break): split on "\n" and stack lines using the
+  // same lineHeightMultiplier the live CSS uses. A single-line title is a
+  // 1-element array, so lineHeight/textBlockHeight collapse back to the
+  // original textHeight/boxHeight math exactly.
+  const lines = text.split("\n");
+  const lineHeight = fontSize * ON_MAP_TITLE_BOX.lineHeightMultiplier;
+  const textWidth = lines.reduce(
+    (max, line) => Math.max(max, ctx.measureText(line).width),
+    0
+  );
+  const textBlockHeight = lineHeight * lines.length;
   const boxWidth = textWidth + padX * 2;
-  const boxHeight = textHeight + padY * 2;
+  const boxHeight = textBlockHeight + padY * 2;
   const boxX = x - boxWidth / 2;
   const boxY = y - boxHeight / 2;
 
@@ -671,7 +680,10 @@ function drawOnMapTitle(ctx, { x, y, style, text, coeff }) {
   }
 
   ctx.fillStyle = style.color;
-  ctx.fillText(text, x, y);
+  lines.forEach((line, i) => {
+    const lineY = y - textBlockHeight / 2 + lineHeight * (i + 0.5);
+    ctx.fillText(line, x, lineY);
+  });
 
   ctx.restore();
 }
