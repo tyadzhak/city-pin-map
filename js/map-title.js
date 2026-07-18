@@ -1,7 +1,9 @@
 // Draggable on-map title overlay (PO-008). A single positioned DOM element
-// inside the MapLibre container that's re-projected from a stored lon/lat
-// on every camera change, so it sticks to a city through pan/zoom and
-// across basemap swaps.
+// inside the MapLibre container that's positioned as a FRACTION of the map
+// container's current pixel size (nx/ny, frame-relative) — NOT map
+// geography — so the title stays put on-screen through pan/zoom and only
+// moves when the container itself is resized (e.g. an export-size preset
+// letterboxing #map).
 //
 // Drag mechanics: Pointer Events with setPointerCapture(). Unifies mouse,
 // touch, and pen behind one handler — the task's "either is fine" trade-off
@@ -14,13 +16,14 @@
 // Public surface:
 //   init(map, { onAnchorChange })   — wire the overlay to a map instance.
 //                                     onAnchorChange fires whenever the
-//                                     stored lon/lat changes (drag commit,
-//                                     keyboard nudge, fill-from-center).
-//   update({ text, lon, lat })      — replace the overlay's full state.
+//                                     stored nx/ny changes (drag commit,
+//                                     keyboard nudge).
+//   update({ text, nx, ny })        — replace the overlay's full state.
 //                                     Empty text hides the overlay without
-//                                     dropping its position; missing lon/lat
-//                                     fall back to the current map center.
-//   getPosition()                   — read the live { text, lon, lat }.
+//                                     dropping its position; nx/ny default
+//                                     to bottom-center (0.5, 0.85) when
+//                                     absent.
+//   getPosition()                   — read the live { text, nx, ny }.
 
 const OVERLAY_ID = "export-on-map-title-overlay";
 
@@ -28,14 +31,15 @@ let mapInstance = null;
 let element = null;
 let onAnchorChange = null;
 
-// Full overlay state. Geographic anchor (lon/lat) drives the transform on
-// every map move; formatting fields (font/bold/italic/color/size) drive
-// the inline element styles on every update. PO-009 expanded this from
-// just the anchor + text to the full toolbar shape.
+// Full overlay state. Normalized frame-relative anchor (nx/ny, each in
+// [0,1]) drives the transform whenever the map container is RESIZED;
+// formatting fields (font/bold/italic/color/size) drive the inline element
+// styles on every update. PO-009 expanded this from just the anchor + text
+// to the full toolbar shape.
 let position = {
   text: "",
-  lon: null,
-  lat: null,
+  nx: 0.5,
+  ny: 0.85,
   font: 'Georgia, "Times New Roman", serif',
   bold: true,
   italic: false,
@@ -86,19 +90,25 @@ export function init(map, opts = {}) {
   // Subscribe once. MapLibre's listener registry is keyed by reference so a
   // second subscribe with the same handler would double-fire; the init
   // idempotence above ensures we only get here on first call.
-  map.on("move", reproject);
+  //
+  // Deliberately "resize", NOT "move" — the anchor is frame-relative, not
+  // geographic, so panning/zooming the map must NOT move the title.
+  // map.resize() (called by js/map-viewport.js's letterbox and by MapLibre
+  // itself on container size changes) fires "resize", which is exactly
+  // when a normalized fraction needs to be re-applied against the new
+  // pixel dimensions.
+  map.on("resize", reproject);
 
   return { update, getPosition };
 }
 
 /**
  * Replace the overlay's stored state. Empty `text` hides the overlay
- * without forgetting lon/lat — re-typing brings it back at the same place,
+ * without forgetting nx/ny — re-typing brings it back at the same place,
  * which is the contract the task spells out for the input clearing flow.
  *
- * If `lon`/`lat` are null (initial state with no anchor yet), seeds them
- * from the current map center and emits onAnchorChange so the caller can
- * persist the resolved coordinates.
+ * nx/ny always have valid defaults (bottom-center), so there is no
+ * null-seeding case to handle here.
  */
 export function update(next) {
   // Merge over existing fields so a partial caller (e.g. "just toggle
@@ -109,8 +119,8 @@ export function update(next) {
   // user's font picks.
   position = {
     text: typeof next.text === "string" ? next.text : position.text,
-    lon: Number.isFinite(next.lon) ? next.lon : position.lon,
-    lat: Number.isFinite(next.lat) ? next.lat : position.lat,
+    nx: Number.isFinite(next.nx) ? clamp01(next.nx) : position.nx,
+    ny: Number.isFinite(next.ny) ? clamp01(next.ny) : position.ny,
     font: typeof next.font === "string" ? next.font : position.font,
     bold: typeof next.bold === "boolean" ? next.bold : position.bold,
     italic: typeof next.italic === "boolean" ? next.italic : position.italic,
@@ -131,16 +141,6 @@ export function update(next) {
     return;
   }
 
-  // Seed from map center on first reveal. Done lazily here (not at init)
-  // so the seed reflects wherever the map is when the user starts typing,
-  // not the initialMap center hard-coded at boot.
-  if (position.lon === null || position.lat === null) {
-    const center = mapInstance.getCenter();
-    position.lon = center.lng;
-    position.lat = center.lat;
-    if (onAnchorChange) onAnchorChange({ ...position });
-  }
-
   element.textContent = position.text;
   element.hidden = false;
   reproject();
@@ -155,56 +155,33 @@ function applyFormatting() {
   element.style.fontSize = `${position.size}px`;
 }
 
-/** Read the live { text, lon, lat }. Returns a fresh copy so callers can mutate freely. */
+/** Read the live { text, nx, ny }. Returns a fresh copy so callers can mutate freely. */
 export function getPosition() {
   return { ...position };
 }
 
-/**
- * Re-anchor the title to the bottom-center of the map's CURRENT pixel
- * viewport, then re-project immediately and persist via onAnchorChange.
- *
- * Why: the title's anchor is a geographic lon/lat so it survives pan/zoom,
- * but js/map-viewport.js letterboxes #map to a new aspect ratio whenever
- * the export-size preset changes — that can push a geography-anchored
- * title outside the new visible crop entirely. Snapping to bottom-center
- * of the (post-resize) container keeps the title inside the letterboxed
- * view — and inside the lower caption zone the default frame margins
- * leave clear — at any aspect ratio. Called from app.js's export-format
- * `change` handler, AFTER mapViewport.setPreset() has already resized the
- * map, so getContainer()'s clientWidth/clientHeight reflect the new crop.
- */
-export function anchorToBottomCenter() {
+// Clamp a fraction into [0, 1] — shared by every path that derives nx/ny
+// from a pixel position (drag commit, keyboard nudge).
+function clamp01(n) {
+  return Math.min(1, Math.max(0, n));
+}
+
+// Re-runs on every map "resize" event (container size change — e.g.
+// js/map-viewport.js's export-preset letterbox, or a window resize).
+// Deliberately NOT on "move": the anchor is a frame-relative fraction, so
+// panning/zooming the map must never move the title. Bails during drag so
+// the cursor stays the source of truth until pointerup — see module header.
+function reproject() {
   if (!element || !mapInstance) return;
+  if (element.hidden) return;
+  if (dragging) return;
 
   const c = mapInstance.getContainer();
   const w = c.clientWidth;
   const h = c.clientHeight;
   if (w <= 0 || h <= 0) return;
 
-  const x = w / 2;
-  const inset = Math.max(h * 0.12, 48);
-  const y = h - inset;
-
-  const lngLat = mapInstance.unproject([x, y]);
-  position = { ...position, lon: lngLat.lng, lat: lngLat.lat };
-
-  if (!element.hidden) reproject();
-
-  if (onAnchorChange) onAnchorChange({ ...position });
-}
-
-// Re-runs on every map "move" event (pan/zoom/rotate, basemap swap re-emits
-// move once tiles paint). Bails during drag so the cursor stays the source
-// of truth until pointerup — see module header.
-function reproject() {
-  if (!element || !mapInstance) return;
-  if (element.hidden) return;
-  if (position.lon === null || position.lat === null) return;
-  if (dragging) return;
-
-  const pt = mapInstance.project([position.lon, position.lat]);
-  applyTransform(pt.x, pt.y);
+  applyTransform(position.nx * w, position.ny * h);
 }
 
 // Two-step transform: outer translate3d positions the overlay's top-left
@@ -220,7 +197,6 @@ function onPointerDown(ev) {
   if (!mapInstance || !element || element.hidden) return;
   // Left button only on mouse; pen and touch report button=0 too.
   if (ev.button !== undefined && ev.button !== 0) return;
-  if (position.lon === null || position.lat === null) return;
 
   ev.preventDefault();
   ev.stopPropagation();
@@ -239,12 +215,16 @@ function onPointerDown(ev) {
   const cursorX = ev.clientX - containerRect.left;
   const cursorY = ev.clientY - containerRect.top;
 
-  // Where is the overlay's center right now?  Re-project from the stored
-  // lon/lat; equivalent to reading the overlay's own bounding rect, but
-  // doesn't depend on layout having been read this frame.
-  const pt = mapInstance.project([position.lon, position.lat]);
-  dragOffsetX = cursorX - pt.x;
-  dragOffsetY = cursorY - pt.y;
+  // Where is the overlay's center right now?  Derived from the stored
+  // nx/ny fraction against the current container size; equivalent to
+  // reading the overlay's own bounding rect, but doesn't depend on layout
+  // having been read this frame.
+  const w = containerRect.width;
+  const h = containerRect.height;
+  const centerX = position.nx * w;
+  const centerY = position.ny * h;
+  dragOffsetX = cursorX - centerX;
+  dragOffsetY = cursorY - centerY;
 
   dragging = true;
   document.body.classList.add("dragging-on-map-title");
@@ -257,9 +237,9 @@ function onPointerMove(ev) {
   const cursorX = ev.clientX - containerRect.left;
   const cursorY = ev.clientY - containerRect.top;
 
-  // Pixel-based update during the drag; lon/lat is committed on release.
+  // Pixel-based update during the drag; nx/ny is committed on release.
   // Keeping the transform pixel-driven means a fast drag never has to
-  // round-trip through unproject() per frame.
+  // round-trip through the normalized fraction per frame.
   applyTransform(cursorX - dragOffsetX, cursorY - dragOffsetY);
 }
 
@@ -276,12 +256,17 @@ function onPointerUp(ev) {
   const newCenterX = cursorX - dragOffsetX;
   const newCenterY = cursorY - dragOffsetY;
 
-  // Round-trip pixel → lon/lat once on commit. The next reproject (on the
-  // very next move event, or now if no move ever fires) will read the
-  // committed lon/lat and re-pin the overlay at the same pixel — so this
-  // is a closed loop with no jitter on release.
-  const lngLat = mapInstance.unproject([newCenterX, newCenterY]);
-  position = { ...position, lon: lngLat.lng, lat: lngLat.lat };
+  // Round-trip pixel → normalized fraction once on commit. The next
+  // reproject (on the next "resize" event, or now if the element is
+  // re-shown) will read the committed nx/ny and re-pin the overlay at the
+  // same pixel — so this is a closed loop with no jitter on release.
+  const w = containerRect.width;
+  const h = containerRect.height;
+  position = {
+    ...position,
+    nx: w > 0 ? clamp01(newCenterX / w) : position.nx,
+    ny: h > 0 ? clamp01(newCenterY / h) : position.ny,
+  };
 
   applyTransform(newCenterX, newCenterY);
 
@@ -290,7 +275,6 @@ function onPointerUp(ev) {
 
 function onKeyDown(ev) {
   if (!mapInstance || !element || element.hidden) return;
-  if (position.lon === null || position.lat === null) return;
 
   // 1 px per arrow press, 10 with shift — the task's literal spec. Any
   // other key passes through so Tab/Enter/etc. behave normally.
@@ -315,11 +299,18 @@ function onKeyDown(ev) {
   }
   ev.preventDefault();
 
-  const pt = mapInstance.project([position.lon, position.lat]);
-  const newX = pt.x + dx;
-  const newY = pt.y + dy;
-  const lngLat = mapInstance.unproject([newX, newY]);
-  position = { ...position, lon: lngLat.lng, lat: lngLat.lat };
+  const c = mapInstance.getContainer();
+  const w = c.clientWidth;
+  const h = c.clientHeight;
+  if (w <= 0 || h <= 0) return;
+
+  const newX = position.nx * w + dx;
+  const newY = position.ny * h + dy;
+  position = {
+    ...position,
+    nx: clamp01(newX / w),
+    ny: clamp01(newY / h),
+  };
   applyTransform(newX, newY);
 
   if (onAnchorChange) onAnchorChange({ ...position });
