@@ -142,14 +142,12 @@ export async function exportMapAsPng(mapInstance, options = {}) {
     const frame =
       options.frame !== undefined ? options.frame : loadExportFrame();
 
-    // PO-008/009 — on-map title. We only extract + validate the title here
-    // (its anchor lon/lat + the user's formatting); the pixel position is
-    // computed later, inside captureFramed, by re-projecting the anchor on
-    // the LIVE map AFTER it's resized to the export's dimensions (FBL-012).
-    // resize() keeps center+zoom fixed, so that late projection is the
-    // title's true on-map position at ANY aspect ratio — the earlier
-    // pre-resize ratio approach drifted for off-center anchors on presets
-    // whose width differed materially from the live map's.
+    // PO-008/009 — on-map title, frame-relative anchor. We only extract +
+    // validate the title here (its normalized nx/ny anchor + the user's
+    // formatting); the pixel position is computed later, inside
+    // captureFramed, as nx/ny * outputWidth/outputHeight — no re-projection
+    // off the live map needed, so the title stays frame-fixed at any
+    // aspect ratio/preset.
     //
     // FBL-013: like the frame above, prefer the caller's live overlay state
     // (mapTitle.getPosition()) over the persisted copy so a quota-time save
@@ -283,21 +281,15 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     const outputHeight = preset ? frameHeight : mapCanvas.height;
     const scale = frameWidth > 0 ? outputWidth / frameWidth : 1;
 
-    // FBL-012: re-project the title's anchor on the LIVE map now that it sits
-    // at the export's dimensions. resize() preserves center+zoom, so this is
-    // the anchor's true pixel position on the resized map — no aspect-ratio
-    // drift, unlike the old pre-resize ratio approximation that mis-placed
-    // off-center titles on presets with a different width. project() returns
-    // CSS pixels relative to the (now preset-sized) container; multiplying by
-    // `scale` lifts them into the output canvas's pixel space — ×1 for presets
-    // (CSS == output), ×dpr for current view — the same factor the chip
-    // typography uses, so position and size stay in step (FBL-005).
+    // The title's anchor (nx/ny) is a normalized frame-relative fraction, so
+    // its pixel position is computed directly from the output dims — no
+    // re-projection off the live map needed, and it stays frame-fixed at
+    // any aspect ratio/preset.
     let titleChip = null;
     if (onMapTitle) {
-      const pt = mapInstance.project([onMapTitle.lon, onMapTitle.lat]);
       titleChip = {
-        x: pt.x * scale,
-        y: pt.y * scale,
+        x: onMapTitle.nx * outputWidth,
+        y: onMapTitle.ny * outputHeight,
         text: onMapTitle.text,
         style: onMapTitle.style,
       };
@@ -597,21 +589,21 @@ function paintFrameBand(ctx, frameEl, scale, canvasWidth, canvasHeight) {
   ctx.restore();
 }
 
-// PO-008/009. Validates the stored on-map title and extracts what the export
-// needs — the anchor's lon/lat plus the user's formatting — or null when
-// there's nothing renderable (missing/empty text, non-finite coordinates).
-// The pixel position is deliberately NOT computed here: captureFramed
-// re-projects the anchor on the LIVE map AFTER the preset resize (FBL-012),
-// so the chip lands on the same geography it labels regardless of the
-// export's aspect ratio, instead of the old pre-resize ratio approximation.
+// PO-008/009 (frame-relative anchor). Validates the stored on-map title and
+// extracts what the export needs — the anchor's normalized nx/ny fraction
+// plus the user's formatting — or null when there's nothing renderable
+// (missing/empty text, non-finite fractions). The pixel position is
+// deliberately NOT computed here: captureFramed multiplies nx/ny by the
+// output dims directly, so the chip stays frame-fixed at any aspect ratio
+// without any re-projection off the live map.
 function prepareOnMapTitle(raw) {
   if (!raw || !raw.text) return null;
-  if (!Number.isFinite(raw.lon) || !Number.isFinite(raw.lat)) return null;
+  if (!Number.isFinite(raw.nx) || !Number.isFinite(raw.ny)) return null;
 
   return {
     text: raw.text,
-    lon: raw.lon,
-    lat: raw.lat,
+    nx: raw.nx,
+    ny: raw.ny,
     style: {
       font: raw.font,
       bold: Boolean(raw.bold),

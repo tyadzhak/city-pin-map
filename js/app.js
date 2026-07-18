@@ -264,13 +264,10 @@ function initExportFormatSelector() {
 
   select.addEventListener("change", (event) => {
     saveExportFormat(event.target.value);
-    // setPreset() resizes #map synchronously, so the map's transform
-    // already reflects the new letterbox crop by the time we re-anchor —
-    // ordering matters here. Only on user-driven change, never on the
-    // initial boot setPreset() above, so a reloaded page doesn't clobber a
-    // manually-dragged title position on every load.
+    // The title's anchor is now a normalized frame-relative fraction
+    // (nx/ny), so it's already static across export-size/letterbox
+    // changes — no re-anchoring needed here.
     viewport?.setPreset(EXPORT_PRESETS[event.target.value] ?? null);
-    mapTitle.anchorToBottomCenter();
   });
 }
 
@@ -504,8 +501,8 @@ function initHideLabelsToggle({ initialValue, onChange }) {
 // persistence callbacks together.
 //
 // Three write paths feed saveOnMapTitle:
-//   1. Anchor-change callback — fires when the overlay's lon/lat moves
-//      (drag commit, keyboard nudge, fill-from-center on first reveal).
+//   1. Anchor-change callback — fires when the overlay's nx/ny (normalized
+//      frame-relative anchor) moves (drag commit, keyboard nudge).
 //   2. Text input event — fires on every keystroke.
 //   3. Toolbar control change — font / bold / italic / color / size.
 // Each path calls mapTitle.update() with only the changing field; the
@@ -538,10 +535,10 @@ function initOnMapTitle() {
   if (sizeInput) sizeInput.value = String(saved.size);
 
   // Hand the persisted state to the overlay. If text is set, the module
-  // shows the overlay (seeding lon/lat from the map center if those are
-  // null); if text is empty, the overlay stays hidden but lon/lat +
-  // formatting are remembered so re-typing brings the title back at the
-  // same place with the same look.
+  // shows the overlay at its stored nx/ny (bottom-center by default); if
+  // text is empty, the overlay stays hidden but nx/ny + formatting are
+  // remembered so re-typing brings the title back at the same place with
+  // the same look.
   mapTitle.update(saved);
 
   // Helper that applies a partial diff and persists. The module merges

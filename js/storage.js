@@ -60,9 +60,10 @@ const DEFAULT_SIDE_TAB = "design";
 const DEFAULT_GROUP_COLOR = "#e63946";
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
-// PO-008/009 — on-map title state. lon/lat are nullable so the input can
-// hold text before a position has been chosen; the live overlay seeds
-// them from the map's current center on first reveal.
+// PO-008/009 — on-map title state. The anchor (nx/ny) is a normalized
+// frame-relative fraction of the map container / export crop, not map
+// geography, so the title stays fixed on-screen across pan/zoom — see
+// EMPTY_ON_MAP_TITLE and normalizeOnMapTitle below.
 //
 // Formatting fields (font/bold/italic/color/size) come from PO-009. The
 // curated font list is kept here so storage validation can clamp an
@@ -84,8 +85,11 @@ const DEFAULT_ON_MAP_TITLE_SIZE = 20;
 const DEFAULT_ON_MAP_TITLE_COLOR = "#1f2937";
 const EMPTY_ON_MAP_TITLE = Object.freeze({
   text: "",
-  lon: null,
-  lat: null,
+  // Normalized frame-relative anchor: fraction of the map container /
+  // export-crop dimensions, NOT map geography. Bottom-center default pairs
+  // with the bottom-fade caption zone. See normalizeOnMapTitle below.
+  nx: 0.5,
+  ny: 0.85,
   font: DEFAULT_ON_MAP_TITLE_FONT,
   bold: true,
   italic: false,
@@ -882,7 +886,7 @@ export function saveHideLabels(value) {
 // above. Same defensive load shape as loadExportFrame: missing key →
 // defaults, corrupt key → defaults + banner. Each field individually
 // validated through normalizeOnMapTitle so a partial / hand-edited
-// object can never poison the export pipeline (e.g. non-finite lon, an
+// object can never poison the export pipeline (e.g. non-finite nx/ny, an
 // unknown font string, a bad color hex).
 export function loadOnMapTitle() {
   let raw;
@@ -926,6 +930,13 @@ export function saveOnMapTitle(value) {
 // well-formed value back. Unknown keys are dropped on the floor; an
 // unknown font fontstack falls back to the default rather than
 // silently rendering with whatever the browser maps it to.
+//
+// nx/ny are normalized frame-relative fractions (0..1) of the title's
+// CENTER against the map-container / export-crop dimensions — NOT map
+// geography, so the title stays put across pan/zoom. A saved value from
+// before this change (bare lon/lat, no nx/ny) has no meaningful fraction
+// to recover, so it falls to the bottom-center default — a one-time,
+// acceptable reset.
 function normalizeOnMapTitle(value) {
   const v = value || {};
   const sizeNum = Number(v.size);
@@ -943,10 +954,16 @@ function normalizeOnMapTitle(value) {
     typeof v.font === "string" && ON_MAP_TITLE_FONTS.includes(v.font)
       ? v.font
       : DEFAULT_ON_MAP_TITLE_FONT;
+  const nx = Number.isFinite(Number(v.nx))
+    ? Math.min(1, Math.max(0, Number(v.nx)))
+    : 0.5;
+  const ny = Number.isFinite(Number(v.ny))
+    ? Math.min(1, Math.max(0, Number(v.ny)))
+    : 0.85;
   return {
     text: typeof v.text === "string" ? v.text : "",
-    lon: Number.isFinite(v.lon) ? v.lon : null,
-    lat: Number.isFinite(v.lat) ? v.lat : null,
+    nx,
+    ny,
     font,
     bold: Boolean(v.bold),
     italic: Boolean(v.italic),
