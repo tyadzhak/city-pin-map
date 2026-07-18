@@ -127,16 +127,15 @@ export async function exportMapAsPng(mapInstance) {
     // — the export pipeline doesn't need a subscription.
     const frame = loadExportFrame();
 
-    // PO-008/009 — on-map title. Captured on the live map BEFORE
-    // captureFramed resizes anything (approach (1) in the task brief):
-    // we record the projected pixel position as a ratio of the live
-    // container's CSS dimensions, then composite() multiplies that ratio
-    // by the export canvas's map area. Resizing for a preset reprojects
-    // Mercator at a different aspect, so the ratio approximation can
-    // drift sub-pixel on extreme presets — invisible at A4/16:9; bump to
-    // approach (2) if the drift becomes observable on A3 / 10×15.
-    const onMapTitleRaw = loadOnMapTitle();
-    const onMapTitleProjection = projectOnMapTitle(mapInstance, onMapTitleRaw);
+    // PO-008/009 — on-map title. We only extract + validate the stored
+    // title here (its anchor lon/lat + the user's formatting); the pixel
+    // position is computed later, inside captureFramed, by re-projecting the
+    // anchor on the LIVE map AFTER it's resized to the export's dimensions
+    // (FBL-012). resize() keeps center+zoom fixed, so that late projection is
+    // the title's true on-map position at ANY aspect ratio — the earlier
+    // pre-resize ratio approach drifted for off-center anchors on presets
+    // whose width differed materially from the live map's.
+    const onMapTitle = prepareOnMapTitle(loadOnMapTitle());
 
     // Both paths produce a canvas plus its CSS→canvas-pixel scale (so
     // wrapFrame can express a CSS-pixel thickness in the inner canvas's own
@@ -145,7 +144,7 @@ export async function exportMapAsPng(mapInstance) {
     // regardless of which capture path ran.
     let innerCanvas;
     let innerScale;
-    if (!preset && !onMapTitleProjection) {
+    if (!preset && !onMapTitle) {
       // Fast path: live map, no resize, no overlay text, no extra canvas.
       // Capture the framebuffer as-is (device resolution). triggerRepaint +
       // once('render') ensures it reflects the current state before we read
@@ -156,11 +155,7 @@ export async function exportMapAsPng(mapInstance) {
       innerCanvas = mapInstance.getCanvas();
       innerScale = deviceScale(mapInstance);
     } else {
-      const captured = await captureFramed(
-        mapInstance,
-        preset,
-        onMapTitleProjection
-      );
+      const captured = await captureFramed(mapInstance, preset, onMapTitle);
       innerCanvas = captured.canvas;
       innerScale = captured.scale;
     }
@@ -255,12 +250,32 @@ async function captureFramed(mapInstance, preset, onMapTitle) {
     const outputHeight = preset ? frameHeight : mapCanvas.height;
     const scale = frameWidth > 0 ? outputWidth / frameWidth : 1;
 
+    // FBL-012: re-project the title's anchor on the LIVE map now that it sits
+    // at the export's dimensions. resize() preserves center+zoom, so this is
+    // the anchor's true pixel position on the resized map — no aspect-ratio
+    // drift, unlike the old pre-resize ratio approximation that mis-placed
+    // off-center titles on presets with a different width. project() returns
+    // CSS pixels relative to the (now preset-sized) container; multiplying by
+    // `scale` lifts them into the output canvas's pixel space — ×1 for presets
+    // (CSS == output), ×dpr for current view — the same factor the chip
+    // typography uses, so position and size stay in step (FBL-005).
+    let titleChip = null;
+    if (onMapTitle) {
+      const pt = mapInstance.project([onMapTitle.lon, onMapTitle.lat]);
+      titleChip = {
+        x: pt.x * scale,
+        y: pt.y * scale,
+        text: onMapTitle.text,
+        style: onMapTitle.style,
+      };
+    }
+
     return {
       canvas: composite({
         mapCanvas,
         outputWidth,
         outputHeight,
-        onMapTitle,
+        titleChip,
         coeff,
         chipScale: scale,
       }),
@@ -309,7 +324,7 @@ function composite({
   mapCanvas,
   outputWidth,
   outputHeight,
-  onMapTitle,
+  titleChip,
   coeff,
   chipScale,
 }) {
@@ -343,16 +358,17 @@ function composite({
   // PO-008/009 — draw the on-map title chip AFTER the map pixels (so it
   // floats on top of tiles + markers) and BEFORE wrapFrame (which runs in
   // the caller, so the decorative frame never paints over the title). The
-  // position ratio multiplies the ACTUAL output dims (device or CSS), and
-  // the chip typography multiplies `coeff` by `chipScale` (dpr for current
-  // view, 1 for a preset) so the pill keeps the same visual proportion in
-  // both pixel spaces.
-  if (onMapTitle) {
+  // caller (captureFramed) has already placed the chip's center at the
+  // anchor's re-projected output pixel (FBL-012); here we only draw it. The
+  // chip typography multiplies `coeff` by `chipScale` (dpr for current view,
+  // 1 for a preset) so the pill keeps the same visual proportion in both
+  // pixel spaces.
+  if (titleChip) {
     drawOnMapTitle(ctx, {
-      x: onMapTitle.xRatio * outputWidth,
-      y: onMapTitle.yRatio * outputHeight,
-      style: onMapTitle.style,
-      text: onMapTitle.text,
+      x: titleChip.x,
+      y: titleChip.y,
+      style: titleChip.style,
+      text: titleChip.text,
       coeff: coeff * chipScale,
     });
   }
@@ -451,24 +467,21 @@ function wrapFrame(innerCanvas, frame, scale = 1) {
   return out;
 }
 
-// PO-008/009. Projects the on-map title's stored lon/lat onto the LIVE
-// map container's pixel space and returns the position as a ratio of the
-// container's CSS dimensions, plus the user's formatting state pulled
-// straight off the storage object. composite() multiplies the ratio by
-// the export's map area so the chip lands at the same on-screen position
-// the user saw before clicking Export.
-function projectOnMapTitle(mapInstance, raw) {
+// PO-008/009. Validates the stored on-map title and extracts what the export
+// needs — the anchor's lon/lat plus the user's formatting — or null when
+// there's nothing renderable (missing/empty text, non-finite coordinates).
+// The pixel position is deliberately NOT computed here: captureFramed
+// re-projects the anchor on the LIVE map AFTER the preset resize (FBL-012),
+// so the chip lands on the same geography it labels regardless of the
+// export's aspect ratio, instead of the old pre-resize ratio approximation.
+function prepareOnMapTitle(raw) {
   if (!raw || !raw.text) return null;
   if (!Number.isFinite(raw.lon) || !Number.isFinite(raw.lat)) return null;
 
-  const rect = mapInstance.getContainer().getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-
-  const pt = mapInstance.project([raw.lon, raw.lat]);
   return {
     text: raw.text,
-    xRatio: pt.x / rect.width,
-    yRatio: pt.y / rect.height,
+    lon: raw.lon,
+    lat: raw.lat,
     style: {
       font: raw.font,
       bold: Boolean(raw.bold),
