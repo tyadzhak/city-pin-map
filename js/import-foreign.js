@@ -46,11 +46,11 @@ export async function importFromFile(file) {
   }
 
   const name = file.name || "";
-  let rows;
+  let parsed;
   if (/\.json$/i.test(name)) {
-    rows = await parseJsonImport(text, file);
+    parsed = await parseJsonImport(text, file);
   } else if (/\.csv$/i.test(name)) {
-    rows = parseCsvImport(text);
+    parsed = parseCsvImport(text);
   } else {
     showError("Unsupported file type. Choose a .csv or .json file.");
     return;
@@ -58,7 +58,12 @@ export async function importFromFile(file) {
 
   // null means "already handled" — either delegated to importFromJson or
   // showError was already called. Neither case should fall through here.
-  if (rows === null) return;
+  if (parsed === null) return;
+
+  // Parse paths return { rows, skippedBlank }: `rows` are the importable
+  // rows, `skippedBlank` counts rows dropped for having no name so the
+  // completion summary can report them (parallel to un-geocodable names).
+  const { rows, skippedBlank } = parsed;
 
   if (rows.length === 0) {
     showError("No rows found in that file.");
@@ -69,7 +74,7 @@ export async function importFromFile(file) {
     return;
   }
 
-  await applyRows(rows);
+  await applyRows(rows, skippedBlank);
 }
 
 // ---- JSON shape detection ----------------------------------------------
@@ -93,10 +98,11 @@ async function parseJsonImport(text, file) {
   }
 
   if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
-    return parsed
-      .map((s) => s.trim())
+    const trimmed = parsed.map((s) => s.trim());
+    const rows = trimmed
       .filter((s) => s.length > 0)
       .map((cityName) => ({ name: cityName, lat: null, lon: null }));
+    return { rows, skippedBlank: trimmed.length - rows.length };
   }
 
   if (
@@ -104,7 +110,9 @@ async function parseJsonImport(text, file) {
     parsed.length > 0 &&
     parsed.every((item) => item !== null && typeof item === "object" && !Array.isArray(item) && findKeyCI(item, NAME_KEYS) !== undefined)
   ) {
-    return parsed.map(rowFromObject).filter((row) => row.name.length > 0);
+    const mapped = parsed.map(rowFromObject);
+    const rows = mapped.filter((row) => row.name.length > 0);
+    return { rows, skippedBlank: mapped.length - rows.length };
   }
 
   showError(
@@ -166,9 +174,10 @@ function hasValidCoords(lat, lon) {
 // ---- CSV parsing --------------------------------------------------------
 
 // Minimal RFC4180-ish tokenizer: handles quoted fields (with "" as an
-// escaped quote), commas embedded inside quotes, and both \r\n and bare
-// \n line endings. Operating on the whole text (not line-split first)
-// means a quoted field can even contain a literal newline correctly.
+// escaped quote), commas embedded inside quotes, and all three line-ending
+// variants — \n (Unix), \r\n (Windows), and a bare \r (classic Mac).
+// Operating on the whole text (not line-split first) means a quoted field
+// can even contain a literal newline correctly.
 function tokenizeCsv(text) {
   const table = [];
   let row = [];
@@ -187,18 +196,30 @@ function tokenizeCsv(text) {
       } else {
         field += c;
       }
-    } else if (c === '"') {
+    } else if (c === '"' && field === "") {
+      // RFC4180: a quote only opens a quoted field when it is the FIRST
+      // character of the field. A `"` mid-field (e.g. `O"Brien City`) is a
+      // literal character and falls through to the default append below.
+      // `field === ""` is field-start: the buffer is reset on every comma /
+      // newline, and an empty quoted field ("") can never be immediately
+      // followed by a bare `"` (RFC escaping pairs consecutive quotes), so
+      // this never wrongly re-opens after a closing quote.
       inQuotes = true;
     } else if (c === ",") {
       row.push(field);
       field = "";
-    } else if (c === "\r") {
-      // Bare \r is swallowed; a following \n (CRLF) ends the row below.
-    } else if (c === "\n") {
+    } else if (c === "\r" || c === "\n") {
+      // Row terminator. All three line-ending variants end a row: \n (Unix),
+      // \r\n (Windows), and a bare \r (classic Mac). For \r\n the following
+      // \n is consumed here so it can't start a phantom empty row on the next
+      // iteration; a lone \r (not followed by \n) terminates on its own.
+      // (Inside quotes, \r/\n never reach this branch — they append to the
+      // field above, preserving newlines embedded in quoted values.)
       row.push(field);
       table.push(row);
       row = [];
       field = "";
+      if (c === "\r" && text[i + 1] === "\n") i++;
     } else {
       field += c;
     }
@@ -216,7 +237,7 @@ function parseCsvImport(rawText) {
   // header row is tokenized, otherwise the first column reads as "﻿name".
   const text = rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText;
   const table = tokenizeCsv(text);
-  if (table.length === 0) return [];
+  if (table.length === 0) return { rows: [], skippedBlank: 0 };
 
   const header = table[0].map((h) => h.trim().toLowerCase());
   const nameIdx = header.findIndex((h) => NAME_KEYS.includes(h));
@@ -229,20 +250,24 @@ function parseCsvImport(rawText) {
   }
 
   const rows = [];
+  let skippedBlank = 0;
   for (const cols of table.slice(1)) {
     const rowName = (cols[nameIdx] ?? "").trim();
-    if (!rowName) continue;
+    if (!rowName) {
+      skippedBlank++;
+      continue;
+    }
     const lat = latIdx !== -1 ? parseCoord(cols[latIdx]) : null;
     const lon = lonIdx !== -1 ? parseCoord(cols[lonIdx]) : null;
     const hasCoords = hasValidCoords(lat, lon);
     rows.push({ name: rowName, lat: hasCoords ? lat : null, lon: hasCoords ? lon : null });
   }
-  return rows;
+  return { rows, skippedBlank };
 }
 
 // ---- Apply: immediate pins + sequential geocode loop --------------------
 
-async function applyRows(rows) {
+async function applyRows(rows, skippedBlank = 0) {
   const immediate = rows.filter((r) => r.lat !== null && r.lon !== null);
   const needsGeocode = rows.filter((r) => r.lat === null || r.lon === null);
 
@@ -260,37 +285,66 @@ async function applyRows(rows) {
     });
   }
 
+  // Consecutive NETWORK-LEVEL failures — searchCities THROWS when fetch
+  // rejects, the HTTP status is non-2xx, or the body is unparseable. During a
+  // systemic Nominatim outage every row throws, so at the mandatory ≥1 req/sec
+  // gate a large import would grind ~1s/row toward a foregone "Imported 0"
+  // result with the button disabled throughout (FBL-020). After this many
+  // throws in a row we treat the geocoder as unreachable and abandon the rest.
+  //
+  // A successful round-trip that returns [] ("no match") is a real per-row
+  // answer proving the geocoder is reachable — it RESETS the streak (below),
+  // so scattered legitimate not-founds never trip this. N=3 balances a fast
+  // bail (~3s) against not over-reacting to one or two transient blips.
+  const CONSECUTIVE_FAILURE_LIMIT = 3;
   const failed = [];
+  let consecutiveFailures = 0;
+  let notAttempted = 0;
   if (needsGeocode.length > 0) {
     for (const [idx, row] of needsGeocode.entries()) {
       setImportStatus(`Geocoding ${idx + 1}/${needsGeocode.length} — ${row.name}`);
+      let results;
       try {
-        const results = await searchCities(row.name);
-        const top = results[0];
-        if (!top) {
-          failed.push({ name: row.name, reason: "no match" });
-          continue;
-        }
-        // Capture the geocoded origin (FBL-008) from the resolved result.
-        addPin({
-          name: row.name,
-          lat: top.lat,
-          lon: top.lon,
-          color: DEFAULT_PIN_COLOR,
-          group: null,
-          originalLat: top.lat,
-          originalLon: top.lon,
-        });
+        results = await searchCities(row.name);
       } catch (err) {
         console.error("geocode failed during import for row:", row.name, err);
         failed.push({ name: row.name, reason: err?.message ?? "geocode error" });
+        consecutiveFailures++;
+        if (consecutiveFailures >= CONSECUTIVE_FAILURE_LIMIT) {
+          // Geocoder looks systemically down — stop rather than grinding every
+          // remaining row through the rate gate. Rows after this one were never
+          // attempted; the summary reports them distinctly from per-row failures.
+          notAttempted = needsGeocode.length - (idx + 1);
+          break;
+        }
+        continue;
       }
+      // Reaching here means the request came back — even results === [] proves
+      // the geocoder is reachable, so clear the outage streak before anything
+      // else (a subsequent "no match" must not be mistaken for an outage).
+      consecutiveFailures = 0;
+      const top = results[0];
+      if (!top) {
+        failed.push({ name: row.name, reason: "no match" });
+        continue;
+      }
+      // Capture the geocoded origin (FBL-008) from the resolved result.
+      addPin({
+        name: row.name,
+        lat: top.lat,
+        lon: top.lon,
+        color: DEFAULT_PIN_COLOR,
+        group: null,
+        originalLat: top.lat,
+        originalLon: top.lon,
+      });
     }
     setImportStatus("");
   }
 
-  const successCount = immediate.length + (needsGeocode.length - failed.length);
-  showSummary(successCount, failed);
+  const successCount =
+    immediate.length + (needsGeocode.length - failed.length - notAttempted);
+  showSummary(successCount, failed, skippedBlank, notAttempted);
 }
 
 function setImportStatus(text) {
@@ -298,12 +352,21 @@ function setImportStatus(text) {
   if (el) el.textContent = text;
 }
 
-function showSummary(successCount, failed) {
+function showSummary(successCount, failed, skippedBlank = 0, notAttempted = 0) {
   let message = `Imported ${successCount} pin${successCount === 1 ? "" : "s"}.`;
   if (failed.length > 0) {
     const shownNames = failed.slice(0, MAX_FAILED_NAMES_SHOWN).map((f) => f.name).join(", ");
     const suffix = failed.length > MAX_FAILED_NAMES_SHOWN ? ", …" : "";
     message += ` Could not geocode ${failed.length}: ${shownNames}${suffix}`;
+  }
+  if (notAttempted > 0) {
+    // Distinct from the per-row "could not geocode" failures above: these rows
+    // were never sent because the geocoder looked unreachable and the import
+    // stopped early (see CONSECUTIVE_FAILURE_LIMIT in applyRows).
+    message += ` The geocoder appeared unreachable, so ${notAttempted} remaining row${notAttempted === 1 ? "" : "s"} ${notAttempted === 1 ? "was" : "were"} not attempted.`;
+  }
+  if (skippedBlank > 0) {
+    message += ` Skipped ${skippedBlank} row${skippedBlank === 1 ? "" : "s"} with no name.`;
   }
   alert(message);
 }

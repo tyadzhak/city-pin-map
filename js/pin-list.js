@@ -33,6 +33,37 @@ import { openIconPicker } from "./icon-picker.js";
  * Returns an unsubscribe function that tears down both subscriptions, for
  * symmetry with subscribe(). app.js currently never tears down.
  */
+// Panel elements + deferred-render coordination (FBL-021). A full list
+// rebuild replaces every row, wiping out an <input> that's currently in
+// rename mode. Store mutations used to only originate from user actions that
+// blur the input first — but PO-004's import loop adds pins in the background
+// (~1/sec) while the panel stays interactive. So we suppress rebuilds while a
+// rename is active (`renameActive`), remember that one was requested
+// (`renderPending`), and let enterRenameMode's finalize flush the deferred
+// rebuild once the edit resolves. See render() and enterRenameMode() below.
+let panelEls = null;
+let renderPending = false;
+let renameActive = false;
+
+function renderNow() {
+  if (!panelEls) return;
+  // Always re-pull the latest store state — a deferred rebuild must reflect
+  // pins/groups added while a rename held the list, not a stale snapshot.
+  render(panelEls.listEl, panelEls.emptyEl, listPins());
+  renderPending = false;
+}
+
+// Store subscribers funnel through here. While a rename is active we can't
+// rebuild without destroying the focused input, so we record the request and
+// let finalize() flush it once the edit resolves.
+function requestRender() {
+  if (renameActive) {
+    renderPending = true;
+    return;
+  }
+  renderNow();
+}
+
 export function initPinList() {
   const listEl = document.getElementById("pin-list");
   const emptyEl = document.getElementById("pin-list-empty");
@@ -42,17 +73,17 @@ export function initPinList() {
     return () => {};
   }
 
-  const unsubPins = subscribe((pins) => render(listEl, emptyEl, pins));
+  panelEls = { listEl, emptyEl };
+
+  const unsubPins = subscribe(requestRender);
   // Group changes (rename, recolor, delete) all alter what the row should
   // display — selector options, tile color — so re-render the whole list
   // from a fresh pin snapshot. Full re-render is fine at Core scale and
   // matches the strategy CORE-008 already uses for pin changes.
-  const unsubGroups = subscribeGroups(() =>
-    render(listEl, emptyEl, listPins())
-  );
+  const unsubGroups = subscribeGroups(requestRender);
   // Backfill the hydration notify() that fired before we subscribed.
   // See app.js for the same pattern around renderPins().
-  render(listEl, emptyEl, listPins());
+  renderNow();
   return () => {
     unsubPins();
     unsubGroups();
@@ -66,10 +97,12 @@ function render(listEl, emptyEl, pins) {
   const sorted = pins.slice().sort((a, b) => a.createdAt - b.createdAt);
   const groups = listGroups();
 
-  // Full clear-and-rebuild is fine at Core scale (tens of pins).
-  // Side effect: a row in rename mode is destroyed if any pin changes.
-  // Acceptable here because store mutations only happen from user actions
-  // that would have blurred the input first (search, remove, etc.).
+  // Full clear-and-rebuild is fine at Core scale (tens of pins). It replaces
+  // every row, so it would wipe out a row that's in rename mode — callers
+  // therefore never invoke this while a rename is active. Store notifications
+  // route through requestRender(), which defers the rebuild until finalize()
+  // resolves the edit (see enterRenameMode); the rebuild that a committed
+  // rename triggers runs only after renameActive has been cleared.
   listEl.replaceChildren(...sorted.map((pin) => buildRow(pin, groups)));
   emptyEl.hidden = sorted.length > 0;
 }
@@ -246,12 +279,17 @@ function enterRenameMode(pin, nameEl) {
   const finalize = (mode) => {
     if (finalized) return;
     finalized = true;
+    // Re-enable list rebuilds. Do this BEFORE updatePin so the commit's own
+    // notify rebuilds the row immediately through requestRender() rather than
+    // deferring it again (FBL-021).
+    renameActive = false;
 
     if (mode === "commit") {
       const trimmed = input.value.trim();
       if (trimmed && trimmed !== pin.name) {
         // The store will fan out: list re-renders this row, map updates
-        // the marker tooltip, storage subscriber persists. Done.
+        // the marker tooltip, storage subscriber persists. Done. That
+        // rebuild also flushes any render deferred while we held focus.
         updatePin(pin.id, { name: trimmed });
         return;
       }
@@ -260,6 +298,12 @@ function enterRenameMode(pin, nameEl) {
     // Safe even if the input has already been detached by a re-render.
     if (input.isConnected) {
       input.replaceWith(nameEl);
+    }
+    // These paths don't mutate the store (no notify), so flush any rebuild a
+    // background mutation deferred while the rename held focus. renderNow()
+    // re-pulls the latest pins/groups, so newly-imported pins appear too.
+    if (renderPending) {
+      renderNow();
     }
   };
 
@@ -274,6 +318,10 @@ function enterRenameMode(pin, nameEl) {
   });
   input.addEventListener("blur", () => finalize("commit"));
 
+  // Mark the rename active BEFORE the input enters the DOM so any store
+  // notify that lands between now and finalize() defers its rebuild instead
+  // of ripping out this input (FBL-021).
+  renameActive = true;
   nameEl.replaceWith(input);
   // .select() makes typing immediately replace the existing name —
   // matches the "I'm overwriting this" mental model better than a caret

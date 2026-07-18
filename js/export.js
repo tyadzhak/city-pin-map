@@ -43,6 +43,18 @@ import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
 const TILE_WAIT_TIMEOUT_MS = 8000;
 const TILE_WAIT_TIMEOUT_MS_PRESET = 12000;
 
+// Upper bound on waitForRender (FBL-011). A render frame normally lands within
+// a few ms of triggerRepaint(); this budget only matters when it never does
+// (e.g. WebGL context loss between the repaint and the `render` event). Without
+// it, the export promise never settles: captureFramed's finally never restores
+// the off-screen map and app.js leaves the export button disabled forever.
+// 2s is far above the normal single-frame latency yet short enough that a stuck
+// export fails fast. On timeout we RESOLVE rather than reject — mirroring
+// waitForIdle's philosophy — so the export proceeds with whatever is currently
+// in the framebuffer (possibly one frame stale, but always a valid PNG) and the
+// pipeline always unwinds through its existing catch/finally cleanup.
+const RENDER_WAIT_TIMEOUT_MS = 2000;
+
 // CSS-pixel offset that pushes the export frame fully off any reasonable
 // viewport. Same value the Leaflet pipeline used.
 const OFFSCREEN_PX = -100000;
@@ -102,7 +114,7 @@ const ON_MAP_TITLE_BOX = {
  * On any failure, surfaces a user-visible message via showError() and keeps
  * the app usable (no re-throw).
  */
-export async function exportMapAsPng(mapInstance) {
+export async function exportMapAsPng(mapInstance, options = {}) {
   try {
     if (!mapInstance) throw new Error("map instance not provided");
 
@@ -110,21 +122,33 @@ export async function exportMapAsPng(mapInstance) {
     const presetId = formatSelect ? formatSelect.value : "current";
     const preset = EXPORT_PRESETS[presetId] ?? null;
 
-    // PO-007 frame settings live in localStorage; app.js owns the input
-    // wiring. Reading at click time mirrors how preset is resolved above
-    // — the export pipeline doesn't need a subscription.
-    const frame = loadExportFrame();
+    // FBL-013: prefer the LIVE in-memory frame the on-map overlay renders
+    // from — app.js passes it in (normalized through storage.js's
+    // normalizeFrame, so it's the exact shape loadExportFrame() returns) —
+    // and fall back to the persisted value only when the caller passes
+    // nothing, keeping this function usable standalone. Re-reading storage at
+    // click time used to diverge from the screen after a "kept in memory
+    // only" save failure (localStorage at quota): the overlay showed the new
+    // frame while the export rendered the stale saved one.
+    const frame =
+      options.frame !== undefined ? options.frame : loadExportFrame();
 
-    // PO-008/009 — on-map title. Captured on the live map BEFORE
-    // captureFramed resizes anything (approach (1) in the task brief):
-    // we record the projected pixel position as a ratio of the live
-    // container's CSS dimensions, then composite() multiplies that ratio
-    // by the export canvas's map area. Resizing for a preset reprojects
-    // Mercator at a different aspect, so the ratio approximation can
-    // drift sub-pixel on extreme presets — invisible at A4/16:9; bump to
-    // approach (2) if the drift becomes observable on A3 / 10×15.
-    const onMapTitleRaw = loadOnMapTitle();
-    const onMapTitleProjection = projectOnMapTitle(mapInstance, onMapTitleRaw);
+    // PO-008/009 — on-map title. We only extract + validate the title here
+    // (its anchor lon/lat + the user's formatting); the pixel position is
+    // computed later, inside captureFramed, by re-projecting the anchor on
+    // the LIVE map AFTER it's resized to the export's dimensions (FBL-012).
+    // resize() keeps center+zoom fixed, so that late projection is the
+    // title's true on-map position at ANY aspect ratio — the earlier
+    // pre-resize ratio approach drifted for off-center anchors on presets
+    // whose width differed materially from the live map's.
+    //
+    // FBL-013: like the frame above, prefer the caller's live overlay state
+    // (mapTitle.getPosition()) over the persisted copy so a quota-time save
+    // failure can't make the export contradict what's on screen. Both sources
+    // share the same field shape, so prepareOnMapTitle handles either.
+    const onMapTitle = prepareOnMapTitle(
+      options.onMapTitle !== undefined ? options.onMapTitle : loadOnMapTitle()
+    );
 
     // Both paths produce a canvas plus its CSS→canvas-pixel scale (so
     // wrapFrame can express a CSS-pixel thickness in the inner canvas's own
@@ -133,22 +157,18 @@ export async function exportMapAsPng(mapInstance) {
     // regardless of which capture path ran.
     let innerCanvas;
     let innerScale;
-    if (!preset && !onMapTitleProjection) {
+    if (!preset && !onMapTitle) {
       // Fast path: live map, no resize, no overlay text, no extra canvas.
       // Capture the framebuffer as-is (device resolution). triggerRepaint +
       // once('render') ensures it reflects the current state before we read
       // it. The frame wrap only allocates a canvas if a frame is enabled.
       await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
       mapInstance.triggerRepaint();
-      await waitForRender(mapInstance);
+      await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
       innerCanvas = mapInstance.getCanvas();
       innerScale = deviceScale(mapInstance);
     } else {
-      const captured = await captureFramed(
-        mapInstance,
-        preset,
-        onMapTitleProjection
-      );
+      const captured = await captureFramed(mapInstance, preset, onMapTitle);
       innerCanvas = captured.canvas;
       innerScale = captured.scale;
     }
@@ -228,7 +248,7 @@ async function captureFramed(mapInstance, preset, onMapTitle) {
     setPinLabelSize(BASE_PIN_LABEL_SIZE * coeff);
 
     mapInstance.triggerRepaint();
-    await waitForRender(mapInstance);
+    await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
 
     // FBL-005 pixel-space contract:
     //   • Preset → output is EXACTLY the contractual CSS-pixel dims; the
@@ -243,12 +263,32 @@ async function captureFramed(mapInstance, preset, onMapTitle) {
     const outputHeight = preset ? frameHeight : mapCanvas.height;
     const scale = frameWidth > 0 ? outputWidth / frameWidth : 1;
 
+    // FBL-012: re-project the title's anchor on the LIVE map now that it sits
+    // at the export's dimensions. resize() preserves center+zoom, so this is
+    // the anchor's true pixel position on the resized map — no aspect-ratio
+    // drift, unlike the old pre-resize ratio approximation that mis-placed
+    // off-center titles on presets with a different width. project() returns
+    // CSS pixels relative to the (now preset-sized) container; multiplying by
+    // `scale` lifts them into the output canvas's pixel space — ×1 for presets
+    // (CSS == output), ×dpr for current view — the same factor the chip
+    // typography uses, so position and size stay in step (FBL-005).
+    let titleChip = null;
+    if (onMapTitle) {
+      const pt = mapInstance.project([onMapTitle.lon, onMapTitle.lat]);
+      titleChip = {
+        x: pt.x * scale,
+        y: pt.y * scale,
+        text: onMapTitle.text,
+        style: onMapTitle.style,
+      };
+    }
+
     return {
       canvas: composite({
         mapCanvas,
         outputWidth,
         outputHeight,
-        onMapTitle,
+        titleChip,
         coeff,
         chipScale: scale,
       }),
@@ -297,7 +337,7 @@ function composite({
   mapCanvas,
   outputWidth,
   outputHeight,
-  onMapTitle,
+  titleChip,
   coeff,
   chipScale,
 }) {
@@ -331,16 +371,17 @@ function composite({
   // PO-008/009 — draw the on-map title chip AFTER the map pixels (so it
   // floats on top of tiles + markers) and BEFORE wrapFrame (which runs in
   // the caller, so the decorative frame never paints over the title). The
-  // position ratio multiplies the ACTUAL output dims (device or CSS), and
-  // the chip typography multiplies `coeff` by `chipScale` (dpr for current
-  // view, 1 for a preset) so the pill keeps the same visual proportion in
-  // both pixel spaces.
-  if (onMapTitle) {
+  // caller (captureFramed) has already placed the chip's center at the
+  // anchor's re-projected output pixel (FBL-012); here we only draw it. The
+  // chip typography multiplies `coeff` by `chipScale` (dpr for current view,
+  // 1 for a preset) so the pill keeps the same visual proportion in both
+  // pixel spaces.
+  if (titleChip) {
     drawOnMapTitle(ctx, {
-      x: onMapTitle.xRatio * outputWidth,
-      y: onMapTitle.yRatio * outputHeight,
-      style: onMapTitle.style,
-      text: onMapTitle.text,
+      x: titleChip.x,
+      y: titleChip.y,
+      style: titleChip.style,
+      text: titleChip.text,
       coeff: coeff * chipScale,
     });
   }
@@ -439,24 +480,21 @@ function wrapFrame(innerCanvas, frame, scale = 1) {
   return out;
 }
 
-// PO-008/009. Projects the on-map title's stored lon/lat onto the LIVE
-// map container's pixel space and returns the position as a ratio of the
-// container's CSS dimensions, plus the user's formatting state pulled
-// straight off the storage object. composite() multiplies the ratio by
-// the export's map area so the chip lands at the same on-screen position
-// the user saw before clicking Export.
-function projectOnMapTitle(mapInstance, raw) {
+// PO-008/009. Validates the stored on-map title and extracts what the export
+// needs — the anchor's lon/lat plus the user's formatting — or null when
+// there's nothing renderable (missing/empty text, non-finite coordinates).
+// The pixel position is deliberately NOT computed here: captureFramed
+// re-projects the anchor on the LIVE map AFTER the preset resize (FBL-012),
+// so the chip lands on the same geography it labels regardless of the
+// export's aspect ratio, instead of the old pre-resize ratio approximation.
+function prepareOnMapTitle(raw) {
   if (!raw || !raw.text) return null;
   if (!Number.isFinite(raw.lon) || !Number.isFinite(raw.lat)) return null;
 
-  const rect = mapInstance.getContainer().getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-
-  const pt = mapInstance.project([raw.lon, raw.lat]);
   return {
     text: raw.text,
-    xRatio: pt.x / rect.width,
-    yRatio: pt.y / rect.height,
+    lon: raw.lon,
+    lat: raw.lat,
     style: {
       font: raw.font,
       bold: Boolean(raw.bold),
@@ -567,11 +605,25 @@ function waitForIdle(mapInstance, timeoutMs) {
   });
 }
 
-// Resolves on the next render frame. Used after triggerRepaint() so that
-// getCanvas().toDataURL() reads pixels that match the current state, not
-// the previous frame's framebuffer.
-function waitForRender(mapInstance) {
-  return new Promise((resolve) => mapInstance.once("render", resolve));
+// Resolves on the next render frame, or after `timeoutMs` if the `render`
+// event never fires (see RENDER_WAIT_TIMEOUT_MS). Mirrors waitForIdle's
+// race-against-timeout so both capture paths always settle and unwind their
+// cleanup even under WebGL context loss. Used after triggerRepaint() so that
+// getCanvas().toDataURL() reads pixels that match the current state, not the
+// previous frame's framebuffer.
+function waitForRender(mapInstance, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      mapInstance.off("render", finish);
+      clearTimeout(timer);
+      resolve();
+    };
+    mapInstance.once("render", finish);
+    const timer = setTimeout(finish, timeoutMs);
+  });
 }
 
 function triggerDownload(dataUrl, filename) {

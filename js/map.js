@@ -410,6 +410,13 @@ let lastRouteVisible = false;
 // doesn't desync.
 let dragState = null;
 
+// Handle for silently cancelling a still-pending FBL-010 boot guard (see
+// initMap). Set inside initMap to a function that settles the guard without
+// a banner; nulled once the guard settles on its own (confirm/fail) so a
+// stale reference can't be re-invoked. setMapStyle calls this at the top of
+// every swap — see the comment there for why.
+let cancelBootGuard = null;
+
 /**
  * Initialize the MapLibre map inside the given container element id.
  * Idempotent: calling twice returns the existing instance.
@@ -422,24 +429,146 @@ let dragState = null;
 export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   if (mapInstance) return mapInstance;
 
-  const initial =
+  let initial =
     MAP_STYLES.find((s) => s.id === initialStyleId) ??
     MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
+
+  // Substitute any `{api_key}` placeholder before the first paint. The raw
+  // MAP_STYLES entry carries the literal token (e.g. "…?key={api_key}"), and
+  // the constructor fetches the style immediately — unlike the runtime swap
+  // path, which always resolves via setMapStyle → resolveStyleUrl. Without
+  // this, booting into a persisted token-required style would fetch the
+  // literal placeholder → 403 → blank map.
+  //
+  // resolveStyleUrl throws when a token-required style has no key set. app.js's
+  // boot gate normally diverts that case to the keyless default, but initMap
+  // must not crash if reached directly, so degrade to the default here with a
+  // banner (the default is keyless, so its resolve never throws) — mirroring
+  // setMapStyle's missing-key handling.
+  let resolvedStyle;
+  try {
+    resolvedStyle = resolveStyleUrl(initial);
+  } catch (err) {
+    showError(`${err.message}. Open Settings (⚙ in side panel) to add one.`);
+    initial = MAP_STYLES.find((s) => s.id === DEFAULT_MAP_STYLE_ID);
+    resolvedStyle = resolveStyleUrl(initial);
+  }
 
   // MapLibre uses [lon, lat]; our previous Leaflet code used [lat, lon].
   // Center [0, 20] → 20° north, 0° east, matching the previous setView.
   mapInstance = new maplibregl.Map({
     container: containerId,
-    style: initial.style,
+    style: resolvedStyle,
     center: [0, 20],
     zoom: 2,
     preserveDrawingBuffer: true,
   });
 
-  // Seed currentRenderedStyleId so applyLabelVisibility's raster-check
-  // works on the very first styledata firing — before any setMapStyle()
-  // call has had a chance to set it via the swap success path.
-  currentRenderedStyleId = initial.id;
+  // Boot-load guard. The very first style load gets the same failure
+  // surfacing setMapStyle gives runtime swaps — but simpler: on failure we
+  // only banner and leave the map as-is (the user recovers via the style
+  // picker), never auto-swap to another style. currentRenderedStyleId is
+  // set ONLY once a render is confirmed below — never unconditionally at
+  // boot — so applyLabelVisibility's raster-check and a later failed swap's
+  // revert both key off a style that actually rendered, not a boot guess.
+  //
+  // Mirrors setMapStyle's raster/vector split:
+  //   VECTOR — a `styledata` firing proves the hosted style JSON loaded, so
+  //     it confirms the render immediately (a bad URL/key fails the fetch
+  //     before styledata fires, taking the error path).
+  //   RASTER — `styledata` only proves the inline object parsed; a bad tile
+  //     host fails later, so confirmation waits for an actual basemap tile
+  //     `data` event (scoped to the raster source id, since the app's own
+  //     pins/route sources also fire tile `data`), or the timeout / a tile
+  //     `error`.
+  const bootIsRaster = isRasterStyleEntry(initial);
+  let bootSettled = false;
+
+  // First-evidence-wins: whichever of confirm/fail/timeout fires first
+  // commits and the rest no-op, exactly like setMapStyle's `settled` guard.
+  const confirmBoot = () => {
+    if (bootSettled) return;
+    bootSettled = true;
+    bootCleanup();
+    cancelBootGuard = null;
+    currentRenderedStyleId = initial.id;
+  };
+
+  const failBoot = (status) => {
+    if (bootSettled) return;
+    bootSettled = true;
+    bootCleanup();
+    cancelBootGuard = null;
+    // Reuse setMapStyle's message builder (key/quota specifics), then name
+    // the style and point the user at recovery. No revert, no auto-swap.
+    showError(
+      `${buildStyleErrorMessage(initial, status)} The "${initial.label}" ` +
+        `basemap didn't render at startup — pick another from the style picker.`
+    );
+  };
+
+  // Vector: styledata confirms; any error is a real load failure (vector
+  // styles have a `glyphs` property, so the pins-labels layer never trips a
+  // benign style-validation error the way the raster inline object does).
+  const onBootStyleData = () => confirmBoot();
+  const onBootError = (err) => failBoot(err && err.error && err.error.status);
+
+  // Raster: confirm only when a basemap tile actually loads; fail only on an
+  // error attributable to the raster source (ignoring the benign no-sourceId
+  // glyphs validation error our pins-labels layer emits over inline styles).
+  const onBootTileData = (e) => {
+    if (
+      e.dataType === "source" &&
+      e.sourceId === "raster-source" &&
+      e.tile &&
+      e.tile.state === "loaded"
+    ) {
+      confirmBoot();
+    }
+  };
+  const onBootTileError = (err) => {
+    if (!err || err.sourceId !== "raster-source") return;
+    failBoot(err.error && err.error.status);
+  };
+
+  const bootCleanup = () => {
+    mapInstance.off("styledata", onBootStyleData);
+    mapInstance.off("data", onBootTileData);
+    mapInstance.off("error", onBootError);
+    mapInstance.off("error", onBootTileError);
+    clearTimeout(bootTimer);
+  };
+
+  // Silent settle: a user-initiated style swap takes over before the boot
+  // guard resolves on its own. The guard is gated on the BOOT style's
+  // identity (a raster boot only confirms on ITS OWN raster-source tile
+  // events; a vector boot only confirms on styledata for that load), so once
+  // setMapStyle swaps to a different style those events can never fire
+  // again — the guard would otherwise sit until its 5s timeout and banner a
+  // false "didn't render at startup" failure naming the OLD style while the
+  // new one is rendering fine. No banner, no confirm: the boot guard's job
+  // outlives its usefulness the moment a user-initiated swap takes over, so
+  // we just detach it. setMapStyle calls this before starting its own swap.
+  cancelBootGuard = () => {
+    if (bootSettled) return;
+    bootSettled = true;
+    bootCleanup();
+    cancelBootGuard = null;
+  };
+
+  // Covers both a vector style whose JSON never resolves and a raster style
+  // whose tiles never load — either way the failure surfaces instead of a
+  // permanently blank, silent map. Registered before the `load`/styledata
+  // handlers below so onBootStyleData sets currentRenderedStyleId ahead of
+  // the applyLabelVisibility styledata handler on the first firing.
+  const bootTimer = setTimeout(() => failBoot(0), STYLE_LOAD_TIMEOUT_MS);
+  if (bootIsRaster) {
+    mapInstance.on("data", onBootTileData);
+    mapInstance.on("error", onBootTileError);
+  } else {
+    mapInstance.once("styledata", onBootStyleData);
+    mapInstance.on("error", onBootError);
+  }
 
   // The first style emits `load` once tiles + sprites + glyphs are ready.
   // Re-add markers/route here so a hydrated pin set paints on first frame
@@ -710,6 +839,13 @@ export function setMapStyle(styleId, { persist = true } = {}) {
     activeSwapCleanup();
     activeSwapCleanup = null;
   }
+
+  // Same cancellation for a still-pending FBL-010 boot guard. Without this,
+  // a raster boot style swapped away from before its first tile loads would
+  // leave the guard's raster-gated listeners waiting on events that can
+  // never fire, and it would banner a false startup-failure 5s later. See
+  // the comment on cancelBootGuard's assignment in initMap.
+  if (cancelBootGuard) cancelBootGuard();
 
   // Snapshot of the style we'll revert to if the swap fails.
   const previousId = currentRenderedStyleId ?? DEFAULT_MAP_STYLE_ID;
