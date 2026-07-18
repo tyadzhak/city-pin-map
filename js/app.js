@@ -38,7 +38,7 @@ import {
   saveOnMapTitle,
   showError,
 } from "./storage.js";
-import { exportMapAsPng } from "./export.js";
+import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
 import { exportToJson, importFromJson } from "./backup.js";
 import { importFromFile } from "./import-foreign.js";
 import { initSearch } from "./search.js";
@@ -50,6 +50,7 @@ import { initSideTabs } from "./side-tabs.js";
 import * as mapTitle from "./map-title.js";
 import * as mapFrame from "./map-frame.js";
 import * as mapFade from "./map-fade.js";
+import * as mapViewport from "./map-viewport.js";
 
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
@@ -242,16 +243,28 @@ function init() {
 // An unknown saved id (older app version, hand-edited storage) falls
 // through to the <select>'s first option, which the HTML pins to
 // "current" — so corruption degrades to the safe default.
+//
+// Also drives js/map-viewport.js: whenever the selected preset changes (on
+// boot from the persisted value, and on every subsequent `change`), the
+// live `#map` is letterboxed to that preset's aspect ratio so the on-screen
+// view previews exactly what Export PNG will crop (WYSIWYG). Guarded for a
+// missing map (initMap failed) so persistence still works headless.
 function initExportFormatSelector() {
   const select = document.getElementById("export-format");
   if (!select) return;
+
+  const map = getMap();
+  const viewport = map ? mapViewport.init(map) : undefined;
 
   const saved = loadExportFormat();
   const isKnown = Array.from(select.options).some((o) => o.value === saved);
   if (isKnown) select.value = saved;
 
+  viewport?.setPreset(EXPORT_PRESETS[select.value] ?? null);
+
   select.addEventListener("change", (event) => {
     saveExportFormat(event.target.value);
+    viewport?.setPreset(EXPORT_PRESETS[event.target.value] ?? null);
   });
 }
 
@@ -395,9 +408,10 @@ function wireFrameControls(suffix, savedFrameEl) {
 function initBottomFadeOptions() {
   const enabled = document.getElementById("bottom-fade-enabled");
   const height = document.getElementById("bottom-fade-height");
+  const intensity = document.getElementById("bottom-fade-intensity");
   const color = document.getElementById("bottom-fade-color");
   const controls = document.getElementById("bottom-fade-controls");
-  if (!enabled || !height || !color || !controls) return undefined;
+  if (!enabled || !height || !intensity || !color || !controls) return undefined;
 
   // The live overlay needs a map to attach to; on a boot path where initMap
   // failed outright there's nothing to preview, so just skip that half and
@@ -406,16 +420,20 @@ function initBottomFadeOptions() {
   if (map) mapFade.init(map);
 
   // Single read path both persist() and the live-overlay update share, so
-  // they can never disagree about what's currently on screen.
+  // they can never disagree about what's currently on screen. Empty field
+  // (briefly-NaN valueAsNumber mid-edit) reads as 0 for both height and
+  // intensity, so the preview and export never diverge on an empty input.
   const readFade = () => ({
     enabled: enabled.checked,
     height: Number.isFinite(height.valueAsNumber) ? height.valueAsNumber : 0,
+    intensity: Number.isFinite(intensity.valueAsNumber) ? intensity.valueAsNumber : 0,
     color: color.value,
   });
 
   const saved = loadBottomFade();
   enabled.checked = saved.enabled;
   height.value = String(saved.height);
+  intensity.value = String(saved.intensity);
   color.value = saved.color;
   controls.dataset.fadeEnabled = saved.enabled ? "true" : "false";
 
@@ -438,6 +456,7 @@ function initBottomFadeOptions() {
   // overlay updates as the user scrubs a value, mirroring the frame
   // controls' behaviour.
   height.addEventListener("input", persist);
+  intensity.addEventListener("input", persist);
   color.addEventListener("input", persist);
 
   // FBL-013-style live accessor so the export button reads the same

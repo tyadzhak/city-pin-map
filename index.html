@@ -284,6 +284,9 @@
                 <option value="photo-10x15-portrait">
                   10×15 cm portrait (300 DPI)
                 </option>
+                <option value="photo-10x15-landscape">
+                  15×10 cm landscape (300 DPI)
+                </option>
               </select>
             </div>
 
@@ -476,6 +479,16 @@
                   class="bottom-fade-controls__height"
                   aria-label="Bottom fade height (percent of map height)"
                   title="Fade height (% of map height)"
+                />
+                <input
+                  id="bottom-fade-intensity"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  class="bottom-fade-controls__intensity"
+                  aria-label="Bottom fade intensity (percent solid)"
+                  title="Fade intensity — how much of the band stays solid (%)"
                 />
                 <input
                   id="bottom-fade-color"
