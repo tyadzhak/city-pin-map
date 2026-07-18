@@ -116,14 +116,20 @@ export function walk(el, violations) {
   }
   for (const attr of Array.from(el.attributes)) {
     const name = attr.name.toLowerCase();
+    // Local part = attribute name with any namespace prefix stripped
+    // (e.g. `xlink:href` / `x:href` → `href`). Both the href decision and
+    // the final allowlist check key off this, so ANY `*:href` prefix
+    // routes through SAFE_HREF_RE below — a prefixed href can't slip past
+    // by matching the bare local-part allowlist entry.
+    const local = name.includes(":") ? name.split(":")[1] : name;
     // on* event handlers — never safe.
     if (name.startsWith("on")) {
       violations.push(`${name}=`);
       continue;
     }
-    // xlink:href / href — only fragment refs (#foo) are safe; reject
-    // javascript:, data:, http:, etc.
-    if (name === "href" || name === "xlink:href") {
+    // href (any namespace prefix: href, xlink:href, x:href, …) — only
+    // fragment refs (#foo) are safe; reject javascript:, data:, http:, etc.
+    if (local === "href") {
       if (!SAFE_HREF_RE.test(attr.value || "")) {
         violations.push(`${name} (unsafe value)`);
       }
@@ -138,9 +144,8 @@ export function walk(el, violations) {
     if (name.startsWith("data-") || name.startsWith("aria-")) {
       continue;
     }
-    // Strip namespace prefix for the allowlist check (e.g. xlink:href
-    // already handled above; xml:space, xml:lang are unsafe noise).
-    const local = name.includes(":") ? name.split(":")[1] : name;
+    // Namespace prefix already stripped into `local` above; anything not
+    // on the allowlist (xml:space, xml:lang, unknown attrs) is rejected.
     if (!ALLOWED_ATTRS.has(local)) {
       violations.push(`${name}=`);
     }

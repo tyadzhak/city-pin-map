@@ -75,6 +75,28 @@ test("walk: accepts internal fragment href", () => {
   assert.deepEqual(violations, []);
 });
 
+test("walk: rejects javascript: in namespace-prefixed href (x:href bypass)", () => {
+  // A non-standard prefix must not let an unsafe href skip SAFE_HREF_RE by
+  // matching the bare `href` local-part allowlist entry (FBL-023).
+  const svg = el("svg", {
+    children: [el("path", { attributes: { "x:href": "javascript:alert(1)" } })],
+  });
+  const violations = [];
+  walk(svg, violations);
+  assert.match(violations[0], /href \(unsafe value\)/);
+});
+
+test("walk: accepts internal fragment href with a namespace prefix", () => {
+  // Safe fragment refs stay accepted regardless of prefix, matching the
+  // treatment of bare href / xlink:href.
+  const svg = el("svg", {
+    children: [el("path", { attributes: { "x:href": "#grad" } })],
+  });
+  const violations = [];
+  walk(svg, violations);
+  assert.deepEqual(violations, []);
+});
+
 test("walk: rejects <foreignObject>", () => {
   const svg = el("svg", {
     children: [el("foreignObject", {})],
