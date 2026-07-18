@@ -1,3 +1,9 @@
+// DEFAULT_PIN_COLOR is the single source of truth for a new pin's shade
+// (pins.js). Imported here so the boot-time pin normalizer (FBL-014) can
+// repair a saved pin with a missing/blank color to the same default the
+// backup-import path uses. pins.js imports nothing, so this is cycle-free.
+import { DEFAULT_PIN_COLOR } from "./pins.js";
+
 const STORAGE_KEY = "city-pin-map.pins.v1";
 const GROUPS_STORAGE_KEY = "city-pin-map.groups.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
@@ -31,6 +37,12 @@ const API_KEY_STORAGE_BY_PROVIDER = {
 
 const DEFAULT_EXPORT_FORMAT = "current";
 const BANNER_TIMEOUT_MS = 6000;
+
+// Fallback color for a saved group whose stored color isn't a 6-digit hex.
+// Mirrors backup.js's DEFAULT_GROUP_COLOR (the first shade group-panel.js
+// ships new groups with) so a repaired group looks native rather than flagged.
+const DEFAULT_GROUP_COLOR = "#e63946";
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 // PO-008/009 — on-map title state. lon/lat are nullable so the input can
 // hold text before a position has been chosen; the live overlay seeds
@@ -107,7 +119,12 @@ export function loadPins() {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error("saved pins is not an array");
-    return parsed;
+    // Element-level validation (FBL-014): a null/malformed element used to
+    // pass through verbatim and later crash init() (pin-list sorts on
+    // a.createdAt) or load as an invisible ghost pin re-persisted forever.
+    const { items, dropped } = normalizeLoadedPins(parsed);
+    reportLoadDropped(dropped, "pin");
+    return items;
   } catch (err) {
     console.error("saved pins corrupt; ignoring:", err);
     showError("Saved pins were corrupted and have been ignored.");
@@ -143,7 +160,10 @@ export function loadGroups() {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error("saved groups is not an array");
-    return parsed;
+    // Element-level validation (FBL-014) — same rationale as loadPins.
+    const { items, dropped } = normalizeLoadedGroups(parsed);
+    reportLoadDropped(dropped, "group");
+    return items;
   } catch (err) {
     console.error("saved groups corrupt; ignoring:", err);
     showError("Saved groups were corrupted and have been ignored.");
@@ -178,7 +198,10 @@ export function loadUserIcons() {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error("saved user icons is not an array");
-    return parsed;
+    // Element-level validation (FBL-014) — same rationale as loadPins.
+    const { items, dropped } = normalizeLoadedUserIcons(parsed);
+    reportLoadDropped(dropped, "custom icon");
+    return items;
   } catch (err) {
     console.error("saved user icons corrupt; ignoring:", err);
     showError("Saved custom icons were corrupted and have been ignored.");
@@ -200,6 +223,155 @@ export function saveUserIcons(icons) {
 export function attachUserIconStorage(userIconStore) {
   userIconStore.replaceAll(loadUserIcons());
   return userIconStore.subscribe(saveUserIcons);
+}
+
+// ── Boot-time element normalizers (FBL-014) ──────────────────────────────
+//
+// The load functions above used to pass array elements through verbatim
+// once the top-level value proved to be an array. A single bad element (a
+// `null` from a truncated write, a pin with a string `lat`) then either
+// crashed init() outright — pin-list.js sorts pins on `a.createdAt`, and a
+// null element throws a TypeError that aborts ALL of app.js's init() with no
+// recovery on reload — or loaded as an invisible "ghost" pin that MapLibre
+// silently drops yet savePins re-persists forever.
+//
+// These mirror js/backup.js's import-path normalizers (the repo's existing
+// precedent for exactly this): drop non-object entries, drop entries with
+// non-finite / out-of-range coordinates or no name, and default the rest to
+// the same fallbacks the import path uses. Optional fields follow the
+// data-model contract — a stale group/icon reference is preserved (never a
+// reason to drop) and an absent originalLat/originalLon pair stays absent.
+//
+// Kept here rather than imported from backup.js: backup.js already imports
+// from this module, so importing back would form a cycle. The small
+// duplication is the smaller, more localized change (F4 owns only storage.js).
+
+// Coerce a raw coordinate to a finite number, or null when blank/absent/
+// unparseable. Mirrors backup.js toFiniteNumber — Number("") and Number(null)
+// both yield 0, which without this guard would smuggle a (0,0) pin past the
+// range check.
+function toFiniteNumber(raw) {
+  if (raw === null || raw === undefined) return null;
+  const value = typeof raw === "string" ? raw.trim() : raw;
+  if (value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function normalizeLoadedPins(rawPins) {
+  const items = [];
+  let dropped = 0;
+  for (const raw of rawPins) {
+    if (!raw || typeof raw !== "object") {
+      dropped++;
+      continue;
+    }
+    const lat = toFiniteNumber(raw.lat);
+    const lon = toFiniteNumber(raw.lon);
+    const hasName = typeof raw.name === "string" && raw.name.trim().length > 0;
+    if (
+      lat === null || lat < -90 || lat > 90 ||
+      lon === null || lon < -180 || lon > 180 ||
+      !hasName
+    ) {
+      dropped++;
+      continue;
+    }
+    const pin = {
+      id: typeof raw.id === "string" && raw.id ? raw.id : crypto.randomUUID(),
+      name: raw.name,
+      lat,
+      lon,
+      color: typeof raw.color === "string" && raw.color ? raw.color : DEFAULT_PIN_COLOR,
+      group: typeof raw.group === "string" ? raw.group : null,
+      icon: typeof raw.icon === "string" ? raw.icon : null,
+      createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
+    };
+    // Carry the geocoded origin (FBL-008) only when BOTH values are finite
+    // and in range — never invent an origin; a pin lacking them stays
+    // button-less (pre-FBL-008 contract), same as the import path.
+    const originalLat = toFiniteNumber(raw.originalLat);
+    const originalLon = toFiniteNumber(raw.originalLon);
+    if (
+      originalLat !== null && originalLat >= -90 && originalLat <= 90 &&
+      originalLon !== null && originalLon >= -180 && originalLon <= 180
+    ) {
+      pin.originalLat = originalLat;
+      pin.originalLon = originalLon;
+    }
+    items.push(pin);
+  }
+  return { items, dropped };
+}
+
+function normalizeLoadedGroups(rawGroups) {
+  const items = [];
+  let dropped = 0;
+  for (const raw of rawGroups) {
+    if (!raw || typeof raw !== "object") {
+      dropped++;
+      continue;
+    }
+    if (typeof raw.name !== "string" || raw.name.trim().length === 0) {
+      dropped++;
+      continue;
+    }
+    items.push({
+      id: typeof raw.id === "string" && raw.id ? raw.id : crypto.randomUUID(),
+      name: raw.name,
+      color: typeof raw.color === "string" && HEX_COLOR_RE.test(raw.color)
+        ? raw.color
+        : DEFAULT_GROUP_COLOR,
+      createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
+    });
+  }
+  return { items, dropped };
+}
+
+function normalizeLoadedUserIcons(rawIcons) {
+  const items = [];
+  let dropped = 0;
+  for (const raw of rawIcons) {
+    if (!raw || typeof raw !== "object") {
+      dropped++;
+      continue;
+    }
+    // fillSvg is the only irreparable field: an icon with no markup can't
+    // render. Unlike backup.js's import path, the SVG is NOT re-run through
+    // ingestSvg here — the user-icon store already sanitized every entry on
+    // the way in, and re-sanitizing the whole library on every boot would put
+    // svg-ingest on the critical init path for no correctness gain.
+    if (typeof raw.fillSvg !== "string" || raw.fillSvg.length === 0) {
+      dropped++;
+      continue;
+    }
+    items.push({
+      id: typeof raw.id === "string" && raw.id ? raw.id : crypto.randomUUID(),
+      name: typeof raw.name === "string" ? raw.name : "",
+      tintable: Boolean(raw.tintable),
+      fillSvg: raw.fillSvg,
+      attribution: normalizeLoadedAttribution(raw.attribution),
+      createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
+    });
+  }
+  return { items, dropped };
+}
+
+function normalizeLoadedAttribution(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  return {
+    artistName: typeof raw.artistName === "string" ? raw.artistName : null,
+    sourceUrl: typeof raw.sourceUrl === "string" ? raw.sourceUrl : null,
+  };
+}
+
+// One summary banner per load when entries were dropped — never silent
+// (CLAUDE.md error convention), mirroring backup.js's reportDropped tone.
+function reportLoadDropped(count, noun) {
+  if (count <= 0) return;
+  showError(
+    `Skipped ${count} saved ${noun}${count === 1 ? "" : "s"} that couldn't be read; everything else was loaded.`
+  );
 }
 
 // Map-style preference. Stored as a bare string (not JSON) — the value is a
