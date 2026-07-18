@@ -87,6 +87,7 @@ const CANVAS_BACKGROUND = "#ffffff";
 // 96 dpi for A-series; see NICE-007 notes. The 10×15 cm photo-print preset
 // (PO-005) is 300 dpi to meet consumer photo-lab requirements:
 // 10 cm × 300 dpi ÷ 2.54 ≈ 1181, 15 cm × 300 dpi ÷ 2.54 ≈ 1772.
+// The landscape sibling is the same 300 dpi math with dimensions swapped.
 export const EXPORT_PRESETS = {
   current: null,
   square: { width: 1080, height: 1080 },
@@ -96,6 +97,7 @@ export const EXPORT_PRESETS = {
   "a3-portrait": { width: 1191, height: 1684 },
   "a3-landscape": { width: 1684, height: 1191 },
   "photo-10x15-portrait": { width: 1181, height: 1772 },
+  "photo-10x15-landscape": { width: 1772, height: 1181 },
 };
 
 // PO-008/009 — on-map title chip. Typography (font, weight, italic, color,
