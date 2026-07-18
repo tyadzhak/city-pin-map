@@ -26,7 +26,7 @@
       src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"
     ></script>
 
-    <link rel="stylesheet" href="css/styles.css?v=po-009" />
+    <link rel="stylesheet" href="css/styles.css?v=side-tabs" />
   </head>
   <body>
     <div class="app-shell">
@@ -129,260 +129,340 @@
           />
           <span class="route-toggle__label">Show route</span>
         </label>
-        <!-- Export options live in their own panel so future controls
-             (NICE-007 dimensions / aspect ratio) can be added in the same
-             slot without further header gymnastics. -->
-        <div class="export-options" aria-label="Export options">
-          <!-- PO-008/009: on-map title. The input drives a draggable
-               overlay rendered both in the live map (js/map-title.js)
-               and in the exported PNG (js/export.js → drawOnMapTitle).
-               PO-009 retired the title strip — this is the only text
-               pass on the export now, and the toolbar to its right
-               (font / B / I / color / size) is the user's full set of
-               formatting controls. -->
-          <input
-            id="export-on-map-title"
-            type="text"
-            class="export-options__input"
-            placeholder="On-map title"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <select
-            id="otm-font"
-            class="otm-format-select"
-            aria-label="Font family"
-            title="Font family"
-          >
-            <option value='Georgia, "Times New Roman", serif'>Georgia</option>
-            <option value='"Times New Roman", Times, serif'>Times</option>
-            <option value="Helvetica, Arial, sans-serif">Helvetica</option>
-            <option value="Verdana, Geneva, sans-serif">Verdana</option>
-            <option value='"Trebuchet MS", "Lucida Sans Unicode", sans-serif'>
-              Trebuchet
-            </option>
-            <option value='"Courier New", Courier, monospace'>Courier</option>
-            <option value='Impact, "Arial Black", sans-serif'>Impact</option>
-          </select>
-          <button
-            id="otm-bold"
-            type="button"
-            class="otm-format-toggle"
-            aria-pressed="true"
-            aria-label="Bold"
-            title="Bold"
-          >
-            <span class="otm-format-toggle__glyph otm-format-toggle__glyph--bold">B</span>
-          </button>
-          <button
-            id="otm-italic"
-            type="button"
-            class="otm-format-toggle"
-            aria-pressed="false"
-            aria-label="Italic"
-            title="Italic"
-          >
-            <span class="otm-format-toggle__glyph otm-format-toggle__glyph--italic">I</span>
-          </button>
-          <input
-            id="otm-color"
-            type="color"
-            class="otm-format-color"
-            aria-label="Text color"
-            title="Text color"
-          />
-          <input
-            id="otm-size"
-            type="number"
-            min="10"
-            max="80"
-            step="1"
-            class="otm-format-size"
-            aria-label="Font size in pixels"
-            title="Size (px)"
-          />
-          <label for="export-format" class="visually-hidden"
-            >Export format</label
-          >
-          <!-- Preset id values are kept in sync with EXPORT_PRESETS in
-               js/export.js. Keep the option strings short — the cluster
-               sits next to the title/subtitle inputs and a long label
-               would push the Export button off-line on smaller windows. -->
-          <select
-            id="export-format"
-            class="export-format-select"
-            aria-label="Export format"
-          >
-            <option value="current">Current view</option>
-            <option value="square">Square 1:1 (1080×1080)</option>
-            <option value="16x9">16:9 (1920×1080)</option>
-            <option value="a4-portrait">A4 portrait (794×1123)</option>
-            <option value="a4-landscape">A4 landscape (1123×794)</option>
-            <option value="a3-portrait">A3 portrait (1191×1684)</option>
-            <option value="a3-landscape">A3 landscape (1684×1191)</option>
-            <option value="photo-10x15-portrait">
-              10×15 cm portrait (300 DPI)
-            </option>
-          </select>
-          <!-- Frame controls (PO-007, extended with padding/margin/radius).
-               The "Add frame" toggle drives the visibility of the thickness /
-               color / padding / margin / radius / shadow inputs via the
-               data-frame-enabled attribute on the wrapper — app.js flips it
-               on hydration and on every change. The dependent controls are
-               kept in the DOM at all times so tab order and ARIA stay
-               consistent; only their `display` is suppressed. A live WYSIWYG
-               preview of this frame renders on the map itself via
-               js/map-frame.js. -->
-          <label class="export-frame-toggle" title="Decorative frame around the exported PNG">
-            <input
-              id="export-frame-enabled"
-              type="checkbox"
-              class="export-frame-toggle__input"
-            />
-            <span class="export-frame-toggle__label">Frame</span>
-          </label>
-          <span
-            id="export-frame-controls"
-            class="export-frame-controls"
-            data-frame-enabled="false"
-          >
-            <input
-              id="export-frame-thickness"
-              type="number"
-              min="0"
-              max="200"
-              step="1"
-              class="export-frame-controls__thickness"
-              aria-label="Frame thickness in pixels"
-              title="Frame thickness (px)"
-            />
-            <input
-              id="export-frame-color"
-              type="color"
-              class="export-frame-controls__color"
-              aria-label="Frame color"
-              title="Frame color"
-            />
-            <input
-              id="export-frame-padding"
-              type="number"
-              min="0"
-              max="200"
-              step="1"
-              class="export-frame-controls__padding"
-              aria-label="Frame padding in pixels"
-              title="Padding — white mat between map edge and frame band (px)"
-            />
-            <input
-              id="export-frame-margin"
-              type="number"
-              min="0"
-              max="200"
-              step="1"
-              class="export-frame-controls__margin"
-              aria-label="Frame margin in pixels"
-              title="Margin — white outer gap around the frame band (px)"
-            />
-            <input
-              id="export-frame-radius"
-              type="number"
-              min="0"
-              max="200"
-              step="1"
-              class="export-frame-controls__radius"
-              aria-label="Frame corner radius in pixels"
-              title="Corner radius of the frame band (px)"
-            />
-            <label class="export-frame-shadow-toggle" title="Soft drop shadow inside the frame">
-              <input
-                id="export-frame-shadow"
-                type="checkbox"
-                class="export-frame-shadow-toggle__input"
-              />
-              <span class="export-frame-shadow-toggle__label">Shadow</span>
-            </label>
-          </span>
-        </div>
-        <button id="export-png" type="button" class="export-btn">
-          Export PNG
-        </button>
-        <!-- Inline progress status (HARDEN-003). Rendered to the right of
-             the Export button so it never shifts the button when shown.
-             Empty at rest; CSS uses :empty to drop it from layout entirely
-             so the header reads identically when no export is in flight. -->
-        <span
-          id="export-status"
-          class="export-status"
-          role="status"
-          aria-live="polite"
-        ></span>
       </header>
 
       <main class="app-map" aria-label="Map">
         <div id="map"></div>
       </main>
 
-      <aside class="app-side" aria-label="Pinned cities">
-        <!-- Groups panel (NICE-004). Sits above the pins list per the
-             implementation prompt; the section is its own scroll context
-             so a long group list never starves the pins list below. -->
-        <section class="group-panel" aria-label="Groups">
-          <div class="group-panel__header">
-            <h2 class="group-panel__heading">Groups</h2>
-            <button id="add-group" type="button" class="group-panel__add">
-              Add group
-            </button>
+      <!-- Design | Pins | Groups tabs (side-tabs restructuring). Moves the
+           export/title/frame config that used to clutter the header into its
+           own tab so the header stays a thin search/basemap toolbar. Wired
+           by js/side-tabs.js; active tab persists via storage.js
+           load/saveActiveSideTab so a reload reopens the last-used tab. -->
+      <aside class="app-side" aria-label="Map design and pinned cities">
+        <div class="side-tabs" role="tablist" aria-label="Side panel sections">
+          <button
+            id="side-tab-design"
+            class="side-tab"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="side-panel-design"
+          >
+            Design
+          </button>
+          <button
+            id="side-tab-pins"
+            class="side-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="side-panel-pins"
+            tabindex="-1"
+          >
+            Pins
+          </button>
+          <button
+            id="side-tab-groups"
+            class="side-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="side-panel-groups"
+            tabindex="-1"
+          >
+            Groups
+          </button>
+        </div>
+
+        <!-- Design tab: on-map title + formatting, export size, frame, and
+             the Export PNG action. Moved verbatim out of the old header
+             .export-options cluster — every id/class/attribute preserved so
+             app.js's getElementById wiring and the existing CSS keep working
+             unchanged. -->
+        <section
+          id="side-panel-design"
+          class="side-panel side-panel--design"
+          role="tabpanel"
+          aria-labelledby="side-tab-design"
+        >
+          <div class="design-scroll">
+            <div class="design-group">
+              <h2 class="design-group__heading">Title</h2>
+              <!-- PO-008/009: on-map title. The input drives a draggable
+                   overlay rendered both in the live map (js/map-title.js)
+                   and in the exported PNG (js/export.js → drawOnMapTitle).
+                   PO-009 retired the title strip — this is the only text
+                   pass on the export now, and the toolbar below (font / B /
+                   I / color / size) is the user's full set of formatting
+                   controls. -->
+              <input
+                id="export-on-map-title"
+                type="text"
+                class="export-options__input"
+                placeholder="On-map title"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div class="design-row">
+                <select
+                  id="otm-font"
+                  class="otm-format-select"
+                  aria-label="Font family"
+                  title="Font family"
+                >
+                  <option value='Georgia, "Times New Roman", serif'>Georgia</option>
+                  <option value='"Times New Roman", Times, serif'>Times</option>
+                  <option value="Helvetica, Arial, sans-serif">Helvetica</option>
+                  <option value="Verdana, Geneva, sans-serif">Verdana</option>
+                  <option value='"Trebuchet MS", "Lucida Sans Unicode", sans-serif'>
+                    Trebuchet
+                  </option>
+                  <option value='"Courier New", Courier, monospace'>Courier</option>
+                  <option value='Impact, "Arial Black", sans-serif'>Impact</option>
+                </select>
+                <button
+                  id="otm-bold"
+                  type="button"
+                  class="otm-format-toggle"
+                  aria-pressed="true"
+                  aria-label="Bold"
+                  title="Bold"
+                >
+                  <span class="otm-format-toggle__glyph otm-format-toggle__glyph--bold">B</span>
+                </button>
+                <button
+                  id="otm-italic"
+                  type="button"
+                  class="otm-format-toggle"
+                  aria-pressed="false"
+                  aria-label="Italic"
+                  title="Italic"
+                >
+                  <span class="otm-format-toggle__glyph otm-format-toggle__glyph--italic">I</span>
+                </button>
+                <input
+                  id="otm-color"
+                  type="color"
+                  class="otm-format-color"
+                  aria-label="Text color"
+                  title="Text color"
+                />
+                <input
+                  id="otm-size"
+                  type="number"
+                  min="10"
+                  max="80"
+                  step="1"
+                  class="otm-format-size"
+                  aria-label="Font size in pixels"
+                  title="Size (px)"
+                />
+              </div>
+            </div>
+
+            <div class="design-group">
+              <h2 class="design-group__heading">Export size</h2>
+              <label for="export-format" class="visually-hidden"
+                >Export format</label
+              >
+              <!-- Preset id values are kept in sync with EXPORT_PRESETS in
+                   js/export.js. -->
+              <select
+                id="export-format"
+                class="export-format-select"
+                aria-label="Export format"
+              >
+                <option value="current">Current view</option>
+                <option value="square">Square 1:1 (1080×1080)</option>
+                <option value="16x9">16:9 (1920×1080)</option>
+                <option value="a4-portrait">A4 portrait (794×1123)</option>
+                <option value="a4-landscape">A4 landscape (1123×794)</option>
+                <option value="a3-portrait">A3 portrait (1191×1684)</option>
+                <option value="a3-landscape">A3 landscape (1684×1191)</option>
+                <option value="photo-10x15-portrait">
+                  10×15 cm portrait (300 DPI)
+                </option>
+              </select>
+            </div>
+
+            <div class="design-group">
+              <h2 class="design-group__heading">Frame</h2>
+              <!-- Frame controls (PO-007, extended with padding/margin/radius).
+                   The "Add frame" toggle drives the visibility of the thickness /
+                   color / padding / margin / radius / shadow inputs via the
+                   data-frame-enabled attribute on the wrapper — app.js flips it
+                   on hydration and on every change. The dependent controls are
+                   kept in the DOM at all times so tab order and ARIA stay
+                   consistent; only their `display` is suppressed. A live WYSIWYG
+                   preview of this frame renders on the map itself via
+                   js/map-frame.js. -->
+              <label class="export-frame-toggle" title="Decorative frame around the exported PNG">
+                <input
+                  id="export-frame-enabled"
+                  type="checkbox"
+                  class="export-frame-toggle__input"
+                />
+                <span class="export-frame-toggle__label">Frame</span>
+              </label>
+              <span
+                id="export-frame-controls"
+                class="export-frame-controls"
+                data-frame-enabled="false"
+              >
+                <input
+                  id="export-frame-thickness"
+                  type="number"
+                  min="0"
+                  max="200"
+                  step="1"
+                  class="export-frame-controls__thickness"
+                  aria-label="Frame thickness in pixels"
+                  title="Frame thickness (px)"
+                />
+                <input
+                  id="export-frame-color"
+                  type="color"
+                  class="export-frame-controls__color"
+                  aria-label="Frame color"
+                  title="Frame color"
+                />
+                <input
+                  id="export-frame-padding"
+                  type="number"
+                  min="0"
+                  max="200"
+                  step="1"
+                  class="export-frame-controls__padding"
+                  aria-label="Frame padding in pixels"
+                  title="Padding — white mat between map edge and frame band (px)"
+                />
+                <input
+                  id="export-frame-margin"
+                  type="number"
+                  min="0"
+                  max="200"
+                  step="1"
+                  class="export-frame-controls__margin"
+                  aria-label="Frame margin in pixels"
+                  title="Margin — white outer gap around the frame band (px)"
+                />
+                <input
+                  id="export-frame-radius"
+                  type="number"
+                  min="0"
+                  max="200"
+                  step="1"
+                  class="export-frame-controls__radius"
+                  aria-label="Frame corner radius in pixels"
+                  title="Corner radius of the frame band (px)"
+                />
+                <label class="export-frame-shadow-toggle" title="Soft drop shadow inside the frame">
+                  <input
+                    id="export-frame-shadow"
+                    type="checkbox"
+                    class="export-frame-shadow-toggle__input"
+                  />
+                  <span class="export-frame-shadow-toggle__label">Shadow</span>
+                </label>
+              </span>
+            </div>
           </div>
-          <ul id="group-list" class="group-list"></ul>
-          <p id="group-list-empty" class="group-list__empty">
-            No groups yet — click "Add group" to create one.
+          <div class="design-actions">
+            <button id="export-png" type="button" class="export-btn export-btn--block">
+              Export PNG
+            </button>
+            <!-- Inline progress status (HARDEN-003). Empty at rest; CSS uses
+                 :empty to drop it from layout entirely so the tab reads
+                 identically when no export is in flight. -->
+            <span
+              id="export-status"
+              class="export-status"
+              role="status"
+              aria-live="polite"
+            ></span>
+          </div>
+        </section>
+
+        <!-- Pins tab: unchanged Pins section, moved verbatim from the old
+             flat .app-side layout. -->
+        <section
+          id="side-panel-pins"
+          class="side-panel side-panel--pins"
+          role="tabpanel"
+          aria-labelledby="side-tab-pins"
+          hidden
+        >
+          <!-- Pins header bar mirrors .group-panel__header so the side panel
+               reads as one design family. The two backup buttons sit beside
+               the heading per HARDEN-001: a one-click rescue path the user
+               discovers in the same place they manage their pins. -->
+          <div class="pin-list__header">
+            <h2 class="pin-list__heading">Pins</h2>
+            <div class="backup-controls">
+              <button
+                id="open-settings"
+                type="button"
+                class="backup-btn backup-btn--icon"
+                aria-label="Open settings"
+                title="API keys and preferences"
+              >
+                ⚙
+              </button>
+              <button id="export-json" type="button" class="backup-btn">
+                Export JSON
+              </button>
+              <button id="import-json" type="button" class="backup-btn">
+                Import JSON
+              </button>
+            </div>
+          </div>
+          <!-- PO-004: import a foreign CSV / loose-JSON city list (as opposed
+               to the app's own backup shape above). Lives on its own row —
+               the 320px side panel has no room left on the header line above
+               once a fourth label-length button joins the gear + two backup
+               buttons. The inline status span mirrors #export-status's
+               :empty-hides-itself convention (css/styles.css). -->
+          <div class="import-controls">
+            <button id="import-file" type="button" class="backup-btn">
+              Import from file
+            </button>
+            <span
+              id="import-file-status"
+              class="import-status"
+              role="status"
+              aria-live="polite"
+            ></span>
+          </div>
+          <ul id="pin-list" class="pin-list"></ul>
+          <p id="pin-list-empty" class="pin-list__empty">
+            No pins yet — search for a city above.
           </p>
         </section>
-        <!-- Pins header bar mirrors .group-panel__header so the side panel
-             reads as one design family. The two backup buttons sit beside
-             the heading per HARDEN-001: a one-click rescue path the user
-             discovers in the same place they manage their pins. -->
-        <div class="pin-list__header">
-          <h2 class="pin-list__heading">Pins</h2>
-          <div class="backup-controls">
-            <button
-              id="open-settings"
-              type="button"
-              class="backup-btn backup-btn--icon"
-              aria-label="Open settings"
-              title="API keys and preferences"
-            >
-              ⚙
-            </button>
-            <button id="export-json" type="button" class="backup-btn">
-              Export JSON
-            </button>
-            <button id="import-json" type="button" class="backup-btn">
-              Import JSON
-            </button>
-          </div>
-        </div>
-        <!-- PO-004: import a foreign CSV / loose-JSON city list (as opposed
-             to the app's own backup shape above). Lives on its own row —
-             the 320px side panel has no room left on the header line above
-             once a fourth label-length button joins the gear + two backup
-             buttons. The inline status span mirrors #export-status's
-             :empty-hides-itself convention (css/styles.css). -->
-        <div class="import-controls">
-          <button id="import-file" type="button" class="backup-btn">
-            Import from file
-          </button>
-          <span
-            id="import-file-status"
-            class="import-status"
-            role="status"
-            aria-live="polite"
-          ></span>
-        </div>
-        <ul id="pin-list" class="pin-list"></ul>
-        <p id="pin-list-empty" class="pin-list__empty">
-          No pins yet — search for a city above.
-        </p>
+
+        <!-- Groups tab: unchanged Groups section, moved verbatim. -->
+        <section
+          id="side-panel-groups"
+          class="side-panel side-panel--groups"
+          role="tabpanel"
+          aria-labelledby="side-tab-groups"
+          hidden
+        >
+          <!-- Groups panel (NICE-004). -->
+          <section class="group-panel" aria-label="Groups">
+            <div class="group-panel__header">
+              <h2 class="group-panel__heading">Groups</h2>
+              <button id="add-group" type="button" class="group-panel__add">
+                Add group
+              </button>
+            </div>
+            <ul id="group-list" class="group-list"></ul>
+            <p id="group-list-empty" class="group-list__empty">
+              No groups yet — click "Add group" to create one.
+            </p>
+          </section>
+        </section>
       </aside>
     </div>
 
