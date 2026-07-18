@@ -43,6 +43,18 @@ import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
 const TILE_WAIT_TIMEOUT_MS = 8000;
 const TILE_WAIT_TIMEOUT_MS_PRESET = 12000;
 
+// Upper bound on waitForRender (FBL-011). A render frame normally lands within
+// a few ms of triggerRepaint(); this budget only matters when it never does
+// (e.g. WebGL context loss between the repaint and the `render` event). Without
+// it, the export promise never settles: captureFramed's finally never restores
+// the off-screen map and app.js leaves the export button disabled forever.
+// 2s is far above the normal single-frame latency yet short enough that a stuck
+// export fails fast. On timeout we RESOLVE rather than reject — mirroring
+// waitForIdle's philosophy — so the export proceeds with whatever is currently
+// in the framebuffer (possibly one frame stale, but always a valid PNG) and the
+// pipeline always unwinds through its existing catch/finally cleanup.
+const RENDER_WAIT_TIMEOUT_MS = 2000;
+
 // CSS-pixel offset that pushes the export frame fully off any reasonable
 // viewport. Same value the Leaflet pipeline used.
 const OFFSCREEN_PX = -100000;
@@ -140,7 +152,7 @@ export async function exportMapAsPng(mapInstance) {
       // it. The frame wrap only allocates a canvas if a frame is enabled.
       await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
       mapInstance.triggerRepaint();
-      await waitForRender(mapInstance);
+      await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
       innerCanvas = mapInstance.getCanvas();
       innerScale = deviceScale(mapInstance);
     } else {
@@ -228,7 +240,7 @@ async function captureFramed(mapInstance, preset, onMapTitle) {
     setPinLabelSize(BASE_PIN_LABEL_SIZE * coeff);
 
     mapInstance.triggerRepaint();
-    await waitForRender(mapInstance);
+    await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
 
     // FBL-005 pixel-space contract:
     //   • Preset → output is EXACTLY the contractual CSS-pixel dims; the
@@ -567,11 +579,25 @@ function waitForIdle(mapInstance, timeoutMs) {
   });
 }
 
-// Resolves on the next render frame. Used after triggerRepaint() so that
-// getCanvas().toDataURL() reads pixels that match the current state, not
-// the previous frame's framebuffer.
-function waitForRender(mapInstance) {
-  return new Promise((resolve) => mapInstance.once("render", resolve));
+// Resolves on the next render frame, or after `timeoutMs` if the `render`
+// event never fires (see RENDER_WAIT_TIMEOUT_MS). Mirrors waitForIdle's
+// race-against-timeout so both capture paths always settle and unwind their
+// cleanup even under WebGL context loss. Used after triggerRepaint() so that
+// getCanvas().toDataURL() reads pixels that match the current state, not the
+// previous frame's framebuffer.
+function waitForRender(mapInstance, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      mapInstance.off("render", finish);
+      clearTimeout(timer);
+      resolve();
+    };
+    mapInstance.once("render", finish);
+    const timer = setTimeout(finish, timeoutMs);
+  });
 }
 
 function triggerDownload(dataUrl, filename) {
