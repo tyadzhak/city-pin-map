@@ -410,6 +410,13 @@ let lastRouteVisible = false;
 // doesn't desync.
 let dragState = null;
 
+// Handle for silently cancelling a still-pending FBL-010 boot guard (see
+// initMap). Set inside initMap to a function that settles the guard without
+// a banner; nulled once the guard settles on its own (confirm/fail) so a
+// stale reference can't be re-invoked. setMapStyle calls this at the top of
+// every swap — see the comment there for why.
+let cancelBootGuard = null;
+
 /**
  * Initialize the MapLibre map inside the given container element id.
  * Idempotent: calling twice returns the existing instance.
@@ -483,6 +490,7 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
     if (bootSettled) return;
     bootSettled = true;
     bootCleanup();
+    cancelBootGuard = null;
     currentRenderedStyleId = initial.id;
   };
 
@@ -490,6 +498,7 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
     if (bootSettled) return;
     bootSettled = true;
     bootCleanup();
+    cancelBootGuard = null;
     // Reuse setMapStyle's message builder (key/quota specifics), then name
     // the style and point the user at recovery. No revert, no auto-swap.
     showError(
@@ -528,6 +537,23 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
     mapInstance.off("error", onBootError);
     mapInstance.off("error", onBootTileError);
     clearTimeout(bootTimer);
+  };
+
+  // Silent settle: a user-initiated style swap takes over before the boot
+  // guard resolves on its own. The guard is gated on the BOOT style's
+  // identity (a raster boot only confirms on ITS OWN raster-source tile
+  // events; a vector boot only confirms on styledata for that load), so once
+  // setMapStyle swaps to a different style those events can never fire
+  // again — the guard would otherwise sit until its 5s timeout and banner a
+  // false "didn't render at startup" failure naming the OLD style while the
+  // new one is rendering fine. No banner, no confirm: the boot guard's job
+  // outlives its usefulness the moment a user-initiated swap takes over, so
+  // we just detach it. setMapStyle calls this before starting its own swap.
+  cancelBootGuard = () => {
+    if (bootSettled) return;
+    bootSettled = true;
+    bootCleanup();
+    cancelBootGuard = null;
   };
 
   // Covers both a vector style whose JSON never resolves and a raster style
@@ -813,6 +839,13 @@ export function setMapStyle(styleId, { persist = true } = {}) {
     activeSwapCleanup();
     activeSwapCleanup = null;
   }
+
+  // Same cancellation for a still-pending FBL-010 boot guard. Without this,
+  // a raster boot style swapped away from before its first tile loads would
+  // leave the guard's raster-gated listeners waiting on events that can
+  // never fire, and it would banner a false startup-failure 5s later. See
+  // the comment on cancelBootGuard's assignment in initMap.
+  if (cancelBootGuard) cancelBootGuard();
 
   // Snapshot of the style we'll revert to if the swap fails.
   const previousId = currentRenderedStyleId ?? DEFAULT_MAP_STYLE_ID;
