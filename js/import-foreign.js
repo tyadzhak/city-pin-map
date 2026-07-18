@@ -187,7 +187,14 @@ function tokenizeCsv(text) {
       } else {
         field += c;
       }
-    } else if (c === '"') {
+    } else if (c === '"' && field === "") {
+      // RFC4180: a quote only opens a quoted field when it is the FIRST
+      // character of the field. A `"` mid-field (e.g. `O"Brien City`) is a
+      // literal character and falls through to the default append below.
+      // `field === ""` is field-start: the buffer is reset on every comma /
+      // newline, and an empty quoted field ("") can never be immediately
+      // followed by a bare `"` (RFC escaping pairs consecutive quotes), so
+      // this never wrongly re-opens after a closing quote.
       inQuotes = true;
     } else if (c === ",") {
       row.push(field);
