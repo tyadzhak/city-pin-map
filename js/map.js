@@ -457,10 +457,92 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
     preserveDrawingBuffer: true,
   });
 
-  // Seed currentRenderedStyleId so applyLabelVisibility's raster-check
-  // works on the very first styledata firing — before any setMapStyle()
-  // call has had a chance to set it via the swap success path.
-  currentRenderedStyleId = initial.id;
+  // Boot-load guard. The very first style load gets the same failure
+  // surfacing setMapStyle gives runtime swaps — but simpler: on failure we
+  // only banner and leave the map as-is (the user recovers via the style
+  // picker), never auto-swap to another style. currentRenderedStyleId is
+  // set ONLY once a render is confirmed below — never unconditionally at
+  // boot — so applyLabelVisibility's raster-check and a later failed swap's
+  // revert both key off a style that actually rendered, not a boot guess.
+  //
+  // Mirrors setMapStyle's raster/vector split:
+  //   VECTOR — a `styledata` firing proves the hosted style JSON loaded, so
+  //     it confirms the render immediately (a bad URL/key fails the fetch
+  //     before styledata fires, taking the error path).
+  //   RASTER — `styledata` only proves the inline object parsed; a bad tile
+  //     host fails later, so confirmation waits for an actual basemap tile
+  //     `data` event (scoped to the raster source id, since the app's own
+  //     pins/route sources also fire tile `data`), or the timeout / a tile
+  //     `error`.
+  const bootIsRaster = isRasterStyleEntry(initial);
+  let bootSettled = false;
+
+  // First-evidence-wins: whichever of confirm/fail/timeout fires first
+  // commits and the rest no-op, exactly like setMapStyle's `settled` guard.
+  const confirmBoot = () => {
+    if (bootSettled) return;
+    bootSettled = true;
+    bootCleanup();
+    currentRenderedStyleId = initial.id;
+  };
+
+  const failBoot = (status) => {
+    if (bootSettled) return;
+    bootSettled = true;
+    bootCleanup();
+    // Reuse setMapStyle's message builder (key/quota specifics), then name
+    // the style and point the user at recovery. No revert, no auto-swap.
+    showError(
+      `${buildStyleErrorMessage(initial, status)} The "${initial.label}" ` +
+        `basemap didn't render at startup — pick another from the style picker.`
+    );
+  };
+
+  // Vector: styledata confirms; any error is a real load failure (vector
+  // styles have a `glyphs` property, so the pins-labels layer never trips a
+  // benign style-validation error the way the raster inline object does).
+  const onBootStyleData = () => confirmBoot();
+  const onBootError = (err) => failBoot(err && err.error && err.error.status);
+
+  // Raster: confirm only when a basemap tile actually loads; fail only on an
+  // error attributable to the raster source (ignoring the benign no-sourceId
+  // glyphs validation error our pins-labels layer emits over inline styles).
+  const onBootTileData = (e) => {
+    if (
+      e.dataType === "source" &&
+      e.sourceId === "raster-source" &&
+      e.tile &&
+      e.tile.state === "loaded"
+    ) {
+      confirmBoot();
+    }
+  };
+  const onBootTileError = (err) => {
+    if (!err || err.sourceId !== "raster-source") return;
+    failBoot(err.error && err.error.status);
+  };
+
+  const bootCleanup = () => {
+    mapInstance.off("styledata", onBootStyleData);
+    mapInstance.off("data", onBootTileData);
+    mapInstance.off("error", onBootError);
+    mapInstance.off("error", onBootTileError);
+    clearTimeout(bootTimer);
+  };
+
+  // Covers both a vector style whose JSON never resolves and a raster style
+  // whose tiles never load — either way the failure surfaces instead of a
+  // permanently blank, silent map. Registered before the `load`/styledata
+  // handlers below so onBootStyleData sets currentRenderedStyleId ahead of
+  // the applyLabelVisibility styledata handler on the first firing.
+  const bootTimer = setTimeout(() => failBoot(0), STYLE_LOAD_TIMEOUT_MS);
+  if (bootIsRaster) {
+    mapInstance.on("data", onBootTileData);
+    mapInstance.on("error", onBootTileError);
+  } else {
+    mapInstance.once("styledata", onBootStyleData);
+    mapInstance.on("error", onBootError);
+  }
 
   // The first style emits `load` once tiles + sprites + glyphs are ready.
   // Re-add markers/route here so a hydrated pin set paints on first frame
