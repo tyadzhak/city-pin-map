@@ -320,7 +320,12 @@ export function saveExportFrame(value) {
 // Field-by-field clamp/coerce so callers can pass partial objects (e.g.
 // `{ enabled: true }` from a single change event) and get a complete
 // well-formed value back. Unknown keys are dropped on the floor.
-function normalizeFrame(value) {
+//
+// Exported (FBL-013) so app.js can normalize a LIVE DOM frame read into the
+// exact same shape loadExportFrame() returns and hand it to the export
+// pipeline — keeping the exported PNG in step with the on-map overlay even
+// when a save failed and localStorage still holds the stale value.
+export function normalizeFrame(value) {
   const v = value || {};
   const thicknessNum = Number(v.thickness);
   const thickness = Number.isFinite(thicknessNum)

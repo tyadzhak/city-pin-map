@@ -114,7 +114,7 @@ const ON_MAP_TITLE_BOX = {
  * On any failure, surfaces a user-visible message via showError() and keeps
  * the app usable (no re-throw).
  */
-export async function exportMapAsPng(mapInstance) {
+export async function exportMapAsPng(mapInstance, options = {}) {
   try {
     if (!mapInstance) throw new Error("map instance not provided");
 
@@ -122,20 +122,33 @@ export async function exportMapAsPng(mapInstance) {
     const presetId = formatSelect ? formatSelect.value : "current";
     const preset = EXPORT_PRESETS[presetId] ?? null;
 
-    // PO-007 frame settings live in localStorage; app.js owns the input
-    // wiring. Reading at click time mirrors how preset is resolved above
-    // — the export pipeline doesn't need a subscription.
-    const frame = loadExportFrame();
+    // FBL-013: prefer the LIVE in-memory frame the on-map overlay renders
+    // from — app.js passes it in (normalized through storage.js's
+    // normalizeFrame, so it's the exact shape loadExportFrame() returns) —
+    // and fall back to the persisted value only when the caller passes
+    // nothing, keeping this function usable standalone. Re-reading storage at
+    // click time used to diverge from the screen after a "kept in memory
+    // only" save failure (localStorage at quota): the overlay showed the new
+    // frame while the export rendered the stale saved one.
+    const frame =
+      options.frame !== undefined ? options.frame : loadExportFrame();
 
-    // PO-008/009 — on-map title. We only extract + validate the stored
-    // title here (its anchor lon/lat + the user's formatting); the pixel
-    // position is computed later, inside captureFramed, by re-projecting the
-    // anchor on the LIVE map AFTER it's resized to the export's dimensions
-    // (FBL-012). resize() keeps center+zoom fixed, so that late projection is
-    // the title's true on-map position at ANY aspect ratio — the earlier
+    // PO-008/009 — on-map title. We only extract + validate the title here
+    // (its anchor lon/lat + the user's formatting); the pixel position is
+    // computed later, inside captureFramed, by re-projecting the anchor on
+    // the LIVE map AFTER it's resized to the export's dimensions (FBL-012).
+    // resize() keeps center+zoom fixed, so that late projection is the
+    // title's true on-map position at ANY aspect ratio — the earlier
     // pre-resize ratio approach drifted for off-center anchors on presets
     // whose width differed materially from the live map's.
-    const onMapTitle = prepareOnMapTitle(loadOnMapTitle());
+    //
+    // FBL-013: like the frame above, prefer the caller's live overlay state
+    // (mapTitle.getPosition()) over the persisted copy so a quota-time save
+    // failure can't make the export contradict what's on screen. Both sources
+    // share the same field shape, so prepareOnMapTitle handles either.
+    const onMapTitle = prepareOnMapTitle(
+      options.onMapTitle !== undefined ? options.onMapTitle : loadOnMapTitle()
+    );
 
     // Both paths produce a canvas plus its CSS→canvas-pixel scale (so
     // wrapFrame can express a CSS-pixel thickness in the inner canvas's own

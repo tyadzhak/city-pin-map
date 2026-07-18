@@ -28,6 +28,7 @@ import {
   saveExportFormat,
   loadExportFrame,
   saveExportFrame,
+  normalizeFrame,
   loadHideLabels,
   saveHideLabels,
   loadOnMapTitle,
@@ -205,9 +206,17 @@ function init() {
   }
 
   initExportFormatSelector();
-  initExportFrameOptions();
-  initOnMapTitle();
-  initExportButton();
+  // Capture the live-state accessors so the export button consumes the same
+  // in-memory frame/title the on-map overlays render from (FBL-013), rather
+  // than re-reading localStorage inside the export pipeline. Either handle is
+  // undefined if its init bailed (missing DOM / no map); the button then
+  // passes nothing and export.js falls back to the persisted value.
+  const exportFrameHandle = initExportFrameOptions();
+  const onMapTitleHandle = initOnMapTitle();
+  initExportButton({
+    getFrame: exportFrameHandle?.getLiveFrame,
+    getOnMapTitle: onMapTitleHandle?.getLivePosition,
+  });
   initBackupControls();
   initImportFromFileControl();
   initSettingsPanel();
@@ -321,6 +330,14 @@ function initExportFrameOptions() {
   margin.addEventListener("input", persist);
   radius.addEventListener("input", persist);
   shadow.addEventListener("change", persist);
+
+  // FBL-013: expose a LIVE frame accessor so the export button reads the same
+  // in-memory state the overlay renders from — normalized through the very
+  // same normalizeFrame() that loadExportFrame() applies — instead of
+  // re-reading (possibly stale) localStorage at click time. readFrame() is
+  // the same DOM read persist()/mapFrame.update() use, so the export and the
+  // preview can never disagree, even after a "kept in memory only" save.
+  return { getLiveFrame: () => normalizeFrame(readFrame()) };
 }
 
 // Reflects the persisted preference on the checkbox at boot and forwards
@@ -440,6 +457,11 @@ function initOnMapTitle() {
       sizeInput.value = String(clamped);
     });
   }
+
+  // FBL-013: expose the LIVE overlay position so the export reads the same
+  // in-memory title state it renders — not the persisted copy, which can lag
+  // behind after a "kept in memory only" save failure.
+  return { getLivePosition: () => mapTitle.getPosition() };
 }
 
 // Disabling the button across the await prevents double-clicks during the
@@ -452,7 +474,7 @@ function initOnMapTitle() {
 // exports (current view, no on-map title) typically resolve before the
 // timer fires, so no label flash. The timer handle is cleared in the
 // finally branch whether the export resolved before or after the threshold.
-function initExportButton() {
+function initExportButton({ getFrame, getOnMapTitle } = {}) {
   const button = document.getElementById("export-png");
   const status = document.getElementById("export-status");
   if (!button) return;
@@ -462,7 +484,12 @@ function initExportButton() {
       if (status) status.textContent = "Rendering…";
     }, 200);
     try {
-      await exportMapAsPng(getMap());
+      // Read the live overlay state at CLICK time (not init time) and hand it
+      // to the export, which prefers it over persisted storage (FBL-013).
+      await exportMapAsPng(getMap(), {
+        frame: getFrame ? getFrame() : undefined,
+        onMapTitle: getOnMapTitle ? getOnMapTitle() : undefined,
+      });
     } finally {
       window.clearTimeout(statusTimer);
       if (status) status.textContent = "";
