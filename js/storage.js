@@ -9,6 +9,11 @@ const GROUPS_STORAGE_KEY = "city-pin-map.groups.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
 const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
+// Side-tabs restructuring: which of the three side-panel tabs (Design /
+// Pins / Groups) was last active. Bare-string convention, mirroring
+// EXPORT_FORMAT_KEY — the value is a short id and JSON wrapping would only
+// add quote noise.
+const SIDE_TAB_KEY = "city-pin-map.side-tab.v1";
 const EXPORT_FRAME_KEY = "city-pin-map.export-frame.v1";
 const HIDE_LABELS_KEY = "city-pin-map.hide-labels.v1";
 // PO-008/009 — single on-map title with formatting. PO-009 retired the
@@ -37,6 +42,13 @@ const API_KEY_STORAGE_BY_PROVIDER = {
 
 const DEFAULT_EXPORT_FORMAT = "current";
 const BANNER_TIMEOUT_MS = 6000;
+
+// Side-tabs restructuring — valid tab ids and the default. "design" is
+// first/default per the spec: it's the tab a returning user most likely
+// wants (export/title/frame config), and it's always a safe landing spot
+// even for a first-time user who has never touched pins or groups yet.
+const VALID_SIDE_TABS = Object.freeze(["design", "pins", "groups"]);
+const DEFAULT_SIDE_TAB = "design";
 
 // Fallback color for a saved group whose stored color isn't a 6-digit hex.
 // Mirrors backup.js's DEFAULT_GROUP_COLOR (the first shade group-panel.js
@@ -548,6 +560,36 @@ export function saveExportFormat(formatId) {
     console.error("failed to save export format:", err);
     showError(
       "Could not save export format preference. Choice will reset on refresh."
+    );
+  }
+}
+
+// Active side-panel tab (side-tabs restructuring). Same bare-string,
+// unreadable-falls-back-to-default shape as loadExportFormat — a missing
+// key, an unknown id (older app version, hand-edited storage), or a read
+// failure all degrade to DEFAULT_SIDE_TAB rather than crashing or leaving
+// no tab active.
+export function loadActiveSideTab() {
+  let value;
+  try {
+    value = localStorage.getItem(SIDE_TAB_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    return DEFAULT_SIDE_TAB;
+  }
+  return VALID_SIDE_TABS.includes(value) ? value : DEFAULT_SIDE_TAB;
+}
+
+export function saveActiveSideTab(id) {
+  // Guard against persisting a bogus id — a caller bug should never be able
+  // to write something loadActiveSideTab would then have to reject.
+  if (!VALID_SIDE_TABS.includes(id)) return;
+  try {
+    localStorage.setItem(SIDE_TAB_KEY, id);
+  } catch (err) {
+    console.error("failed to save active side tab:", err);
+    showError(
+      "Could not save side panel tab preference. Choice will reset on refresh."
     );
   }
 }

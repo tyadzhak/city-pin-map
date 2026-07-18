@@ -43,6 +43,7 @@ import { initPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
 import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
 import { initStylePicker } from "./style-picker.js";
+import { initSideTabs } from "./side-tabs.js";
 import * as mapTitle from "./map-title.js";
 import * as mapFrame from "./map-frame.js";
 
@@ -153,6 +154,11 @@ function init() {
   // Groups panel: spec orders this AFTER initPinList so the side-panel
   // heading order stays predictable (NICE-004 implementation prompt).
   initGroupPanel();
+
+  // Side-tabs restructuring: activate the last-used Design/Pins/Groups tab.
+  // Runs after the panel-specific inits above so their DOM (pin list rows,
+  // group rows) already exists by the time a hidden panel is revealed.
+  initSideTabs();
 
   // Search wires the header input to the geocoder + pin store. It must run
   // after the DOM is ready (we're already inside DOMContentLoaded) and

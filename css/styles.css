@@ -290,13 +290,6 @@ body {
    the header stays a single visual band. Inputs are narrow on purpose —
    most titles are short ("Italy 2024"), and a wide field would crowd the
    right-aligned cluster. The user can still type past the visible width. */
-.export-options {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 8px;
-}
-
 .export-options__input {
   width: 140px;
   height: 32px;
@@ -2030,4 +2023,152 @@ body.dragging-on-map-title * {
   padding: 0;
   background: none;
   cursor: pointer;
+}
+
+/* ===== Side-tabs restructuring (Design | Pins | Groups) =====
+   .app-side keeps its existing display:flex/flex-direction:column/
+   overflow:hidden (declared above) — it now holds the .side-tabs row plus
+   three .side-panel sections instead of the old flat Groups/Pins layout.
+   Only ONE .side-panel is visible at a time ([hidden] drops the rest from
+   layout so they can't fight the visible panel for flex space). */
+
+.side-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  border-bottom: 1px solid #e4e7eb;
+}
+
+.side-tab {
+  flex: 1 1 0;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 11px 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7280;
+  cursor: pointer;
+  /* Inset box-shadow (not border-bottom) for the active underline so it
+     doesn't shift the row's height between active/inactive states. */
+  box-shadow: inset 0 -2px 0 0 transparent;
+  transition: color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.side-tab:hover {
+  color: #1f2933;
+  background: #f8fafc;
+}
+
+.side-tab[aria-selected="true"] {
+  color: #1f2933;
+  box-shadow: inset 0 -2px 0 0 #4c6ef5;
+}
+
+.side-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+.side-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.side-panel[hidden] {
+  display: none;
+}
+
+/* Pins panel now supplies the flex column that .app-side used to — the
+   existing .pin-list rule (flex:1 1 auto; overflow-y:auto) still does the
+   actual scrolling. Its automatic min-size resolves to 0 because it's a
+   scroll container, and .side-panel (min-height:0) gives it a flex parent
+   to shrink against. */
+.side-panel--pins {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Groups panel: .group-panel was designed for the old flat layout, where it
+   sat above the pin list and was deliberately height-capped
+   (max-height:240px) so it never starved the list below. Inside its own
+   tab it's the only content, so let it fill the available height instead. */
+.side-panel--groups .group-panel {
+  max-height: none;
+  flex: 1 1 auto;
+  border-bottom: none;
+}
+
+/* Design panel: a scrollable body of grouped controls (.design-scroll)
+   plus a pinned action bar (.design-actions) at the bottom — mirrors the
+   scroll-body + pinned-footer shape .icon-picker-modal__sub uses. */
+.design-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.design-group__heading {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4b5563;
+  margin-bottom: 8px;
+}
+
+.design-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The moved controls were sized for an inline header toolbar (fixed narrow
+   widths). Inside the 320px vertical panel, the wide ones should fill the
+   row instead. Scoped under .side-panel--design so nothing outside this
+   tab is affected. */
+.side-panel--design #export-on-map-title,
+.side-panel--design #export-format {
+  width: 100%;
+}
+
+.side-panel--design .design-row #otm-font {
+  flex: 1 1 auto;
+}
+
+/* Frame sub-controls (thickness/color/padding/margin/radius/shadow) need
+   to wrap onto multiple lines in a 320px column instead of the single-row
+   layout the header toolbar used. The number inputs already default to a
+   compact 64px (.export-frame-controls__thickness etc., declared above) —
+   that width is what makes the wrap fit six controls across ~320px. */
+.side-panel--design .export-frame-controls {
+  flex-wrap: wrap;
+}
+
+.design-actions {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border-top: 1px solid #e4e7eb;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Export PNG reads as the primary action of the Design tab — full width,
+   same accent chrome as the base .export-btn. */
+.export-btn--block {
+  flex: 1 1 auto;
+  width: 100%;
+  margin-left: 0;
+  text-align: center;
 }
