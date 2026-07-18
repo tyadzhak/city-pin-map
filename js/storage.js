@@ -127,7 +127,11 @@ export function loadPins() {
     return items;
   } catch (err) {
     console.error("saved pins corrupt; ignoring:", err);
-    showError("Saved pins were corrupted and have been ignored.");
+    // The bytes ARE readable here (raw is a non-null string) — preserve them
+    // before the empty-hydrate + first mutation overwrites the original
+    // (FBL-015), then tell the user where recovery lives.
+    const stashed = stashCorruptValue(STORAGE_KEY, raw);
+    showError(corruptBannerMessage("pins", STORAGE_KEY, stashed));
     return [];
   }
 }
@@ -166,7 +170,8 @@ export function loadGroups() {
     return items;
   } catch (err) {
     console.error("saved groups corrupt; ignoring:", err);
-    showError("Saved groups were corrupted and have been ignored.");
+    const stashed = stashCorruptValue(GROUPS_STORAGE_KEY, raw);
+    showError(corruptBannerMessage("groups", GROUPS_STORAGE_KEY, stashed));
     return [];
   }
 }
@@ -204,7 +209,8 @@ export function loadUserIcons() {
     return items;
   } catch (err) {
     console.error("saved user icons corrupt; ignoring:", err);
-    showError("Saved custom icons were corrupted and have been ignored.");
+    const stashed = stashCorruptValue(USER_ICONS_KEY, raw);
+    showError(corruptBannerMessage("custom icons", USER_ICONS_KEY, stashed));
     return [];
   }
 }
@@ -372,6 +378,38 @@ function reportLoadDropped(count, noun) {
   showError(
     `Skipped ${count} saved ${noun}${count === 1 ? "" : "s"} that couldn't be read; everything else was loaded.`
   );
+}
+
+// ── Corrupt-value recovery stash (FBL-015) ───────────────────────────────
+//
+// When a stored array value is present but unparseable, the load path returns
+// []. attachStorage then hydrates the empty store and subscribes the save
+// function, so the user's first mutation persists over the original bytes —
+// even though those bytes were READABLE and possibly hand-fixable. Before that
+// window opens, copy the raw string to a sibling "<key>.corrupt" key so the
+// original survives the overwrite and can be recovered from devtools / re-import.
+//
+// Scope: only the getItem-throws path can't stash (there the bytes are
+// genuinely unreadable — left as banner + default). The object-shaped
+// preference stores (frame/title) are field-normalized and low-value, so they
+// keep the plain banner. Returns whether the stash was written so the banner
+// can be honest about recovery availability. Guarded in try/catch: a full disk
+// must make recovery a silent no-op, never turn a corrupt read into a crash.
+function stashCorruptValue(storageKey, raw) {
+  try {
+    localStorage.setItem(`${storageKey}.corrupt`, raw);
+    return true;
+  } catch (err) {
+    console.error("failed to stash corrupt value for recovery:", err);
+    return false;
+  }
+}
+
+function corruptBannerMessage(noun, storageKey, stashed) {
+  const base = `Saved ${noun} were corrupted and have been ignored.`;
+  return stashed
+    ? `${base} The original data was preserved under "${storageKey}.corrupt" for recovery.`
+    : base;
 }
 
 // Map-style preference. Stored as a bare string (not JSON) — the value is a
