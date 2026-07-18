@@ -459,7 +459,7 @@ export function showAddSubView(pin, modal) {
   dropZone.addEventListener("dragleave", () => {
     dropZone.classList.remove("icon-picker-modal__drop-zone--active");
   });
-  dropZone.addEventListener("drop", (e) => {
+  dropZone.addEventListener("drop", async (e) => {
     e.preventDefault();
     dropZone.classList.remove("icon-picker-modal__drop-zone--active");
     const file = e.dataTransfer?.files?.[0];
@@ -471,10 +471,19 @@ export function showAddSubView(pin, modal) {
       errorEl.textContent = "Drop an .svg file.";
       return;
     }
-    file.text().then((text) => {
-      textarea.value = text;
-      runIngest(text);
-    });
+    let text;
+    try {
+      text = await file.text();
+    } catch {
+      // The dropped file became unreadable between drop and read (moved,
+      // deleted, permission-denied). Surface it instead of leaving the user
+      // staring at an empty preview with no idea the drop failed.
+      runIngest("");
+      errorEl.textContent = "Could not read that file. Try again.";
+      return;
+    }
+    textarea.value = text;
+    runIngest(text);
   });
 
   modal.replaceChildren(sub);
