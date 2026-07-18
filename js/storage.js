@@ -172,13 +172,23 @@ function freshDefaultFrameSet() {
 // preset without a per-path conversion factor — the same rationale
 // EXPORT_PRESETS documents for coeff-based typography scaling, applied here
 // to geometry instead.
+// `intensity` is a PERCENTAGE (0-100) of the band (measured from the bottom
+// edge) that stays FULLY OPAQUE before the ramp to transparent begins — a
+// gradient color-stop split, not a second band. 50 is a visibly stronger
+// default than the old pure-linear look (intensity 0); existing saved fades
+// from before this field existed backfill to 50 on load via
+// normalizeBottomFade below, same as every other field's default-backfill
+// contract in this file.
 const DEFAULT_BOTTOM_FADE = Object.freeze({
   enabled: false,
   height: 30,
   color: "#ffffff",
+  intensity: 50,
 });
 const FADE_HEIGHT_MIN = 0;
 const FADE_HEIGHT_MAX = 100;
+const FADE_INTENSITY_MIN = 0;
+const FADE_INTENSITY_MAX = 100;
 
 let bannerTimer = null;
 
@@ -832,10 +842,15 @@ export function normalizeBottomFade(value) {
     typeof v.color === "string" && /^#[0-9a-fA-F]{6}$/.test(v.color)
       ? v.color
       : DEFAULT_BOTTOM_FADE.color;
+  const intensityNum = Number(v.intensity);
+  const intensity = Number.isFinite(intensityNum)
+    ? Math.max(FADE_INTENSITY_MIN, Math.min(FADE_INTENSITY_MAX, Math.round(intensityNum)))
+    : DEFAULT_BOTTOM_FADE.intensity;
   return {
     enabled: Boolean(v.enabled),
     height,
     color,
+    intensity,
   };
 }
 

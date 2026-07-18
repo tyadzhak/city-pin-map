@@ -418,20 +418,32 @@ function composite({
 // Bottom fade (poster-style caption zone). Paints a solid-at-the-bottom,
 // transparent-at-the-top-of-the-band linear gradient onto `ctx` — mirrors
 // js/map-fade.js's live CSS gradient exactly (same direction, same
-// percentage-of-height sizing) so the live preview and the exported PNG
-// match 1:1. `height` is a PERCENTAGE of the output canvas's own height
-// (0-100), not px — see storage.js's DEFAULT_BOTTOM_FADE comment for why a
-// percentage is the only value that reads identically across every export
-// preset. No-ops (draws nothing) when disabled or the band would be 0px —
-// same "toggle off" contract PO-007's frame uses for thickness=0.
+// percentage-of-height sizing, same intensity opaque-hold split) so the
+// live preview and the exported PNG match 1:1. `height` is a PERCENTAGE of
+// the output canvas's own height (0-100), not px — see storage.js's
+// DEFAULT_BOTTOM_FADE comment for why a percentage is the only value that
+// reads identically across every export preset. `intensity` is a further
+// PERCENTAGE (0-100) of the band, measured from the bottom edge, that stays
+// fully opaque before the ramp to transparent begins — a 3-stop gradient
+// rather than a plain 2-stop linear one. No-ops (draws nothing) when
+// disabled or the band would be 0px — same "toggle off" contract PO-007's
+// frame uses for thickness=0.
 function paintBottomFade(ctx, fade, width, height) {
   if (!fade || !fade.enabled) return;
   const pct = Math.max(0, Math.min(100, Number(fade.height) || 0));
   const bandPx = Math.round((pct / 100) * height);
   if (bandPx <= 0) return;
 
+  const intensity = Math.max(0, Math.min(100, Number(fade.intensity) || 0));
+
+  // Gradient axis spans y = height-bandPx (offset 0, top of band) to
+  // y = height (offset 1, bottom edge). The opaque hold starts at
+  // `1 - intensity/100` of the way up the axis: intensity=0 → hold point at
+  // offset 1 (bottom edge only, i.e. the old pure-linear fade); intensity=100
+  // → hold point at offset 0 (opaque for the whole band).
   const grad = ctx.createLinearGradient(0, height - bandPx, 0, height);
   grad.addColorStop(0, hexToRgba(fade.color, 0));
+  grad.addColorStop(Math.min(1, Math.max(0, 1 - intensity / 100)), hexToRgba(fade.color, 1));
   grad.addColorStop(1, hexToRgba(fade.color, 1));
 
   ctx.save();

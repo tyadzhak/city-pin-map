@@ -10,16 +10,19 @@
 // regardless of the live window's size or an export preset's dimensions
 // (see storage.js's DEFAULT_BOTTOM_FADE comment for the full rationale).
 // The band is bottom-anchored, full width, and painted with a CSS linear
-// gradient: solid `color` at the very bottom, fading to transparent at the
-// top of the band.
+// gradient: solid `color` for the bottom `intensity` percent of the band
+// (the opaque hold), then fading to transparent over the remaining top
+// portion. `intensity` is a color-stop split within the SAME band, not a
+// second band — at intensity 0 this degrades to the old pure-linear fade;
+// at 100 the band is solid with a hard top edge.
 //
 // Public surface:
 //   init(map)   — create the overlay (idempotent) and return { update }.
-//   update(fade) — given `{ enabled, height, color }` (any subset/partial,
-//                  possibly straight off a live DOM read mid-edit), show/hide
-//                  and redraw the band. Coerces/clamps every field
-//                  defensively so a NaN height or a malformed color never
-//                  throws or reaches a CSS value.
+//   update(fade) — given `{ enabled, height, color, intensity }` (any
+//                  subset/partial, possibly straight off a live DOM read
+//                  mid-edit), show/hide and redraw the band. Coerces/clamps
+//                  every field defensively so a NaN height/intensity or a
+//                  malformed color never throws or reaches a CSS value.
 
 const OVERLAY_ID = "map-fade-overlay";
 
@@ -63,13 +66,16 @@ export function update(fade) {
   }
 
   const color = typeof f.color === "string" && f.color ? f.color : "#ffffff";
+  const intensity = clampPercent(f.intensity);
 
   overlay.hidden = false;
   overlay.style.height = `${pct}%`;
-  // Solid at the bottom (0% of the gradient axis, "to top" runs bottom→top),
-  // fading to transparent at the top of the band — matches
-  // js/export.js's paintBottomFade gradient direction exactly.
-  overlay.style.background = `linear-gradient(to top, ${color} 0%, transparent 100%)`;
+  // Solid at the bottom (0% of the gradient axis, "to top" runs bottom→top)
+  // through `intensity`% of the band (the opaque hold), then fading to
+  // transparent by the top of the band — matches js/export.js's
+  // paintBottomFade gradient stops exactly. At intensity 0 this is the same
+  // pure-linear gradient the feature originally shipped with.
+  overlay.style.background = `linear-gradient(to top, ${color} 0%, ${color} ${intensity}%, transparent 100%)`;
   overlay.style.pointerEvents = "none";
 }
 

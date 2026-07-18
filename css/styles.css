@@ -580,14 +580,15 @@ body {
 /* Padding/margin/radius (frame live-overlay extension) reuse the exact
    chrome as thickness — all four are the same "px number field" affordance
    in the toolbar, just feeding different GEOMETRY layers (see
-   js/map-frame.js). .bottom-fade-controls__height (bottom-fade feature) is
-   the same "number field" affordance too (a 0-100 percent instead of a px
-   value), so it's folded into the same selector list to stay DRY. */
+   js/map-frame.js). .bottom-fade-controls__height / __intensity (bottom-fade
+   feature) are the same "number field" affordance too (0-100 percent values
+   instead of px), so they're folded into the same selector list to stay DRY. */
 .export-frame-controls__thickness,
 .export-frame-controls__padding,
 .export-frame-controls__margin,
 .export-frame-controls__radius,
-.bottom-fade-controls__height {
+.bottom-fade-controls__height,
+.bottom-fade-controls__intensity {
   width: 64px;
   height: 32px;
   padding: 0 6px;
@@ -605,7 +606,8 @@ body {
 .export-frame-controls__padding:hover,
 .export-frame-controls__margin:hover,
 .export-frame-controls__radius:hover,
-.bottom-fade-controls__height:hover {
+.bottom-fade-controls__height:hover,
+.bottom-fade-controls__intensity:hover {
   background: #ffffff;
 }
 
@@ -613,7 +615,8 @@ body {
 .export-frame-controls__padding:focus,
 .export-frame-controls__margin:focus,
 .export-frame-controls__radius:focus,
-.bottom-fade-controls__height:focus {
+.bottom-fade-controls__height:focus,
+.bottom-fade-controls__intensity:focus {
   border-color: #4c6ef5;
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
@@ -758,15 +761,34 @@ body {
   display: none;
 }
 
+/* .app-map is the letterbox MAT: when an export preset (js/map-viewport.js)
+   letterboxes #map to a non-matching aspect ratio, the #dbe2ea background
+   shows around it. flex centers #map's (possibly inline-sized) box; overflow
+   hidden guards against any transient sub-pixel overshoot from the resize
+   math in map-viewport.js's apply(). */
 .app-map {
   grid-area: map;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   background: #dbe2ea;
 }
 
+/* Fills .app-map by default (position:relative + 100%/100% — NOT
+   position:absolute/inset:0 as before: an absolutely positioned element
+   can't be flex-centered by its parent). js/map-viewport.js overrides
+   width/height inline when an export preset is selected, letterboxing #map
+   to that preset's aspect ratio; clearing those inline styles (preset =
+   "current view") reverts to this 100%/100% fill. The box-shadow gives the
+   export-area edges a subtle line + lift against the mat so the letterboxed
+   crop reads as a distinct "canvas", matching the export composite. */
 #map {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
 /* Drag affordance for the SVG circle markers (NICE-001). `.city-pin` is
