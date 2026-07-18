@@ -1,7 +1,9 @@
 // PNG export via native HTML5 Canvas. Composites the MapLibre WebGL canvas
-// into an off-screen 2D canvas, paints the on-map title overlay (PO-008)
-// at its projected position, then optionally wraps the result in a
-// decorative frame (PO-007), then toDataURL.
+// into an off-screen 2D canvas, paints the bottom fade (poster-style
+// caption zone), then the on-map title overlay (PO-008) at its projected
+// position — composite order is map → bottom fade → title, so the title
+// always reads on top of the fade — then optionally wraps the result in a
+// decorative frame (PO-007, outermost of all), then toDataURL.
 //
 // Markers and the route line are layers inside the WebGL canvas (see
 // js/map.js — Option B GeoJSONSource + circle/line layers), so they are
@@ -33,7 +35,12 @@
 //     content (tiles, markers, pin labels) is scaled by the GL context's own
 //     pixelRatio, so it needs no extra factor.
 
-import { showError, loadExportFrame, loadOnMapTitle } from "./storage.js";
+import {
+  showError,
+  loadExportFrame,
+  loadOnMapTitle,
+  loadBottomFade,
+} from "./storage.js";
 import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
@@ -150,6 +157,16 @@ export async function exportMapAsPng(mapInstance, options = {}) {
       options.onMapTitle !== undefined ? options.onMapTitle : loadOnMapTitle()
     );
 
+    // Bottom fade — resolve the LIVE overlay state the same way frame/title
+    // do (FBL-013 pattern): prefer the caller's in-memory value over the
+    // persisted copy, so a "kept in memory only" save failure can't make the
+    // export contradict what's on screen.
+    const bottomFade =
+      options.bottomFade !== undefined ? options.bottomFade : loadBottomFade();
+    const fadeDrawable = Boolean(
+      bottomFade && bottomFade.enabled && bottomFade.height > 0
+    );
+
     // Both paths produce a canvas plus its CSS→canvas-pixel scale (so
     // wrapFrame can express a CSS-pixel thickness in the inner canvas's own
     // pixel space). The optional frame-wrap pass and the single toDataURL
@@ -157,18 +174,19 @@ export async function exportMapAsPng(mapInstance, options = {}) {
     // regardless of which capture path ran.
     let innerCanvas;
     let innerScale;
-    if (!preset && !onMapTitle) {
-      // Fast path: live map, no resize, no overlay text, no extra canvas.
-      // Capture the framebuffer as-is (device resolution). triggerRepaint +
-      // once('render') ensures it reflects the current state before we read
-      // it. The frame wrap only allocates a canvas if a frame is enabled.
+    if (!preset && !onMapTitle && !fadeDrawable) {
+      // Fast path: live map, no resize, no overlay text, no fade, no extra
+      // canvas. Capture the framebuffer as-is (device resolution).
+      // triggerRepaint + once('render') ensures it reflects the current
+      // state before we read it. The frame wrap only allocates a canvas if a
+      // frame is enabled.
       await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
       mapInstance.triggerRepaint();
       await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
       innerCanvas = mapInstance.getCanvas();
       innerScale = deviceScale(mapInstance);
     } else {
-      const captured = await captureFramed(mapInstance, preset, onMapTitle);
+      const captured = await captureFramed(mapInstance, preset, onMapTitle, bottomFade);
       innerCanvas = captured.canvas;
       innerScale = captured.scale;
     }
@@ -186,7 +204,7 @@ export async function exportMapAsPng(mapInstance, options = {}) {
 // Single off-screen wrapper that handles the preset resize. One
 // try/finally so any failure unwinds the DOM and the MapLibre container
 // atomically.
-async function captureFramed(mapInstance, preset, onMapTitle) {
+async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
   const mapEl = mapInstance.getContainer();
 
   const originalParent = mapEl.parentNode;
@@ -291,6 +309,7 @@ async function captureFramed(mapInstance, preset, onMapTitle) {
         titleChip,
         coeff,
         chipScale: scale,
+        bottomFade,
       }),
       scale,
     };
@@ -340,6 +359,7 @@ function composite({
   titleChip,
   coeff,
   chipScale,
+  bottomFade,
 }) {
   const out = document.createElement("canvas");
   out.width = outputWidth;
@@ -368,6 +388,12 @@ function composite({
     outputHeight
   );
 
+  // Bottom fade — painted AFTER the map pixels but BEFORE the on-map title,
+  // so the title reads on top of the fade band (composite order: map →
+  // fade → title). wrapFrame (the decorative frame) runs in the caller,
+  // after this whole composite, so the frame stays outermost of all.
+  paintBottomFade(ctx, bottomFade, outputWidth, outputHeight);
+
   // PO-008/009 — draw the on-map title chip AFTER the map pixels (so it
   // floats on top of tiles + markers) and BEFORE wrapFrame (which runs in
   // the caller, so the decorative frame never paints over the title). The
@@ -387,6 +413,47 @@ function composite({
   }
 
   return out;
+}
+
+// Bottom fade (poster-style caption zone). Paints a solid-at-the-bottom,
+// transparent-at-the-top-of-the-band linear gradient onto `ctx` — mirrors
+// js/map-fade.js's live CSS gradient exactly (same direction, same
+// percentage-of-height sizing) so the live preview and the exported PNG
+// match 1:1. `height` is a PERCENTAGE of the output canvas's own height
+// (0-100), not px — see storage.js's DEFAULT_BOTTOM_FADE comment for why a
+// percentage is the only value that reads identically across every export
+// preset. No-ops (draws nothing) when disabled or the band would be 0px —
+// same "toggle off" contract PO-007's frame uses for thickness=0.
+function paintBottomFade(ctx, fade, width, height) {
+  if (!fade || !fade.enabled) return;
+  const pct = Math.max(0, Math.min(100, Number(fade.height) || 0));
+  const bandPx = Math.round((pct / 100) * height);
+  if (bandPx <= 0) return;
+
+  const grad = ctx.createLinearGradient(0, height - bandPx, 0, height);
+  grad.addColorStop(0, hexToRgba(fade.color, 0));
+  grad.addColorStop(1, hexToRgba(fade.color, 1));
+
+  ctx.save();
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, height - bandPx, width, bandPx);
+  ctx.restore();
+}
+
+// Parses `#rrggbb` into `rgba(r, g, b, alpha)`. Canvas gradient color stops
+// need an explicit alpha channel to fade to transparent, and 8-digit hex
+// (`#rrggbbaa`) canvas support isn't relied on here — this is the portable
+// path. Falls back to white on a malformed hex so a corrupt/partial fade
+// value (already defended against in storage.js's normalizeBottomFade, but
+// this function may also see an un-normalized live DOM read) can never
+// throw mid-export.
+function hexToRgba(hex, alpha) {
+  const match = typeof hex === "string" && /^#[0-9a-fA-F]{6}$/.exec(hex);
+  if (!match) return `rgba(255, 255, 255, ${alpha})`;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // CSS→device-pixel scale of the live map framebuffer (the GL context's

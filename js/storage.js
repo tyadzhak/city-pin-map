@@ -15,6 +15,10 @@ const EXPORT_FORMAT_KEY = "city-pin-map.export-format.v1";
 // add quote noise.
 const SIDE_TAB_KEY = "city-pin-map.side-tab.v1";
 const EXPORT_FRAME_KEY = "city-pin-map.export-frame.v1";
+// Bottom fade (poster-style caption zone): a white/color gradient that
+// dissolves the map into a solid color at the bottom edge. Own standalone
+// key, independent of the frame set above — see DEFAULT_BOTTOM_FADE.
+const BOTTOM_FADE_KEY = "city-pin-map.bottom-fade.v1";
 const HIDE_LABELS_KEY = "city-pin-map.hide-labels.v1";
 // PO-008/009 — single on-map title with formatting. PO-009 retired the
 // separate NICE-006 title strip (city-pin-map.export-text.v1); existing
@@ -157,6 +161,24 @@ const FRAME_RADIUS_MAX = 200;
 function freshDefaultFrameSet() {
   return { frames: [{ ...DEFAULT_EXPORT_FRAME }, { ...DEFAULT_EXPORT_FRAME_2 }] };
 }
+
+// Bottom fade: `height` is a PERCENTAGE of the map/canvas height (0-100),
+// not a pixel count — unlike the frame's px-based thickness/margin/padding.
+// The live preview (js/map-fade.js) and the exported PNG (js/export.js) are
+// two different pixel spaces (CSS pixels for the on-screen overlay, device
+// or preset pixels for the export canvas) that can also differ from each
+// OTHER preset to preset. A percentage of each surface's own height is the
+// only value that reads identically on-screen and across every export
+// preset without a per-path conversion factor — the same rationale
+// EXPORT_PRESETS documents for coeff-based typography scaling, applied here
+// to geometry instead.
+const DEFAULT_BOTTOM_FADE = Object.freeze({
+  enabled: false,
+  height: 30,
+  color: "#ffffff",
+});
+const FADE_HEIGHT_MIN = 0;
+const FADE_HEIGHT_MAX = 100;
 
 let bannerTimer = null;
 
@@ -750,6 +772,70 @@ export function normalizeFrameSet(value) {
       normalizeFrame(frames[0] ?? DEFAULT_EXPORT_FRAME),
       normalizeFrame(frames[1] ?? DEFAULT_EXPORT_FRAME_2),
     ],
+  };
+}
+
+// Bottom fade (poster-style caption zone dissolving the map into a solid
+// color at the bottom edge). Same defensive load shape as loadExportFrame:
+// missing key → fresh default clone; corrupt key → fresh default clone +
+// banner. Never returns the frozen DEFAULT_BOTTOM_FADE singleton directly —
+// callers (app.js's readFade-style DOM hydration) may mutate the returned
+// object.
+export function loadBottomFade() {
+  let raw;
+  try {
+    raw = localStorage.getItem(BOTTOM_FADE_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved bottom fade settings could not be read; using defaults.");
+    return { ...DEFAULT_BOTTOM_FADE };
+  }
+  if (raw === null) return { ...DEFAULT_BOTTOM_FADE };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("saved bottom fade settings is not an object");
+    }
+    return normalizeBottomFade(parsed);
+  } catch (err) {
+    console.error("saved bottom fade settings corrupt; ignoring:", err);
+    showError("Saved bottom fade settings were corrupted and have been ignored.");
+    return { ...DEFAULT_BOTTOM_FADE };
+  }
+}
+
+export function saveBottomFade(value) {
+  try {
+    localStorage.setItem(BOTTOM_FADE_KEY, JSON.stringify(normalizeBottomFade(value)));
+  } catch (err) {
+    console.error("failed to save bottom fade settings:", err);
+    showError(
+      "Could not save bottom fade settings (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Field-by-field clamp/coerce, mirroring normalizeFrame's contract — a
+// caller can pass a partial object (e.g. `{ enabled: true }` from a single
+// change event, or a live DOM read with a briefly-NaN valueAsNumber) and
+// get a complete, well-formed value back. Unknown keys are dropped.
+// Exported so app.js can normalize a LIVE DOM read into the exact same
+// shape loadBottomFade() returns before handing it to the export pipeline
+// (same FBL-013 rationale normalizeFrame/normalizeFrameSet document).
+export function normalizeBottomFade(value) {
+  const v = value || {};
+  const heightNum = Number(v.height);
+  const height = Number.isFinite(heightNum)
+    ? Math.max(FADE_HEIGHT_MIN, Math.min(FADE_HEIGHT_MAX, Math.round(heightNum)))
+    : DEFAULT_BOTTOM_FADE.height;
+  const color =
+    typeof v.color === "string" && /^#[0-9a-fA-F]{6}$/.test(v.color)
+      ? v.color
+      : DEFAULT_BOTTOM_FADE.color;
+  return {
+    enabled: Boolean(v.enabled),
+    height,
+    color,
   };
 }
 

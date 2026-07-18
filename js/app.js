@@ -29,6 +29,9 @@ import {
   loadExportFrame,
   saveExportFrame,
   normalizeFrameSet,
+  loadBottomFade,
+  saveBottomFade,
+  normalizeBottomFade,
   loadHideLabels,
   saveHideLabels,
   loadOnMapTitle,
@@ -46,6 +49,7 @@ import { initStylePicker } from "./style-picker.js";
 import { initSideTabs } from "./side-tabs.js";
 import * as mapTitle from "./map-title.js";
 import * as mapFrame from "./map-frame.js";
+import * as mapFade from "./map-fade.js";
 
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
@@ -218,10 +222,12 @@ function init() {
   // undefined if its init bailed (missing DOM / no map); the button then
   // passes nothing and export.js falls back to the persisted value.
   const exportFrameHandle = initExportFrameOptions();
+  const bottomFadeHandle = initBottomFadeOptions();
   const onMapTitleHandle = initOnMapTitle();
   initExportButton({
     getFrame: exportFrameHandle?.getLiveFrame,
     getOnMapTitle: onMapTitleHandle?.getLivePosition,
+    getBottomFade: bottomFadeHandle?.getLiveFade,
   });
   initBackupControls();
   initImportFromFileControl();
@@ -378,6 +384,69 @@ function wireFrameControls(suffix, savedFrameEl) {
   return { readFrame, onChange };
 }
 
+// Bottom fade (poster-style caption zone). Sibling of initExportFrameOptions:
+// hydrates the toggle/height/color inputs from localStorage, persists every
+// change, and drives the live WYSIWYG overlay (js/map-fade.js) so the fade
+// previews on the map itself instead of only appearing after export. The
+// wrapper's `data-fade-enabled` attribute drives CSS visibility for the
+// dependent height/color inputs — see .bottom-fade-controls in
+// css/styles.css. Defensive-returns undefined if any control (or the map
+// itself) is missing, mirroring initExportFrameOptions's per-cluster bail.
+function initBottomFadeOptions() {
+  const enabled = document.getElementById("bottom-fade-enabled");
+  const height = document.getElementById("bottom-fade-height");
+  const color = document.getElementById("bottom-fade-color");
+  const controls = document.getElementById("bottom-fade-controls");
+  if (!enabled || !height || !color || !controls) return undefined;
+
+  // The live overlay needs a map to attach to; on a boot path where initMap
+  // failed outright there's nothing to preview, so just skip that half and
+  // still let the (non-visual) persistence wiring below work normally.
+  const map = getMap();
+  if (map) mapFade.init(map);
+
+  // Single read path both persist() and the live-overlay update share, so
+  // they can never disagree about what's currently on screen.
+  const readFade = () => ({
+    enabled: enabled.checked,
+    height: Number.isFinite(height.valueAsNumber) ? height.valueAsNumber : 0,
+    color: color.value,
+  });
+
+  const saved = loadBottomFade();
+  enabled.checked = saved.enabled;
+  height.value = String(saved.height);
+  color.value = saved.color;
+  controls.dataset.fadeEnabled = saved.enabled ? "true" : "false";
+
+  // Reflect the persisted state on the overlay at boot, same as
+  // mapFrame.update(saved) in initExportFrameOptions — otherwise the live
+  // preview would stay blank until the user next touches a fade control.
+  if (map) mapFade.update(saved);
+
+  const persist = () => {
+    const next = readFade();
+    saveBottomFade(next);
+    if (map) mapFade.update(next);
+  };
+
+  enabled.addEventListener("change", () => {
+    controls.dataset.fadeEnabled = enabled.checked ? "true" : "false";
+    persist();
+  });
+  // `input` instead of `change` for the number/color inputs so the live
+  // overlay updates as the user scrubs a value, mirroring the frame
+  // controls' behaviour.
+  height.addEventListener("input", persist);
+  color.addEventListener("input", persist);
+
+  // FBL-013-style live accessor so the export button reads the same
+  // in-memory state the overlay renders from — normalized through the very
+  // same normalizeBottomFade() that loadBottomFade() applies — instead of
+  // re-reading (possibly stale) localStorage at click time.
+  return { getLiveFade: () => normalizeBottomFade(readFade()) };
+}
+
 // Reflects the persisted preference on the checkbox at boot and forwards
 // every user change to onChange. Kept dumb on purpose: this function does
 // not own the boolean — init() does — so re-rendering and persistence stay
@@ -512,7 +581,7 @@ function initOnMapTitle() {
 // exports (current view, no on-map title) typically resolve before the
 // timer fires, so no label flash. The timer handle is cleared in the
 // finally branch whether the export resolved before or after the threshold.
-function initExportButton({ getFrame, getOnMapTitle } = {}) {
+function initExportButton({ getFrame, getOnMapTitle, getBottomFade } = {}) {
   const button = document.getElementById("export-png");
   const status = document.getElementById("export-status");
   if (!button) return;
@@ -527,6 +596,7 @@ function initExportButton({ getFrame, getOnMapTitle } = {}) {
       await exportMapAsPng(getMap(), {
         frame: getFrame ? getFrame() : undefined,
         onMapTitle: getOnMapTitle ? getOnMapTitle() : undefined,
+        bottomFade: getBottomFade ? getBottomFade() : undefined,
       });
     } finally {
       window.clearTimeout(statusTimer);

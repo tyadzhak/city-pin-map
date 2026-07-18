@@ -443,6 +443,49 @@
                 </span>
               </div>
             </div>
+
+            <div class="design-group">
+              <h2 class="design-group__heading">Bottom fade</h2>
+              <!-- Poster-style caption zone: a white/color gradient that
+                   dissolves the map into a solid color at the bottom edge,
+                   so an on-map title has a clean backdrop to sit on. `height`
+                   is a PERCENTAGE of the map height (0-100), not px — see
+                   storage.js's DEFAULT_BOTTOM_FADE comment for why. Renders
+                   live on the map via js/map-fade.js and bakes into the
+                   exported PNG via js/export.js's paintBottomFade, same
+                   live-overlay + export-pass pairing the frame above uses. -->
+              <label class="bottom-fade-toggle" title="Fade the bottom of the map into a solid color">
+                <input
+                  id="bottom-fade-enabled"
+                  type="checkbox"
+                  class="bottom-fade-toggle__input"
+                />
+                <span class="bottom-fade-toggle__label">Bottom fade</span>
+              </label>
+              <span
+                id="bottom-fade-controls"
+                class="bottom-fade-controls"
+                data-fade-enabled="false"
+              >
+                <input
+                  id="bottom-fade-height"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  class="bottom-fade-controls__height"
+                  aria-label="Bottom fade height (percent of map height)"
+                  title="Fade height (% of map height)"
+                />
+                <input
+                  id="bottom-fade-color"
+                  type="color"
+                  class="bottom-fade-controls__color"
+                  aria-label="Bottom fade color"
+                  title="Fade color"
+                />
+              </span>
+            </div>
           </div>
           <div class="design-actions">
             <button id="export-png" type="button" class="export-btn export-btn--block">
