@@ -174,9 +174,10 @@ function hasValidCoords(lat, lon) {
 // ---- CSV parsing --------------------------------------------------------
 
 // Minimal RFC4180-ish tokenizer: handles quoted fields (with "" as an
-// escaped quote), commas embedded inside quotes, and both \r\n and bare
-// \n line endings. Operating on the whole text (not line-split first)
-// means a quoted field can even contain a literal newline correctly.
+// escaped quote), commas embedded inside quotes, and all three line-ending
+// variants — \n (Unix), \r\n (Windows), and a bare \r (classic Mac).
+// Operating on the whole text (not line-split first) means a quoted field
+// can even contain a literal newline correctly.
 function tokenizeCsv(text) {
   const table = [];
   let row = [];
@@ -207,13 +208,18 @@ function tokenizeCsv(text) {
     } else if (c === ",") {
       row.push(field);
       field = "";
-    } else if (c === "\r") {
-      // Bare \r is swallowed; a following \n (CRLF) ends the row below.
-    } else if (c === "\n") {
+    } else if (c === "\r" || c === "\n") {
+      // Row terminator. All three line-ending variants end a row: \n (Unix),
+      // \r\n (Windows), and a bare \r (classic Mac). For \r\n the following
+      // \n is consumed here so it can't start a phantom empty row on the next
+      // iteration; a lone \r (not followed by \n) terminates on its own.
+      // (Inside quotes, \r/\n never reach this branch — they append to the
+      // field above, preserving newlines embedded in quoted values.)
       row.push(field);
       table.push(row);
       row = [];
       field = "";
+      if (c === "\r" && text[i + 1] === "\n") i++;
     } else {
       field += c;
     }
