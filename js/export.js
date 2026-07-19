@@ -489,9 +489,16 @@ function deviceScale(mapInstance) {
 // bare single legacy frame object (not wrapped in a set) is still tolerated.
 //
 // Defensive: if NO frame element is enabled with thickness > 0 (after
-// scaling), the inner canvas is returned untouched — nothing to draw.
+// scaling) AND the outside treatment is "none" (or has no enabled frame to
+// bound against), the inner canvas is returned untouched — nothing to draw.
 // Preserves the PO-007 "thickness=0 == toggle off" acceptance criterion per
 // element.
+//
+// `outside` (this milestone) fills/blurs the region beyond the OUTERMOST
+// ENABLED frame's outer edge — see outermostEnabledFrame / paintFrameOutside
+// below. Painted before the bands so a band's own edge still reads crisply
+// over it. A no-op when no frame is enabled at all (no boundary to paint
+// against), regardless of `outside.mode`.
 //
 // Each band is one even-odd fill: an outer rounded rect (inset by margin,
 // radius) with an inner rounded rect (inset by margin+thickness, radius minus
@@ -508,9 +515,16 @@ function wrapFrame(innerCanvas, frame, scale = 1) {
     : frame
     ? [frame]
     : [];
+  const outside = frame?.outside || null;
 
   const drawable = frames.filter((frameEl) => isFrameDrawable(frameEl, scale));
-  if (drawable.length === 0) return innerCanvas;
+  // "Outermost enabled" (not "drawable") on purpose: a frame with thickness
+  // 0 still defines a boundary via its own margin/radius even though it
+  // paints no band of its own — see outermostEnabledFrame's own comment.
+  const outermost = outermostEnabledFrame(frames);
+  const outsideMode = outermost ? normalizeOutsideMode(outside?.mode) : "none";
+
+  if (drawable.length === 0 && outsideMode === "none") return innerCanvas;
 
   const out = document.createElement("canvas");
   out.width = innerCanvas.width;
@@ -522,11 +536,120 @@ function wrapFrame(innerCanvas, frame, scale = 1) {
   // painted in array order (Frame 1, then Frame 2).
   ctx.drawImage(innerCanvas, 0, 0);
 
+  // Outside-frame treatment paints BEFORE the bands so a band's own edge
+  // still reads crisply on top of it (the fill/blur only ever touches the
+  // region beyond the outermost band's outer edge, but painting order keeps
+  // this correct even at the boundary pixel row).
+  if (outsideMode !== "none") {
+    paintFrameOutside(ctx, innerCanvas, outermost, outside, scale, out.width, out.height);
+  }
+
   for (const frameEl of drawable) {
     paintFrameBand(ctx, frameEl, scale, out.width, out.height);
   }
 
   return out;
+}
+
+// Among ENABLED frame elements, the one with the smallest `margin` — its
+// outer edge sits closest to the canvas edge, i.e. the largest outer
+// rounded-rect. Mirrors js/map-frame.js's identical helper so the live
+// preview and the exported PNG always agree on which frame the outside
+// treatment bounds against. Deliberately keys off `.enabled`, NOT
+// isFrameDrawable's additional thickness>0 requirement — an enabled frame
+// with a 0px band still has a real margin/radius boundary.
+function outermostEnabledFrame(frames) {
+  let best = null;
+  let bestMargin = Infinity;
+  for (const f of frames) {
+    if (!f || !f.enabled) continue;
+    const margin = Math.max(0, Number(f.margin) || 0);
+    if (margin < bestMargin) {
+      bestMargin = margin;
+      best = f;
+    }
+  }
+  return best;
+}
+
+const OUTSIDE_MODES = ["none", "white", "blur"];
+function normalizeOutsideMode(mode) {
+  return OUTSIDE_MODES.includes(mode) ? mode : "none";
+}
+
+// Paints the OUTSIDE-frame treatment (this milestone): the region beyond
+// the outer edge of the outermost ENABLED frame — the margin band between
+// the canvas edge and that frame's outer rounded-rect. Called BEFORE the
+// frame bands (paintFrameBand runs right after this in wrapFrame) so a
+// band still reads crisply over it at its own edges.
+//
+// `white` is a flat even-odd fill: full-canvas rect minus the inner
+// rounded-rect, filled with `outside.color`.
+//
+// `blur` clips to that same even-odd region and draws a blurred copy of
+// `sourceCanvas` (the ALREADY-COMPOSITED map — bottom fade + on-map title
+// included, per this file's header comment on composite order) via
+// ctx.filter. The clip means pixels inside the frame boundary are
+// untouched; the title/fade DO blur wherever they happen to fall in the
+// outside region, matching what a real optical blur would do to whatever
+// is physically out there. Falls back to the `white` behavior when
+// ctx.filter isn't supported by the running engine (never silently no-op —
+// CLAUDE.md's error convention).
+function paintFrameOutside(ctx, sourceCanvas, outermost, outside, scale, canvasWidth, canvasHeight) {
+  const mode = normalizeOutsideMode(outside?.mode);
+  if (mode === "none") return;
+
+  const margin = Math.round(Math.max(0, Number(outermost.margin) || 0) * scale);
+  const radius = Math.round(Math.max(0, Number(outermost.radius) || 0) * scale);
+  const innerX = margin;
+  const innerY = margin;
+  const innerW = canvasWidth - 2 * margin;
+  const innerH = canvasHeight - 2 * margin;
+
+  const buildOutsidePath = () => {
+    ctx.beginPath();
+    addRoundedRectSubpath(ctx, 0, 0, canvasWidth, canvasHeight, 0);
+    addRoundedRectSubpath(ctx, innerX, innerY, innerW, innerH, radius);
+  };
+
+  if (mode === "white") {
+    const color =
+      typeof outside.color === "string" && /^#[0-9a-fA-F]{6}$/.test(outside.color)
+        ? outside.color
+        : "#ffffff";
+    ctx.save();
+    buildOutsidePath();
+    ctx.fillStyle = color;
+    ctx.fill("evenodd");
+    ctx.restore();
+    return;
+  }
+
+  // mode === "blur". Feature-detect ctx.filter: an unsupporting engine never
+  // defines the property at all (typeof stays "undefined"), vs. a
+  // supporting one that always reads back a string ("none" by default).
+  const filterSupported = typeof ctx.filter === "string";
+  if (!filterSupported) {
+    paintFrameOutside(
+      ctx,
+      sourceCanvas,
+      outermost,
+      { mode: "white", color: "#ffffff" },
+      scale,
+      canvasWidth,
+      canvasHeight
+    );
+    return;
+  }
+
+  const blurPx = Math.round(Math.max(0, Math.min(50, Number(outside.blur) || 0)) * scale);
+  ctx.save();
+  buildOutsidePath();
+  ctx.clip("evenodd");
+  ctx.filter = blurPx > 0 ? `blur(${blurPx}px)` : "none";
+  ctx.drawImage(sourceCanvas, 0, 0, canvasWidth, canvasHeight);
+  ctx.filter = "none";
+  ctx.restore();
 }
 
 // True when `frameEl` has any band width to paint at all, after scaling —

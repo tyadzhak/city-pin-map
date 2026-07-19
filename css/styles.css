@@ -588,7 +588,8 @@ body {
 .export-frame-controls__margin,
 .export-frame-controls__radius,
 .bottom-fade-controls__height,
-.bottom-fade-controls__intensity {
+.bottom-fade-controls__intensity,
+.frame-outside-controls__blur {
   width: 64px;
   height: 32px;
   padding: 0 6px;
@@ -607,7 +608,8 @@ body {
 .export-frame-controls__margin:hover,
 .export-frame-controls__radius:hover,
 .bottom-fade-controls__height:hover,
-.bottom-fade-controls__intensity:hover {
+.bottom-fade-controls__intensity:hover,
+.frame-outside-controls__blur:hover {
   background: #ffffff;
 }
 
@@ -616,7 +618,8 @@ body {
 .export-frame-controls__margin:focus,
 .export-frame-controls__radius:focus,
 .bottom-fade-controls__height:focus,
-.bottom-fade-controls__intensity:focus {
+.bottom-fade-controls__intensity:focus,
+.frame-outside-controls__blur:focus {
   border-color: #4c6ef5;
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
@@ -629,7 +632,8 @@ body {
    feature) is the same native color-input affordance, folded into the same
    selector list to stay DRY. */
 .export-frame-controls__color,
-.bottom-fade-controls__color {
+.bottom-fade-controls__color,
+.frame-outside-controls__color {
   width: 32px;
   height: 32px;
   padding: 0;
@@ -643,24 +647,28 @@ body {
 }
 
 .export-frame-controls__color::-webkit-color-swatch-wrapper,
-.bottom-fade-controls__color::-webkit-color-swatch-wrapper {
+.bottom-fade-controls__color::-webkit-color-swatch-wrapper,
+.frame-outside-controls__color::-webkit-color-swatch-wrapper {
   padding: 0;
 }
 
 .export-frame-controls__color::-webkit-color-swatch,
-.bottom-fade-controls__color::-webkit-color-swatch {
+.bottom-fade-controls__color::-webkit-color-swatch,
+.frame-outside-controls__color::-webkit-color-swatch {
   border: none;
   border-radius: 5px;
 }
 
 .export-frame-controls__color::-moz-color-swatch,
-.bottom-fade-controls__color::-moz-color-swatch {
+.bottom-fade-controls__color::-moz-color-swatch,
+.frame-outside-controls__color::-moz-color-swatch {
   border: none;
   border-radius: 5px;
 }
 
 .export-frame-controls__color:focus-visible,
-.bottom-fade-controls__color:focus-visible {
+.bottom-fade-controls__color:focus-visible,
+.frame-outside-controls__color:focus-visible {
   border-color: #4c6ef5;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
 }
@@ -704,6 +712,36 @@ body {
 .export-frame-shadow-toggle__label {
   font: inherit;
   line-height: 1;
+}
+
+/* Outside-frame treatment cluster: sub-heading + mode select + color/blur
+   inputs. Nests inside the last .export-frame-block of the Frames group
+   (its "+ margin-top" sibling rule already spaces it from Frame 2 above).
+   No enable checkbox here — "None" in the mode select IS the off state, so
+   the sub-heading is a plain label rather than the toggle chrome the two
+   frames use. */
+.frame-outside-block__heading {
+  font: inherit;
+  font-weight: 600;
+  color: #1f2933;
+  margin: 0 0 6px;
+}
+
+.frame-outside-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Only the input relevant to the selected mode is shown — mirrors
+   [data-frame-enabled="false"]'s single-attribute-driven show/hide above.
+   "none" hides both dependent inputs; "white" keeps only the color swatch;
+   "blur" keeps only the blur-radius number field. */
+.frame-outside-controls[data-outside-mode="none"] .frame-outside-controls__color,
+.frame-outside-controls[data-outside-mode="none"] .frame-outside-controls__blur,
+.frame-outside-controls[data-outside-mode="white"] .frame-outside-controls__blur,
+.frame-outside-controls[data-outside-mode="blur"] .frame-outside-controls__color {
+  display: none;
 }
 
 /* Sits to the right of the style picker. margin-left switches from `auto`
@@ -900,6 +938,45 @@ body.dragging-on-map-title * {
   border-width: 0;
   background: transparent;
   pointer-events: none;
+  /* Sits above the outside-frame layer below so a band's edge still reads
+     crisply over the outside fill/blur (js/map-frame.js paints/updates
+     outside first, rings second — this z-index is belt-and-suspenders for
+     that DOM order). */
+  z-index: 1;
+}
+
+/* Outside-frame treatment (this milestone): fills/blurs the region beyond
+   the outer edge of the OUTERMOST ENABLED frame — the margin band between
+   the container edge and that frame's outer rounded-rect. Two elements,
+   only one shown at a time (js/map-frame.js's applyOutside decides which):
+     - --white: positioned/sized to the outer rect itself (top/right/
+       bottom/left = margin, border-radius = radius) with NO fill of its
+       own; a huge box-shadow spread paints the configured color everywhere
+       OUTSIDE that box. Pure CSS box model — no JS pixel measurement
+       needed, so it stays correct across any container resize for free
+       (mirrors .map-frame-overlay__ring's own inset-based approach).
+       Clipped by .app-map's overflow:hidden so it never bleeds past the
+       live map's edge.
+     - --blur: covers the whole overlay and applies backdrop-filter,
+       masked (mask-image: a JS-generated SVG data URI) so only the region
+       outside the same rounded rect actually blurs. The mask bakes actual
+       pixel dimensions, so js/map-frame.js recomputes it on a
+       ResizeObserver tick (mirrors js/map-viewport.js's own
+       ResizeObserver-on-container pattern for the same "must track live
+       pixel size" problem).
+   z-index 0 keeps both below the ring layer (1). */
+.map-frame-overlay__outside {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.map-frame-overlay__outside--blur {
+  inset: 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
 }
 
 /* Live WYSIWYG bottom-fade preview (js/map-fade.js). Bottom-anchored,
@@ -2314,7 +2391,8 @@ body.dragging-on-map-title * {
    layout the header toolbar used. The number inputs already default to a
    compact 64px (.export-frame-controls__thickness etc., declared above) —
    that width is what makes the wrap fit six controls across ~320px. */
-.side-panel--design .export-frame-controls {
+.side-panel--design .export-frame-controls,
+.side-panel--design .frame-outside-controls {
   flex-wrap: wrap;
 }
 

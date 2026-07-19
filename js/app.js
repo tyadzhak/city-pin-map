@@ -303,18 +303,20 @@ function initExportFrameOptions() {
   const saved = loadExportFrame();
   const frame1 = wireFrameControls("-1", saved.frames[0]);
   const frame2 = wireFrameControls("-2", saved.frames[1]);
-  if (!frame1 && !frame2) return undefined;
+  const outside = wireFrameOutsideControls(saved.outside);
+  if (!frame1 && !frame2 && !outside) return undefined;
 
-  // Builds the full 2-element FRAME SET straight from the DOM — the single
-  // read path both persist() and the live-overlay update share, so they can
-  // never disagree about what's currently on screen. A frame whose controls
-  // are missing from the DOM falls back to its own stored/default value
-  // (never crashes, never silently vanishes from the persisted set).
+  // Builds the full FRAME SET straight from the DOM — the single read path
+  // both persist() and the live-overlay update share, so they can never
+  // disagree about what's currently on screen. A frame/cluster whose
+  // controls are missing from the DOM falls back to its own stored/default
+  // value (never crashes, never silently vanishes from the persisted set).
   const readFrameSet = () => ({
     frames: [
       frame1 ? frame1.readFrame() : saved.frames[0],
       frame2 ? frame2.readFrame() : saved.frames[1],
     ],
+    outside: outside ? outside.readOutside() : saved.outside,
   });
 
   const persist = () => {
@@ -324,6 +326,7 @@ function initExportFrameOptions() {
   };
   if (frame1) frame1.onChange(persist);
   if (frame2) frame2.onChange(persist);
+  if (outside) outside.onChange(persist);
 
   // Reflect the persisted state on the overlay at boot, same as
   // mapTitle.update(saved) in initOnMapTitle — otherwise the live preview
@@ -405,6 +408,51 @@ function wireFrameControls(suffix, savedFrameEl) {
   };
 
   return { readFrame, onChange };
+}
+
+// Wires the "outside the frame" treatment cluster (mode select + color +
+// blur inputs). Sibling of wireFrameControls: same "return null if any
+// element is missing" defensive contract, so a malformed/edited-by-hand
+// index.html skips just this cluster rather than crashing all of
+// initExportFrameOptions. The wrapper's `data-outside-mode` attribute
+// drives which of color/blur is shown — see .frame-outside-controls in
+// css/styles.css — mirroring `data-frame-enabled` above.
+function wireFrameOutsideControls(savedOutside) {
+  const mode = document.getElementById("frame-outside-mode");
+  const color = document.getElementById("frame-outside-color");
+  const blur = document.getElementById("frame-outside-blur");
+  const wrapper = document.getElementById("frame-outside-controls");
+  if (!mode || !color || !blur || !wrapper) return null;
+
+  // Single read path both persist() and the live-overlay update share, so
+  // they can never disagree about what's currently on screen. Normalization
+  // (mode enum, color hex, blur clamp 0-50) happens at the storage.js
+  // boundary (normalizeFrameOutside, via normalizeFrameSet/saveExportFrame),
+  // same as wireFrameControls's readFrame — this function just reflects the
+  // raw DOM state.
+  const readOutside = () => ({
+    mode: mode.value,
+    color: color.value,
+    blur: blur.valueAsNumber,
+  });
+
+  mode.value = savedOutside.mode;
+  color.value = savedOutside.color;
+  blur.value = String(savedOutside.blur);
+  wrapper.dataset.outsideMode = savedOutside.mode;
+
+  const onChange = (persist) => {
+    mode.addEventListener("change", () => {
+      wrapper.dataset.outsideMode = mode.value;
+      persist();
+    });
+    // `input` instead of `change` for color/blur so the live overlay updates
+    // as the user scrubs a value, mirroring the frame controls' behaviour.
+    color.addEventListener("input", persist);
+    blur.addEventListener("input", persist);
+  };
+
+  return { readOutside, onChange };
 }
 
 // Bottom fade (poster-style caption zone). Sibling of initExportFrameOptions:

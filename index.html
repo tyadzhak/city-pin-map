@@ -387,6 +387,51 @@
                   </label>
                 </span>
               </div>
+
+              <!-- Outside-frame treatment: fills/blurs the region beyond the
+                   outer edge of the OUTERMOST ENABLED frame (the margin band
+                   between the canvas edge and that frame's outer rounded-rect).
+                   A no-op with no visible effect when no frame above is
+                   enabled. data-outside-mode on the wrapper drives which of
+                   color/blur is shown, mirroring data-frame-enabled above.
+                   Live-previewed via js/map-frame.js, baked into the export
+                   via js/export.js's paintFrameOutside. -->
+              <div class="export-frame-block frame-outside-block">
+                <h3 class="frame-outside-block__heading">Outside frame</h3>
+                <span
+                  id="frame-outside-controls"
+                  class="frame-outside-controls"
+                  data-outside-mode="none"
+                >
+                  <select
+                    id="frame-outside-mode"
+                    class="otm-format-select"
+                    aria-label="Outside-frame treatment"
+                    title="What fills the region beyond the outermost enabled frame"
+                  >
+                    <option value="none">None</option>
+                    <option value="white">White</option>
+                    <option value="blur">Blur</option>
+                  </select>
+                  <input
+                    id="frame-outside-color"
+                    type="color"
+                    class="frame-outside-controls__color"
+                    aria-label="Outside-frame color"
+                    title="Outside-frame color"
+                  />
+                  <input
+                    id="frame-outside-blur"
+                    type="number"
+                    min="0"
+                    max="50"
+                    step="1"
+                    class="frame-outside-controls__blur"
+                    aria-label="Outside-frame blur radius in pixels"
+                    title="Blur radius (px)"
+                  />
+                </span>
+              </div>
             </div>
 
             <div class="design-group">
