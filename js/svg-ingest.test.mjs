@@ -4,9 +4,10 @@
 // DOMParser/XMLSerializer paths are verified manually via the
 // add-icon UI in the icon-picker.
 
+import "./xml-shim.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { walk, collectFills, parseStyleBlock } from "./svg-ingest.js";
+import { walk, collectFills, parseStyleBlock, ingestSvg, flattenStylesIntoTree } from "./svg-ingest.js";
 
 // Minimal element shim that mimics the browser API surface our walker
 // touches. Keeps tests dependency-free (no jsdom / linkedom).
@@ -46,6 +47,16 @@ test("walk: rejects <script>", () => {
   walk(svg, violations);
   assert.equal(violations.length, 1);
   assert.match(violations[0], /<script>/);
+});
+
+test("walk: rejects an attribute not on the allowlist (generic case, not on*/href)", () => {
+  const svg = el("svg", {
+    children: [el("path", { attributes: { "xml:space": "preserve", d: "M0 0" } })],
+  });
+  const violations = [];
+  walk(svg, violations);
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /xml:space=/);
 });
 
 test("walk: rejects on* event handlers", () => {
@@ -222,6 +233,112 @@ test("parseStyleBlock: silently skips non-class selectors", () => {
 test("parseStyleBlock: returns [] for empty input", () => {
   assert.deepEqual(parseStyleBlock(""), []);
   assert.deepEqual(parseStyleBlock("   "), []);
+});
+
+// ── ingestSvg tests (top-up: G-D) ──────────────────────────────────────
+// Exercises the full public entry point via the local DOMParser/
+// XMLSerializer shim in js/xml-shim.mjs — the browser-only surface that
+// was previously unreachable under `node --test`.
+
+test("ingestSvg: rejects empty/blank input without touching DOMParser", () => {
+  assert.deepEqual(ingestSvg(""), { ok: false, error: "Empty SVG content." });
+  assert.deepEqual(ingestSvg("   "), { ok: false, error: "Empty SVG content." });
+  assert.equal(ingestSvg(null).ok, false);
+  assert.equal(ingestSvg(undefined).ok, false);
+});
+
+test("ingestSvg: accepts a clean svg, normalizes outer width/height, reports tintable", () => {
+  const result = ingestSvg(
+    '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M0 0L10 10" fill="black"/></svg>'
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.suggestedTintable, true);
+  assert.match(result.sanitizedSvg, /width="128"/);
+  assert.match(result.sanitizedSvg, /height="128"/);
+  assert.match(result.sanitizedSvg, /viewBox="0 0 24 24"/);
+});
+
+test("ingestSvg: derives a viewBox from pre-existing width/height when absent", () => {
+  const result = ingestSvg('<svg width="32" height="32"><path d="M0 0"/></svg>');
+  assert.equal(result.ok, true);
+  assert.match(result.sanitizedSvg, /viewBox="0 0 32 32"/);
+});
+
+test("ingestSvg: falls back to a 0 0 24 24 viewBox when no dimensions exist at all", () => {
+  const result = ingestSvg("<svg><path d=\"M0 0\"/></svg>");
+  assert.equal(result.ok, true);
+  assert.match(result.sanitizedSvg, /viewBox="0 0 24 24"/);
+});
+
+test("ingestSvg: adds a default xmlns when missing", () => {
+  const result = ingestSvg('<svg viewBox="0 0 24 24"><path d="M0 0"/></svg>');
+  assert.equal(result.ok, true);
+  assert.match(result.sanitizedSvg, /xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+});
+
+test("ingestSvg: multiple distinct fills suggest non-tintable", () => {
+  const result = ingestSvg(
+    '<svg viewBox="0 0 24 24"><path fill="red" d="M0 0"/><path fill="blue" d="M1 1"/></svg>'
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.suggestedTintable, false);
+});
+
+test("ingestSvg: rejects markup with a disallowed tag (violations surfaced in error)", () => {
+  const result = ingestSvg('<svg><script>alert(1)</script></svg>');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /can't be safely imported/);
+  assert.match(result.error, /<script>/);
+});
+
+test("ingestSvg: rejects a document whose root element is not <svg>", () => {
+  const result = ingestSvg('<g><path d="M0 0"/></g>');
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "Root element must be <svg>.");
+});
+
+test("ingestSvg: unparseable garbage yields the same 'root must be svg' error (no parsererror path in the shim)", () => {
+  const result = ingestSvg("not xml at all");
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "Root element must be <svg>.");
+});
+
+test("ingestSvg: flattens a <style> class rule into inline attributes and strips the <style> element", () => {
+  const result = ingestSvg(
+    '<svg viewBox="0 0 24 24"><defs><style>.cls-1{fill:#000000;}</style></defs><path class="cls-1" d="M0 0"/></svg>'
+  );
+  assert.equal(result.ok, true);
+  assert.match(result.sanitizedSvg, /fill="#000000"/);
+  assert.doesNotMatch(result.sanitizedSvg, /<style/);
+  assert.doesNotMatch(result.sanitizedSvg, /class=/);
+});
+
+test("ingestSvg: a class rule targeting a disallowed property is dropped, not applied", () => {
+  // `opacity` IS allowed but let's target something the walker doesn't
+  // allowlist at all (e.g. an arbitrary custom property) to prove
+  // flattenStylesIntoTree only ever writes allowlisted attributes.
+  const result = ingestSvg(
+    '<svg viewBox="0 0 24 24"><style>.cls-1{some-weird-prop:evil;}</style><path class="cls-1" d="M0 0"/></svg>'
+  );
+  assert.equal(result.ok, true);
+  assert.doesNotMatch(result.sanitizedSvg, /some-weird-prop/);
+});
+
+test("ingestSvg: inline attribute wins over a conflicting class rule", () => {
+  const result = ingestSvg(
+    '<svg viewBox="0 0 24 24"><style>.cls-1{fill:red;}</style><path class="cls-1" fill="blue" d="M0 0"/></svg>'
+  );
+  assert.equal(result.ok, true);
+  assert.match(result.sanitizedSvg, /fill="blue"/);
+  assert.doesNotMatch(result.sanitizedSvg, /fill="red"/);
+});
+
+test("flattenStylesIntoTree: no-op (returns immediately) when there is no <style> element", () => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString('<svg viewBox="0 0 24 24"><path d="M0 0" fill="black"/></svg>');
+  const before = doc.documentElement.children.length;
+  flattenStylesIntoTree(doc.documentElement);
+  assert.equal(doc.documentElement.children.length, before);
 });
 
 test("parseStyleBlock: real-world svgrepo example", () => {
