@@ -473,11 +473,6 @@ function normalizeLoadedPins(rawPins) {
       color: typeof raw.color === "string" && raw.color ? raw.color : DEFAULT_PIN_COLOR,
       group: typeof raw.group === "string" ? raw.group : null,
       icon: typeof raw.icon === "string" ? raw.icon : null,
-      // movable (pin-lock toggle): always present, coerced to a boolean —
-      // absent/falsy on a pre-existing saved pin becomes `false` (locked),
-      // matching addPin's default so an old pin's behavior doesn't change
-      // out from under the user on this upgrade.
-      movable: Boolean(raw.movable),
       createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
     };
     // Carry the geocoded origin (FBL-008) only when BOTH values are finite

@@ -27,7 +27,6 @@ function notify() {
  * @param {string} input.color - Hex like "#e63946". Overridden visually by group color when assigned.
  * @param {string|null} [input.group=null] - Group id; null means ungrouped.
  * @param {string|null} [input.icon=null] - Icon id from the registry; null falls back to DEFAULT_PIN_ICON at render time.
- * @param {boolean} [input.movable=false] - Whether the pin is drag-repositionable. Defaults false — a pin must be explicitly unlocked (per-pin lock toggle) before it can be dragged.
  * @param {number} [input.originalLat] - Geocoded origin latitude, captured once at creation (FBL-008). Optional; omitted for add paths that don't supply an origin.
  * @param {number} [input.originalLon] - Geocoded origin longitude, captured once at creation (FBL-008). Optional; omitted for add paths that don't supply an origin.
  * @returns {object} The created pin.
@@ -39,7 +38,6 @@ export function addPin({
   color,
   group = null,
   icon = null,
-  movable = false,
   originalLat,
   originalLon,
 }) {
@@ -51,11 +49,10 @@ export function addPin({
     color,
     group,
     icon,
-    // Defaults false: a freshly added/imported pin is locked in place until
-    // the user explicitly unlocks it. labelDx/labelDy (per-pin label drag
-    // offset) are deliberately NOT defaulted here — absence means "no
-    // offset" (0), same contract as originalLat/originalLon just below.
-    movable,
+    // labelDx/labelDy (per-pin label drag offset) are deliberately NOT
+    // defaulted here — absence means "no offset" (0), same contract as
+    // originalLat/originalLon just below. The pin itself is never
+    // draggable; only its label is.
     createdAt: Date.now(),
   };
   // originalLat/originalLon are optional (FBL-008): the "reset position"

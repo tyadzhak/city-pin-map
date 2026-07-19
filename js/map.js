@@ -337,10 +337,10 @@ export function isRasterStyleEntry(entry) {
 // the render functions agree on naming. Prefix avoids collisions with any
 // layer id baked into the OpenFreeMap styles.
 //
-// PINS_LAYER_ID is the canonical pins layer for hover/drag/
-// queryRenderedFeatures. It paints every pin as a tintable SDF symbol
-// driven by `pin.icon`, with a built-in white halo standing in for the
-// previous shadow companion.
+// PINS_LAYER_ID is the canonical pins layer. It paints every pin as a
+// tintable SDF symbol driven by `pin.icon`, with a built-in white halo
+// standing in for the previous shadow companion. Pins are never draggable
+// — only PINS_LABELS_LAYER_ID (below) accepts drag interaction.
 const PINS_SOURCE_ID = "city-pin-map.pins";
 const PINS_LAYER_ID = "city-pin-map.pins-fill";
 const PINS_COLOR_RING_LAYER_ID = "city-pin-map.pins-color-ring";
@@ -356,6 +356,13 @@ const ROUTE_LAYER_ID = "city-pin-map.route-line";
 // currentPinStyle below, which is what actually drives the live layers once
 // setPinStyle() has run.
 export const BASE_PIN_LABEL_SIZE = 13;
+
+// Baseline vertical text-offset (ems) that anchors a label just below its
+// pin — the original static value from before labels were draggable.
+// Per-pin drag offsets (pin.labelDy) are added on top of this, not in
+// place of it, so an un-dragged label keeps rendering exactly where it
+// always has.
+const PIN_LABEL_BASE_OFFSET_Y_EMS = 1.0;
 
 // Baseline pin icon size in CSS px at icon-size 1.0 (128px source SVG /
 // pixelRatio 4). setPinStyle()'s `size` field is an ABSOLUTE px target, so
@@ -440,8 +447,9 @@ let mapInstance = null;
 let lastPinsSnapshot = [];
 let lastRouteVisible = false;
 
-// Drag state. Set when a mousedown on a pin starts a drag; cleared on
-// mouseup. The handlers live on `document` (not the map container) so a
+// Drag state for an in-progress LABEL drag (pins themselves are never
+// draggable). Set when a mousedown on a pin's label starts a drag; cleared
+// on mouseup. The handlers live on `document` (not the map container) so a
 // drag that passes through the side panel or briefly leaves the window
 // doesn't desync.
 let dragState = null;
@@ -815,6 +823,14 @@ function applyPinStyleToLayers() {
       "text-color",
       currentPinStyle.labelColor
     );
+    // labelSize may just have changed. text-offset is authored in ems (×
+    // text-size) but pin.labelDx/labelDy are stored in constant screen px,
+    // so every feature's materialized `labelOffset` (computeLabelOffsetEms)
+    // is only correct for the labelSize it was built against — rebuild the
+    // source data so dragged labels keep their PIXEL offset instead of
+    // drifting when the user changes the global label size.
+    const source = mapInstance.getSource(PINS_SOURCE_ID);
+    if (source) source.setData(pinsToFeatureCollection(lastPinsSnapshot));
   }
 }
 
@@ -1290,10 +1306,28 @@ function pinsToFeatureCollection(pins) {
           color: effectiveColor(pin),
           icon: iconId,
           tintable,
+          labelOffset: computeLabelOffsetEms(pin),
         },
       };
     }),
   };
+}
+
+// Per-pin label offset in EMS for the labels layer's data-driven
+// `text-offset` (draggable labels). pin.labelDx/labelDy are stored in constant
+// SCREEN PIXELS (set by dragging the label on the map); text-offset only
+// accepts ems (× text-size), so we divide by the CONFIGURED label size here
+// — not any transient export-time override (setPinLabelSize) — so the
+// on-screen offset stays pixel-constant across zoom (ems × a fixed
+// text-size is a fixed px value at every zoom) and is recomputed whenever
+// currentPinStyle.labelSize changes (see applyPinStyleToLayers, which
+// re-sets the pins source data after a labelSize edit for exactly this
+// reason).
+function computeLabelOffsetEms(pin) {
+  const labelSize = currentPinStyle.labelSize || BASE_PIN_LABEL_SIZE;
+  const dxPx = Number.isFinite(pin.labelDx) ? pin.labelDx : 0;
+  const dyPx = Number.isFinite(pin.labelDy) ? pin.labelDy : 0;
+  return [dxPx / labelSize, PIN_LABEL_BASE_OFFSET_Y_EMS + dyPx / labelSize];
 }
 
 function emptyLineFeatureCollection() {
@@ -1550,7 +1584,11 @@ async function addPinAndRouteLayers() {
         "text-font": [currentPinStyle.labelBold ? "Noto Sans Bold" : "Noto Sans Regular"],
         "text-size": currentPinStyle.labelSize,
         "text-anchor": "top",
-        "text-offset": [0, 1.0],
+        // Data-driven (draggable labels): reads the per-feature `labelOffset`
+        // ([x,y] in ems) materialized by pinsToFeatureCollection/
+        // computeLabelOffsetEms, so a per-pin label drag renders without a
+        // second layer or a static baseline that ignores pin.labelDx/Dy.
+        "text-offset": ["get", "labelOffset"],
         "text-padding": 4,
         // allow-overlap/ignore-placement: true — MapLibre's symbol
         // collision culling was dropping labels (and would drop pins too,
@@ -1581,86 +1619,86 @@ async function addPinAndRouteLayers() {
   applyPinStyleToLayers();
 }
 
-// Hover + drag wiring on the pin layer. Idempotent across style swaps:
-// MapLibre keeps `map.on(eventType, layerId, handler)` listeners through
-// setStyle() because they're attached to the map, not to layer instances.
-// We only register them once at init time.
+// Hover + drag wiring on the LABEL layer only. The pin itself is never
+// draggable — a mousedown on a pin falls through untouched so the map pans
+// normally exactly as if no marker were there. Only a pin's text label can
+// be dragged, which sets a per-pin screen-pixel offset (pin.labelDx/
+// labelDy) rather than moving the pin's true lat/lon.
+//
+// Idempotent across style swaps: MapLibre keeps `map.on(eventType,
+// layerId, handler)` listeners through setStyle() because they're attached
+// to the map, not to layer instances. We only register them once at init
+// time.
 function attachPinInteractions() {
   if (!mapInstance) return;
 
-  // A pin drag is deliberate-only (FBL-008): it moves a city off its real
-  // geocoded location, so it fires ONLY while the Alt/Option modifier is
-  // held. Plain hover/drag over a pin behaves exactly like anywhere else on
-  // the map — so we must not advertise a grab cursor unless Alt is down, or
-  // the cursor would promise a drag that a plain mousedown won't deliver.
-  //
-  // `hoveringPin` remembers whether the cursor is currently over the pins
-  // layer so the document-level keydown/keyup handlers can refresh the
-  // cursor the moment Alt is pressed or released without the mouse moving.
-  let hoveringPin = false;
-  const refreshHoverCursor = (altDown) => {
-    if (!mapInstance || dragState) return;
-    mapInstance.getCanvas().style.cursor =
-      hoveringPin && altDown ? "grab" : "";
-  };
-
-  mapInstance.on("mouseenter", PINS_LAYER_ID, (e) => {
-    hoveringPin = true;
-    refreshHoverCursor(e.originalEvent?.altKey);
+  // Hover cursor feedback: grab affordance only over a label, never over a
+  // pin (which isn't draggable and shouldn't promise a drag it won't
+  // deliver).
+  mapInstance.on("mouseenter", PINS_LABELS_LAYER_ID, () => {
+    if (!dragState) mapInstance.getCanvas().style.cursor = "grab";
   });
-  mapInstance.on("mouseleave", PINS_LAYER_ID, () => {
-    hoveringPin = false;
+  mapInstance.on("mouseleave", PINS_LABELS_LAYER_ID, () => {
     if (!dragState) mapInstance.getCanvas().style.cursor = "";
   });
-  // Toggle the grab affordance live as Alt is pressed/released over a pin.
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Alt") refreshHoverCursor(true);
-  });
-  document.addEventListener("keyup", (ev) => {
-    if (ev.key === "Alt") refreshHoverCursor(false);
-  });
 
-  mapInstance.on("mousedown", PINS_LAYER_ID, (e) => {
+  mapInstance.on("mousedown", PINS_LABELS_LAYER_ID, (e) => {
+    if (dragState) return; // a drag is already in flight
     if (e.originalEvent.button !== 0) return;
-    // Guard: without Alt held, do NOT start a drag. Fall through with no
-    // preventDefault and no dragPan.disable() so MapLibre pans the map
-    // normally even though the cursor is over a pin (FBL-008).
-    if (!e.originalEvent.altKey) return;
     const feature = e.features?.[0];
     if (!feature) return;
-
-    e.preventDefault();
-    e.originalEvent.stopPropagation();
-
-    mapInstance.dragPan.disable();
-    document.body.classList.add("dragging-pin");
-    mapInstance.getCanvas().style.cursor = "grabbing";
-
-    dragState = {
-      pinId: feature.properties.id,
-      lastLngLat: e.lngLat,
-    };
-
-    document.addEventListener("mousemove", onDocMove);
-    document.addEventListener("mouseup", onDocUp);
-    // mouseleave on document fires when the cursor exits the window —
-    // commit there so a drag ending off-screen doesn't leak listeners.
-    document.addEventListener("mouseleave", onDocUp);
+    startLabelDrag(e, feature);
   });
+  // No mousedown handler on PINS_LAYER_ID: a click on a pin is intentionally
+  // left unhandled so MapLibre's default pan behavior takes over — pins are
+  // fixed in place and never intercept the map's own drag gesture.
+}
+
+function startLabelDrag(e, feature) {
+  e.preventDefault();
+  e.originalEvent.stopPropagation();
+
+  mapInstance.dragPan.disable();
+  document.body.classList.add("dragging-pin");
+  mapInstance.getCanvas().style.cursor = "grabbing";
+
+  const pinId = feature.properties.id;
+  const pin = lastPinsSnapshot.find((p) => p.id === pinId);
+  const startDx = pin && Number.isFinite(pin.labelDx) ? pin.labelDx : 0;
+  const startDy = pin && Number.isFinite(pin.labelDy) ? pin.labelDy : 0;
+
+  dragState = {
+    pinId,
+    startClientX: e.originalEvent.clientX,
+    startClientY: e.originalEvent.clientY,
+    startDx,
+    startDy,
+    // Mirrors the live value onDocMove writes as the cursor moves; onDocUp
+    // commits whatever this holds at mouseup.
+    lastDx: startDx,
+    lastDy: startDy,
+  };
+
+  document.addEventListener("mousemove", onDocMove);
+  document.addEventListener("mouseup", onDocUp);
+  // mouseleave on document fires when the cursor exits the window —
+  // commit there so a drag ending off-screen doesn't leak listeners.
+  document.addEventListener("mouseleave", onDocUp);
 }
 
 function onDocMove(ev) {
   if (!dragState || !mapInstance) return;
-  const rect = mapInstance.getContainer().getBoundingClientRect();
-  const point = [ev.clientX - rect.left, ev.clientY - rect.top];
-  const lngLat = mapInstance.unproject(point);
-  dragState.lastLngLat = lngLat;
 
-  // Mutate the live source data so the dragged pin tracks the cursor.
-  // We re-use the cached snapshot, swap the dragged pin's coordinates,
-  // and re-set the source. Cheap at this app's scale (tens of pins).
+  // Constant-offset drag: the label moves by exactly the mouse's screen
+  // delta from mousedown, added on top of whatever offset it already had.
+  // No projection math needed — text-offset only cares about the delta
+  // from the anchor, not the pin's on-screen position.
+  const dx = dragState.startDx + (ev.clientX - dragState.startClientX);
+  const dy = dragState.startDy + (ev.clientY - dragState.startClientY);
+  dragState.lastDx = dx;
+  dragState.lastDy = dy;
   const updated = lastPinsSnapshot.map((p) =>
-    p.id === dragState.pinId ? { ...p, lat: lngLat.lat, lon: lngLat.lng } : p
+    p.id === dragState.pinId ? { ...p, labelDx: dx, labelDy: dy } : p
   );
   lastPinsSnapshot = updated;
   const source = mapInstance.getSource(PINS_SOURCE_ID);
@@ -1669,7 +1707,7 @@ function onDocMove(ev) {
 
 function onDocUp() {
   if (!dragState || !mapInstance) return;
-  const { pinId, lastLngLat } = dragState;
+  const { pinId, lastDx, lastDy } = dragState;
   dragState = null;
 
   document.removeEventListener("mousemove", onDocMove);
@@ -1680,9 +1718,8 @@ function onDocUp() {
   document.body.classList.remove("dragging-pin");
   mapInstance.getCanvas().style.cursor = "";
 
-  // Routing the new position through updatePin keeps storage and the
-  // pin list in sync. The resulting renderPins call repaints the source
-  // with the same coordinates we already drew, so it's effectively a
-  // no-op for this pin.
-  updatePin(pinId, { lat: lastLngLat.lat, lon: lastLngLat.lng });
+  // Routing the new offset through updatePin keeps storage and the pin
+  // list in sync. The resulting renderPins call repaints the source with
+  // the same offset we already drew, so it's effectively a no-op here.
+  updatePin(pinId, { labelDx: lastDx, labelDy: lastDy });
 }

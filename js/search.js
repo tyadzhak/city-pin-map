@@ -162,8 +162,10 @@ function selectResult(result) {
     lat: result.lat,
     lon: result.lon,
     color: DEFAULT_PIN_COLOR,
-    // Capture the geocoded origin once at creation (FBL-008) so an
-    // Alt-dragged pin can be reset to its true city location.
+    // Capture the geocoded origin once at creation (FBL-008). The pin
+    // itself is fixed in place and can never be dragged off it, so no UI
+    // currently reads this — kept for compatibility with already-persisted
+    // data (see CLAUDE.md's pin data model).
     originalLat: result.lat,
     originalLon: result.lon,
   });
