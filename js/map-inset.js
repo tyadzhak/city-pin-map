@@ -52,6 +52,7 @@ import {
 import { listPins, subscribe as subscribePins } from "./pins.js";
 import { subscribe as subscribeGroups } from "./groups.js";
 import { loadRouteVisible } from "./storage.js";
+import { attachTo as attachLabelOverlay } from "./map-labels.js";
 
 // App-added sources/layers all live under this id prefix (pins fill/ring/
 // labels, route, locator). Stripped from the seed style so we don't reference
@@ -73,6 +74,7 @@ let mainMap = null;
 let overlay = null; // .map-inset-overlay (positioned, square, bordered)
 let insetMapEl = null; // child div hosting the inset MapLibre map
 let insetMap = null; // second maplibregl.Map, created LAZILY on first enable
+let insetLabels = null; // display-only DOM label overlay for the inset (map-labels.js)
 let lastCfg = null; // last config passed to update()
 let boundsInUse = null; // LngLatBounds currently fitted, or null when hidden
 let resizeObserver = null;
@@ -254,6 +256,15 @@ function ensureInsetMap() {
     fadeDuration: 0, // crisp labels immediately, no cross-fade on (re)style
   });
 
+  // Display-only pin-label overlay for the inset (interactive:false → no
+  // pointer events, so it never intercepts anything and its labels can't be
+  // dragged). Created once with the inset map; it lives inside the inset's
+  // container (insetMapEl) so the .map-inset-overlay's overflow:hidden clips
+  // labels at the box edge. It survives a basemap swap (setStyle only touches
+  // WebGL layers, not this sibling DOM), so we just refresh it after re-styles
+  // rather than tearing it down — see onInsetStyleData.
+  insetLabels = attachLabelOverlay(insetMap, { interactive: false });
+
   // Re-add pins/route (+ re-register sprite images) once the seed style is
   // parsed. once() — re-armed after each setStyle in rebuildInsetStyle.
   insetMap.once("styledata", onInsetStyleData);
@@ -305,6 +316,10 @@ async function onInsetStyleData() {
   await addPinAndRouteLayers(insetMap, { locator: false, reportFailures: false });
   if (!insetMap) return;
   renderInsetData();
+  // The DOM label overlay isn't wiped by setStyle, but the pin set / group
+  // colors may have changed while a swap was in flight — re-render it here so
+  // the inset's labels match the freshly re-added pins.
+  if (insetLabels) insetLabels.refresh();
   if (boundsInUse) fitInset(boundsInUse);
 }
 
@@ -317,6 +332,10 @@ function renderInsetData(pins = listPins()) {
   if (!insetMap) return;
   renderPinsTo(insetMap, pins);
   renderRouteTo(insetMap, pins, { visible: loadRouteVisible() });
+  // Keep the inset's display-only DOM labels in step with the pins/route on
+  // every pin/group re-sync (the overlay also subscribes to the stores itself,
+  // but this covers the same call path the pins use so they never diverge).
+  if (insetLabels) insetLabels.refresh();
 }
 
 function fitInset(bounds) {

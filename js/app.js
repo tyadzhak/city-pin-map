@@ -61,6 +61,7 @@ import * as mapFrame from "./map-frame.js";
 import * as mapFade from "./map-fade.js";
 import * as mapViewport from "./map-viewport.js";
 import * as mapInset from "./map-inset.js";
+import * as mapLabels from "./map-labels.js";
 
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
@@ -232,6 +233,15 @@ function init() {
   // so the very first paint already reflects any previously-saved custom
   // style — no flash of default-sized pins.
   initPinStyleOptions();
+
+  // Pin-label DOM overlay (js/map-labels.js). Inited AFTER initPinStyleOptions
+  // (so the global pin style is already applied — the overlay's first render
+  // picks up the saved typography) and after the pin/group stores are hydrated
+  // and subscribed above, honoring the hydrate-before-subscribe boot order:
+  // the overlay subscribes to both stores and renders once immediately, so it
+  // must see hydrated pins/groups. No UI controls here — the pin-style group
+  // and (later) the labelFont/labelItalic controls own those.
+  mapLabels.init(getMap());
 
   initExportFormatSelector();
   // Capture the live-state accessors so the export button consumes the same
@@ -685,6 +695,8 @@ function initPinStyleOptions() {
   const labelSizeInput = document.getElementById("pin-style-label-size");
   const labelColorInput = document.getElementById("pin-style-label-color");
   const labelBoldBtn = document.getElementById("pin-style-label-bold");
+  const labelItalicBtn = document.getElementById("pin-label-italic");
+  const labelFontSelect = document.getElementById("pin-label-font");
   if (!sizeInput || !labelSizeInput || !labelColorInput || !labelBoldBtn) {
     return;
   }
@@ -697,22 +709,30 @@ function initPinStyleOptions() {
   labelSizeInput.value = String(saved.labelSize);
   labelColorInput.value = saved.labelColor;
   labelBoldBtn.setAttribute("aria-pressed", saved.labelBold ? "true" : "false");
+  if (labelItalicBtn) {
+    labelItalicBtn.setAttribute("aria-pressed", saved.labelItalic ? "true" : "false");
+  }
+  if (labelFontSelect) {
+    labelFontSelect.value = saved.labelFont;
+  }
 
   // Apply immediately so the map reflects a previously-saved custom style
   // from its very first paint (see the comment at the call site in init()).
   setPinStyle(saved);
 
-  // labelFont has no UI control (see index.html's Pin-style comment and
-  // map.js's setPinStyle doc comment for why an arbitrary family isn't
-  // wired up), so every persist() carries the persisted value straight
-  // through unchanged rather than silently dropping it back to "".
+  // labelFont/labelItalic fall back to the saved value when their control is
+  // missing from the DOM (defensive per house style) — mirrors the other
+  // fields' read-from-control pattern rather than silently dropping them.
   const persist = () => {
     const next = normalizePinStyle({
       size: sizeInput.valueAsNumber,
       labelSize: labelSizeInput.valueAsNumber,
       labelColor: labelColorInput.value,
       labelBold: labelBoldBtn.getAttribute("aria-pressed") === "true",
-      labelFont: saved.labelFont,
+      labelFont: labelFontSelect ? labelFontSelect.value : saved.labelFont,
+      labelItalic: labelItalicBtn
+        ? labelItalicBtn.getAttribute("aria-pressed") === "true"
+        : saved.labelItalic,
     });
     savePinStyle(next);
     setPinStyle(next);
@@ -734,6 +754,16 @@ function initPinStyleOptions() {
     labelBoldBtn.setAttribute("aria-pressed", next ? "true" : "false");
     persist();
   });
+  if (labelItalicBtn) {
+    labelItalicBtn.addEventListener("click", () => {
+      const next = labelItalicBtn.getAttribute("aria-pressed") !== "true";
+      labelItalicBtn.setAttribute("aria-pressed", next ? "true" : "false");
+      persist();
+    });
+  }
+  if (labelFontSelect) {
+    labelFontSelect.addEventListener("change", persist);
+  }
 }
 
 // Reflects the persisted preference on the checkbox at boot and forwards

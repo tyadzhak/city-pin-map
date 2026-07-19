@@ -1038,12 +1038,13 @@ export function normalizeInset(value) {
 //     paint value.
 //   - labelBold: false — the layer's `text-font` is `["Noto Sans Regular"]`,
 //     the non-bold glyph.
-//   - labelFont: "" — empty string means "no override; use the basemap's
-//     own glyph default". MapLibre `text-font` can only reference fonts the
-//     basemap's glyph endpoint actually serves, so an arbitrary family
-//     picker is best-effort at most (see BATCH-SPEC.md contract B) — the
-//     empty-string default keeps every basemap's labels rendering exactly
-//     as they do today until a consumer wires up a font choice.
+//   - labelFont: "" — empty string means "no override; use the default
+//     stack". Pin labels render as a DOM overlay (js/map-labels.js), not a
+//     MapLibre symbol layer, so — unlike the labels-layer-era restriction
+//     this comment used to document — an arbitrary CSS font stack is safe:
+//     there's no basemap glyph endpoint to 404 against.
+//   - labelItalic: false — matches the label's default (non-italic) style,
+//     same backfill contract as labelBold for pre-feature saves.
 const PIN_STYLE_KEY = "city-pin-map.pin-style.v1";
 const DEFAULT_PIN_STYLE = Object.freeze({
   size: 32,
@@ -1051,6 +1052,7 @@ const DEFAULT_PIN_STYLE = Object.freeze({
   labelColor: "#1f2937",
   labelBold: false,
   labelFont: "",
+  labelItalic: false,
 });
 const PIN_STYLE_SIZE_MIN = 8;
 const PIN_STYLE_SIZE_MAX = 96;
@@ -1120,6 +1122,7 @@ export function normalizePinStyle(value) {
     labelColor,
     labelBold: Boolean(v.labelBold),
     labelFont: typeof v.labelFont === "string" ? v.labelFont : DEFAULT_PIN_STYLE.labelFont,
+    labelItalic: Boolean(v.labelItalic),
   };
 }
 

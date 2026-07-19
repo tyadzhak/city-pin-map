@@ -1,18 +1,24 @@
 // PNG export via native HTML5 Canvas. Composites the MapLibre WebGL canvas
-// into an off-screen 2D canvas, paints the bottom fade (poster-style
-// caption zone), then the corner inset box (js/map-inset.js's live overlay,
-// drawn from its second MapLibre map's canvas), then the on-map title overlay
-// (PO-008) at its projected position — composite order is map → bottom fade →
-// inset → title, so the title always reads on top of both the fade and the
-// inset — then optionally wraps the result in a decorative frame (PO-007,
-// outermost of all), then toDataURL. The inset box geometry (16px margin,
-// sizePct% width, 2px white border, 6px radius, drop shadow) mirrors
-// .map-inset-overlay in css/styles.css and js/map-inset.js 1:1 so the live
-// preview and the exported PNG agree.
+// into an off-screen 2D canvas, paints the pin labels (js/map-labels.js's DOM
+// overlay is NOT part of the WebGL canvas, so they must be re-drawn here from
+// computeLabelSpecs()), then the bottom fade (poster-style caption zone), then
+// the corner inset box (js/map-inset.js's live overlay, drawn from its second
+// MapLibre map's canvas — its labels aren't in ITS canvas either, so they're
+// re-painted inside the box too), then the on-map title overlay (PO-008) at its
+// projected position — composite order is map → pin labels → bottom fade →
+// inset → title, mirroring the live z-order (labels z2 < fade z3 < inset z4 <
+// title z6) so the fade dissolves labels and the inset/title read on top —
+// then optionally wraps the result in a decorative frame (PO-007, outermost of
+// all), then toDataURL. The inset box geometry (16px margin, sizePct% width,
+// 2px white border, 6px radius, drop shadow) mirrors .map-inset-overlay in
+// css/styles.css and js/map-inset.js 1:1 so the live preview and the exported
+// PNG agree.
 //
 // Markers and the route line are layers inside the WebGL canvas (see
 // js/map.js — Option B GeoJSONSource + circle/line layers), so they are
-// captured automatically by getCanvas(). No post-composite step is needed.
+// captured automatically by getCanvas(). Pin LABELS moved out of WebGL into a
+// DOM overlay (js/map-labels.js), so paintPinLabels() re-draws them onto the
+// composite from the same computeLabelSpecs() the live overlay uses.
 //
 // PO-009 retired the NICE-006 title strip path. The single on-map title
 // (with user-driven font / bold / italic / color / size) is the only text
@@ -32,13 +38,17 @@
 //     independent of the display's dpr. Scaling happens INSIDE the render
 //     (the device-pixel map canvas is downscaled into the preset canvas), but
 //     the final width/height never changes.
-//   • Everything drawn onto the 2D canvas by us (the title chip) and the
-//     frame thickness is expressed in CSS pixels and multiplied by that
-//     canvas's effective CSS→output scale — `chipScale` for the title,
-//     `innerScale` for the frame — so a given view / frame / chip reads at the
-//     same visual proportion on both paths regardless of dpr. MapLibre-drawn
-//     content (tiles, markers, pin labels) is scaled by the GL context's own
-//     pixelRatio, so it needs no extra factor.
+//   • Everything drawn onto the 2D canvas by us (the title chip, the pin
+//     labels) and the frame thickness is expressed in CSS pixels and multiplied
+//     by that canvas's effective CSS→output scale — `chipScale` for the title
+//     and labels, `innerScale` for the frame — so a given view / frame / chip /
+//     label reads at the same visual proportion on both paths regardless of
+//     dpr. MapLibre-drawn content (tiles, markers) is scaled by the GL
+//     context's own pixelRatio, so it needs no extra factor. Pin labels are no
+//     longer GL-drawn (DOM overlay, js/map-labels.js); they're re-painted from
+//     computeLabelSpecs() at `chipScale`, with an optional `sizeMultiplier`
+//     (= `coeff` for presets, 1 for current view) reproducing PO-006's old
+//     size bump — see paintPinLabels / computeLabelSpecs.
 
 import {
   showError,
@@ -46,7 +56,7 @@ import {
   loadOnMapTitle,
   loadBottomFade,
 } from "./storage.js";
-import { getPinLabelSize, setPinLabelSize } from "./map.js";
+import { computeLabelSpecs } from "./map-labels.js";
 import { getInsetMap, getPlacement } from "./map-inset.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
@@ -178,13 +188,27 @@ export async function exportMapAsPng(mapInstance, options = {}) {
     // pixel space). The optional frame-wrap pass and the single toDataURL
     // conversion happen at the end so they share the exact same code
     // regardless of which capture path ran.
+    // Pin labels are a DOM overlay now (js/map-labels.js), NOT part of the
+    // WebGL canvas getCanvas() returns — so the raw-framebuffer fast path can
+    // only be taken when there are zero labels to paint. With any pin present,
+    // even "Current view" must go through the composite path so paintPinLabels
+    // can draw them back onto the output.
+    const hasPinLabels = computeLabelSpecs(mapInstance).labels.length > 0;
+
     let innerCanvas;
     let innerScale;
-    if (!preset && !onMapTitle && !fadeDrawable && getInsetMap() === null) {
+    if (
+      !preset &&
+      !onMapTitle &&
+      !fadeDrawable &&
+      getInsetMap() === null &&
+      !hasPinLabels
+    ) {
       // Fast path: live map, no resize, no overlay text, no fade, no inset,
-      // no extra canvas. Capture the framebuffer as-is (device resolution).
-      // An active corner inset forces the composite path just like the fade
-      // does, since getCanvas() alone can't carry the second map's box.
+      // no pin labels, no extra canvas. Capture the framebuffer as-is (device
+      // resolution). An active corner inset (or any pin label) forces the
+      // composite path just like the fade does, since getCanvas() alone can't
+      // carry the second map's box or the DOM label overlay.
       // triggerRepaint + once('render') ensures it reflects the current
       // state before we read it. The frame wrap only allocates a canvas if a
       // frame is enabled.
@@ -266,19 +290,6 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     mapInstance.resize();
     await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS_PRESET);
 
-    // PO-006: bump pin label size to match the export canvas, AFTER the
-    // resize+idle settle but BEFORE the final repaint. The change goes
-    // through MapLibre's symbol layer, so the next render frame picks up
-    // the new size; setLayoutProperty itself queues a repaint, the
-    // explicit triggerRepaint+waitForRender below is belt-and-suspenders.
-    //
-    // Base is the USER'S CONFIGURED label size (Design tab "Pin style"),
-    // not a hardcoded constant — getPinLabelSize() reads map.js's
-    // currentPinStyle.labelSize, so a custom size scales by `coeff` exactly
-    // like the on-map title and frame do, instead of the export silently
-    // reverting every capture to the pre-Pin-style-feature default.
-    setPinLabelSize(getPinLabelSize() * coeff);
-
     mapInstance.triggerRepaint();
     await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
 
@@ -330,6 +341,18 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
       };
     }
 
+    // Pin labels (js/map-labels.js DOM overlay — NOT in the WebGL canvas).
+    // Computed AFTER the resize + idle + render settle so map.project() reads
+    // the resized viewport's CSS px. `sizeMultiplier` is the typography `coeff`
+    // for a preset (reproducing PO-006's old label-size bump, which also scaled
+    // the ems-derived offset) and 1 for a current-view composite (so the export
+    // matches the on-screen labels 1:1). paintPinLabels then scales the returned
+    // CSS-px positions/font by `scale` (chipScale) like the title chip does.
+    const labelMultiplier = preset ? coeff : 1;
+    const labelSpecs = computeLabelSpecs(mapInstance, {
+      sizeMultiplier: labelMultiplier,
+    });
+
     // Inset canvas + geometry, read AFTER its settle above. getInsetMap()
     // could in principle flip to null between the settle and here (a pin/group
     // change firing the live subscription mid-export); re-read once and gate
@@ -337,6 +360,12 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     const activeInset = getInsetMap();
     const insetCanvas = activeInset ? activeInset.getCanvas() : null;
     const insetPlacement = activeInset ? getPlacement() : null;
+    // Inset labels use the SAME sizeMultiplier convention; positions are in the
+    // inset map's own (resized) CSS px, transformed into the box inside
+    // paintInset.
+    const insetLabelSpecs = activeInset
+      ? computeLabelSpecs(activeInset, { sizeMultiplier: labelMultiplier })
+      : null;
 
     return {
       canvas: composite({
@@ -347,16 +376,14 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
         coeff,
         chipScale: scale,
         bottomFade,
+        labelSpecs,
         insetCanvas,
         insetPlacement,
+        insetLabelSpecs,
       }),
       scale,
     };
   } finally {
-    // Restore live pin-label size first — independent of DOM state, so
-    // even if any re-attach step throws, the live UI returns to default.
-    setPinLabelSize(null);
-
     if (originalNextSibling) {
       originalParent.insertBefore(mapEl, originalNextSibling);
     } else {
@@ -405,8 +432,10 @@ function composite({
   coeff,
   chipScale,
   bottomFade,
+  labelSpecs,
   insetCanvas,
   insetPlacement,
+  insetLabelSpecs,
 }) {
   const out = document.createElement("canvas");
   out.width = outputWidth;
@@ -435,10 +464,17 @@ function composite({
     outputHeight
   );
 
-  // Bottom fade — painted AFTER the map pixels but BEFORE the on-map title,
-  // so the title reads on top of the fade band (composite order: map →
-  // fade → title). wrapFrame (the decorative frame) runs in the caller,
-  // after this whole composite, so the frame stays outermost of all.
+  // Pin labels (js/map-labels.js DOM overlay) — painted RIGHT AFTER the map
+  // pixels and BEFORE the bottom fade, matching the live z-order (labels z2 <
+  // fade z3 < inset z4 < title z6): the fade dissolves the labels, and the
+  // inset box + title read on top of them. Positions/font come from
+  // computeLabelSpecs (CSS px) scaled by chipScale into output px.
+  paintPinLabels(ctx, labelSpecs, chipScale);
+
+  // Bottom fade — painted AFTER the map pixels + labels but BEFORE the on-map
+  // title, so the title reads on top of the fade band (composite order: map →
+  // labels → fade → inset → title). wrapFrame (the decorative frame) runs in
+  // the caller, after this whole composite, so the frame stays outermost of all.
   paintBottomFade(ctx, bottomFade, outputWidth, outputHeight);
 
   // Corner inset — painted AFTER the fade but BEFORE the on-map title, so the
@@ -448,7 +484,15 @@ function composite({
   // scales by `chipScale` — the same CSS→output-pixel factor the frame band
   // uses — NOT the typography coeff, because the box is a fixed-CSS-px
   // decoration like the frame, not readability-scaled text.
-  paintInset(ctx, insetCanvas, insetPlacement, outputWidth, outputHeight, chipScale);
+  paintInset(
+    ctx,
+    insetCanvas,
+    insetPlacement,
+    outputWidth,
+    outputHeight,
+    chipScale,
+    insetLabelSpecs
+  );
 
   // PO-008/009 — draw the on-map title chip AFTER the map pixels (so it
   // floats on top of tiles + markers) and BEFORE wrapFrame (which runs in
@@ -485,7 +529,12 @@ function composite({
 // The inset map's backing-store pixel size differs from its CSS box size
 // (× dpr), so drawImage scale-draws the WHOLE canvas into the clipped inner
 // square. No-op when there's no active inset (getInsetMap() was null).
-function paintInset(ctx, insetCanvas, placement, width, height, coeff) {
+//
+// The inset's own pin labels (js/map-labels.js display-only overlay) are NOT
+// part of its canvas either, so `insetLabelSpecs` (computeLabelSpecs on the
+// inset map) is painted inside the same rounded-rect clip after the canvas —
+// see the paintPinLabels call below.
+function paintInset(ctx, insetCanvas, placement, width, height, coeff, insetLabelSpecs) {
   if (!insetCanvas || !placement) return;
 
   const margin = (placement.marginPx || 0) * coeff;
@@ -536,7 +585,75 @@ function paintInset(ctx, insetCanvas, placement, width, height, coeff) {
       innerSize,
       innerSize
     );
+
+    // Inset pin labels (js/map-labels.js display-only overlay — NOT in the
+    // inset canvas). Painted INSIDE the same rounded-rect clip so labels are
+    // trimmed at the box edge exactly like the live overlay's overflow:hidden.
+    // computeLabelSpecs returned positions in the inset map's own CSS px; the
+    // inner map area (innerSize output px) equals insetCssWidth × coeff — the
+    // SAME chipScale factor — so a label at CSS (lx, ly) lands at
+    // (innerX + lx*coeff, innerY + ly*coeff).
+    paintPinLabels(ctx, insetLabelSpecs, coeff, innerX, innerY);
     ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+// Draw the pin labels from computeLabelSpecs (js/map-labels.js — the SAME
+// source of truth the live DOM overlay uses) onto the composite. `specs.labels`
+// carry CSS-px positions in the (resized) map viewport; `scale` is the
+// CSS→output-pixel factor (chipScale: 1 for a preset, dpr for current view).
+// `offsetX`/`offsetY` shift the whole set (0 for the main map; the inset's
+// inner-map top-left for inset labels, whose positions are relative to the
+// inset viewport). x is the label's horizontal CENTER, y its TOP edge, matching
+// the overlay's translate(-50%,0) + textAnchor:top.
+//
+// Halo: the live overlay draws a white 8-direction text-shadow outline at the
+// halo WIDTH (spec.halo.blurPx carries 1.5). We reproduce it with a single
+// strokeText UNDER the fill — white, lineWidth = 2×haloWidth×scale (so the
+// stroke, centred on the glyph outline, extends ~haloWidth outward each side,
+// matching the shadow ring's reach), lineJoin "round" to soften corners like
+// the blurred shadow. One crisp stroke reads cleaner than eight offset copies
+// at export resolution while landing on the same visual weight.
+function paintPinLabels(ctx, specs, scale, offsetX = 0, offsetY = 0) {
+  if (!specs || !Array.isArray(specs.labels) || specs.labels.length === 0) {
+    return;
+  }
+  const style = specs.style || {};
+  const fontSize = (Number(style.sizePx) || 0) * scale;
+  if (!(fontSize > 0)) return;
+
+  const weight = style.bold ? "700" : "400";
+  const styleToken = style.italic ? "italic " : "";
+  const fontFamily = style.fontFamily || "sans-serif";
+
+  const halo = style.halo || {};
+  const haloWidth = Number.isFinite(halo.blurPx) ? halo.blurPx : 0;
+  const haloLineWidth = 2 * haloWidth * scale;
+  const haloColor = typeof halo.color === "string" ? halo.color : "#ffffff";
+  const fillColor = typeof style.color === "string" ? style.color : "#1f2937";
+
+  ctx.save();
+  ctx.font = `${styleToken}${weight} ${fontSize}px ${fontFamily}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+
+  for (const label of specs.labels) {
+    if (!label || typeof label.text !== "string" || label.text.length === 0) {
+      continue;
+    }
+    const px = offsetX + label.x * scale;
+    const py = offsetY + label.y * scale;
+    if (haloLineWidth > 0) {
+      ctx.strokeStyle = haloColor;
+      ctx.lineWidth = haloLineWidth;
+      ctx.strokeText(label.text, px, py);
+    }
+    ctx.fillStyle = fillColor;
+    ctx.fillText(label.text, px, py);
   }
 
   ctx.restore();
