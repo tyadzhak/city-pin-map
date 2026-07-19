@@ -64,6 +64,25 @@ npx serve .
 
 Open `http://localhost:8000`. No build step. Edits to `index.html` / `css/` / `js/` show up on reload.
 
+## Testing & coverage
+
+The app itself has no dependencies, but the repo carries a dev-only test harness for the logic-layer modules (storage, pins, groups, settings, user icons, icons, geocode, backup, search, SVG ingest, foreign-file import). One-time setup:
+
+```bash
+npm install
+```
+
+Then:
+
+```bash
+npm test        # run the test suite (node:test)
+npm run coverage # run the suite under c8 and enforce the coverage gate
+```
+
+`npm run coverage` fails if aggregate line coverage across those logic modules drops below 80%. A GitHub Actions workflow (`.github/workflows/coverage.yml`) runs the same command on every push and pull request, so a regression in coverage fails CI before it merges.
+
+The tests run under plain Node (`node:test`), not a browser — there's no jsdom. Two small hand-rolled shims (`js/test-helpers.mjs` for `localStorage`/`document`/`fetch`/timers, `js/xml-shim.mjs` for `DOMParser`/`XMLSerializer`) stand in for just enough of the browser environment to exercise the logic modules. The browser/WebGL-facing modules (`map.js`, `app.js`, `export.js`, and the various `map-*`, `*-panel`, `*-picker`, `pin-list`, `side-tabs` UI modules) are intentionally excluded from the coverage gate — they need a real browser to test meaningfully and aren't covered by this harness.
+
 ## Where the source lives
 
 ```

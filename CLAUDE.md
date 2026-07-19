@@ -86,6 +86,10 @@ city-pin-map/
 
 Keep modules small and focused. `map.js` is the outlier (~1690 lines — basemap registry + style-swap pipeline + image registration loop + marker/route/color-ring rendering + global pin style + drag, all of which need to share state); `storage.js` is now the second-largest at ~847 lines after picking up the FBL-013..016 hardening (normalizeFrame, boot-time element normalizers, corrupt-value stash, import pre-verify) plus the side-tab persistence helpers, alongside its existing localStorage-key/showError duties; other top files (`export.js`, `icon-picker.js`, `app.js`, `style-picker.js`, `import-foreign.js`, `pin-list.js`) sit roughly 330–645 lines. `side-tabs.js` is a small (~85-line) module — content-agnostic ARIA-tabs glue with no dependency on what's inside each panel. Split when adding new responsibilities, not before.
 
+## Testing
+
+Dev-only, no-build-step-violating tooling lives in `package.json` (a `devDependencies`-only manifest, not an app dependency). Tests are `node:test` files co-located as `js/*.test.mjs`, run via `npm test`. `npm run coverage` runs the same suite under `c8`, gating aggregate line coverage at ≥80% over the logic-layer modules only (storage, svg-ingest, import-foreign, pins, groups, settings, user-icons, icons, geocode, backup, search) — the browser/WebGL modules (`map.js`, `app.js`, `export.js`, all `map-*`/`*-panel`/`*-picker`/`pin-list`/`side-tabs`) are out of scope by design since they need a real browser. No jsdom: shared shims are `js/test-helpers.mjs` (localStorage/document/fetch/timer stand-ins) and `js/xml-shim.mjs` (DOMParser/XMLSerializer stand-in). `.github/workflows/coverage.yml` runs `npm ci && npm run coverage` on every push/PR and fails the job under the 80% gate.
+
 ## Coding conventions
 
 - **Modules:** Use ES modules (`<script type="module">`). Each `js/` file exports named functions.
