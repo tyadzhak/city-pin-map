@@ -36,6 +36,9 @@ import {
   loadBottomFade,
   saveBottomFade,
   normalizeBottomFade,
+  loadInset,
+  saveInset,
+  normalizeInset,
   loadPinStyle,
   savePinStyle,
   normalizePinStyle,
@@ -835,6 +838,116 @@ test("loadBottomFade: getItem throw returns defaults with a banner", () => {
 test("saveBottomFade: setItem throw shows a banner", () => {
   withThrowingSetItem(() => saveBottomFade({}));
   assert.match(banner().textContent, /Could not save bottom fade/);
+});
+
+// ── normalizeInset / loadInset / saveInset ──────────────────────────────
+
+test("normalizeInset: defaults for empty input", () => {
+  assert.deepEqual(normalizeInset(undefined), {
+    enabled: false,
+    corner: "top-right",
+    sizePct: 32,
+    groupId: null,
+    showLocator: true,
+  });
+});
+
+test("normalizeInset: invalid corner falls back, valid preserved", () => {
+  assert.equal(normalizeInset({ corner: "middle" }).corner, "top-right");
+  assert.equal(normalizeInset({ corner: "bottom-left" }).corner, "bottom-left");
+});
+
+test("normalizeInset: clamps sizePct to [15,50] and rounds", () => {
+  assert.equal(normalizeInset({ sizePct: 500 }).sizePct, 50);
+  assert.equal(normalizeInset({ sizePct: 2 }).sizePct, 15);
+  assert.equal(normalizeInset({ sizePct: 33.7 }).sizePct, 34);
+  // Non-finite → default.
+  assert.equal(normalizeInset({ sizePct: "nope" }).sizePct, 32);
+});
+
+test("normalizeInset: groupId keeps non-empty string, else null", () => {
+  assert.equal(normalizeInset({ groupId: "abc" }).groupId, "abc");
+  assert.equal(normalizeInset({ groupId: "" }).groupId, null);
+  assert.equal(normalizeInset({ groupId: 42 }).groupId, null);
+  assert.equal(normalizeInset({ groupId: null }).groupId, null);
+});
+
+test("normalizeInset: showLocator backfills to true when absent, else coerces", () => {
+  assert.equal(normalizeInset({}).showLocator, true);
+  assert.equal(normalizeInset({ showLocator: false }).showLocator, false);
+  assert.equal(normalizeInset({ showLocator: "yes" }).showLocator, true);
+});
+
+test("normalizeInset: boolean coercion for enabled", () => {
+  assert.equal(normalizeInset({ enabled: "yes" }).enabled, true);
+  assert.equal(normalizeInset({}).enabled, false);
+});
+
+test("loadInset: missing key returns defaults", () => {
+  assert.deepEqual(loadInset(), {
+    enabled: false,
+    corner: "top-right",
+    sizePct: 32,
+    groupId: null,
+    showLocator: true,
+  });
+});
+
+test("loadInset/saveInset: round trip", () => {
+  saveInset({
+    enabled: true,
+    corner: "bottom-right",
+    sizePct: 40,
+    groupId: "grp-1",
+    showLocator: false,
+  });
+  assert.deepEqual(loadInset(), {
+    enabled: true,
+    corner: "bottom-right",
+    sizePct: 40,
+    groupId: "grp-1",
+    showLocator: false,
+  });
+});
+
+test("loadInset: legacy saved value without showLocator backfills to true", () => {
+  globalThis.localStorage.setItem(
+    "city-pin-map.inset.v1",
+    JSON.stringify({ enabled: true, corner: "top-left", sizePct: 20, groupId: null })
+  );
+  assert.equal(loadInset().showLocator, true);
+});
+
+test("loadInset: corrupt/non-object value falls back to defaults + banner", () => {
+  globalThis.localStorage.setItem("city-pin-map.inset.v1", "42");
+  assert.deepEqual(loadInset(), {
+    enabled: false,
+    corner: "top-right",
+    sizePct: 32,
+    groupId: null,
+    showLocator: true,
+  });
+  assert.match(banner().textContent, /corrupted/);
+
+  globalThis.localStorage.setItem("city-pin-map.inset.v1", "{not json");
+  assert.deepEqual(loadInset(), {
+    enabled: false,
+    corner: "top-right",
+    sizePct: 32,
+    groupId: null,
+    showLocator: true,
+  });
+});
+
+test("loadInset: getItem throw returns defaults with a banner", () => {
+  const inset = withThrowingGetItem(() => loadInset());
+  assert.equal(inset.sizePct, 32);
+  assert.match(banner().textContent, /could not be read/);
+});
+
+test("saveInset: setItem throw shows a banner", () => {
+  withThrowingSetItem(() => saveInset({}));
+  assert.match(banner().textContent, /Could not save inset map/);
 });
 
 // ── normalizePinStyle / loadPinStyle / savePinStyle ─────────────────────

@@ -543,6 +543,98 @@
                 />
               </span>
             </div>
+
+            <div class="design-group">
+              <h2 class="design-group__heading">Inset map</h2>
+              <!-- Corner inset (atlas-style magnifier): a second small map
+                   docked in a corner, fitted to one chosen group's pins at
+                   higher zoom, plus an optional locator rectangle on the
+                   main map marking its bounds. Own standalone key
+                   (city-pin-map.inset.v1, js/storage.js) and live overlay
+                   (js/map-inset.js). Reuses the Bottom fade group's
+                   "toggle + dependent controls" chrome verbatim
+                   (.bottom-fade-toggle / .bottom-fade-controls), gated by
+                   data-inset-enabled instead of data-fade-enabled so the
+                   two groups' show/hide states never collide. -->
+              <label class="bottom-fade-toggle" title="Show a small zoomed-in inset map for one group">
+                <input
+                  id="inset-enabled"
+                  type="checkbox"
+                  class="bottom-fade-toggle__input"
+                />
+                <span class="bottom-fade-toggle__label">Show inset map</span>
+              </label>
+              <span
+                id="inset-controls"
+                class="bottom-fade-controls"
+                data-inset-enabled="false"
+              >
+                <label for="inset-group" class="visually-hidden"
+                  >Group to show in the inset</label
+                >
+                <!-- Options beyond the placeholder are populated from the
+                     group store by js/app.js's initInsetOptions() and
+                     re-populated on every group-store change. -->
+                <select
+                  id="inset-group"
+                  class="otm-format-select"
+                  aria-label="Group to show in the inset"
+                  title="Group to show in the inset"
+                >
+                  <option value="">(choose a group)</option>
+                </select>
+                <label for="inset-corner" class="visually-hidden"
+                  >Inset corner</label
+                >
+                <select
+                  id="inset-corner"
+                  class="otm-format-select"
+                  aria-label="Inset corner"
+                  title="Inset corner"
+                >
+                  <option value="top-left">Top left</option>
+                  <option value="top-right">Top right</option>
+                  <option value="bottom-left">Bottom left</option>
+                  <option value="bottom-right">Bottom right</option>
+                </select>
+                <span class="inset-size-field">
+                  <label for="inset-size" class="visually-hidden"
+                    >Inset size (percent of map width)</label
+                  >
+                  <input
+                    id="inset-size"
+                    type="range"
+                    min="15"
+                    max="50"
+                    step="1"
+                    class="inset-size-field__range"
+                    aria-label="Inset size (percent of map width)"
+                    title="Inset size (% of map width)"
+                  />
+                  <span
+                    id="inset-size-value"
+                    class="inset-size-field__value"
+                    aria-hidden="true"
+                  ></span>
+                </span>
+                <label
+                  class="export-frame-shadow-toggle"
+                  title="Show a rectangle on the main map marking the inset's bounds"
+                >
+                  <input
+                    id="inset-locator"
+                    type="checkbox"
+                    class="export-frame-shadow-toggle__input"
+                  />
+                  <span class="export-frame-shadow-toggle__label"
+                    >Show location rectangle on map</span
+                  >
+                </label>
+              </span>
+              <p id="inset-group-hint" class="inset-group-hint" hidden>
+                Create a group in the Groups tab first.
+              </p>
+            </div>
           </div>
           <div class="design-actions">
             <button id="export-png" type="button" class="export-btn export-btn--block">

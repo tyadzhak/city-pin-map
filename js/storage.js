@@ -917,6 +917,108 @@ export function normalizeBottomFade(value) {
   };
 }
 
+// Inset map (atlas-style magnifier) — a small framed square box docked in a
+// corner of the map that shows a second MapLibre map fitted to the pins of
+// one chosen group at higher zoom, plus a "locator rectangle" on the main
+// map marking the inset's bounds. Own standalone key, same defensive
+// load/clamp/save shape as loadBottomFade/saveBottomFade/normalizeBottomFade.
+//
+//   - corner ∈ INSET_CORNERS; an invalid/absent value falls back to
+//     "top-right" (the default docking corner).
+//   - sizePct is the inset box's width as a PERCENTAGE of the MAP CONTAINER
+//     width (the box is square), clamped 15–50. A percentage — not a pixel
+//     count — so the box keeps the same proportion of the view regardless of
+//     the live window size or an export preset's dimensions.
+//   - groupId is an id from the groups store, or null. A stale/deleted id
+//     (or an empty group) is NOT repaired here — it stays as-is and the
+//     inset simply hides itself while the id is unresolvable (js/map-inset.js
+//     owns that runtime check; storage only guarantees a string-or-null).
+//   - showLocator toggles the locator rectangle on the main map; defaults
+//     true, so a saved value from before the field existed backfills to on.
+const INSET_KEY = "city-pin-map.inset.v1";
+const INSET_CORNERS = Object.freeze([
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+]);
+const DEFAULT_INSET = Object.freeze({
+  enabled: false,
+  corner: "top-right",
+  sizePct: 32,
+  groupId: null,
+  showLocator: true,
+});
+const INSET_SIZE_MIN = 15;
+const INSET_SIZE_MAX = 50;
+
+export function loadInset() {
+  let raw;
+  try {
+    raw = localStorage.getItem(INSET_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved inset map settings could not be read; using defaults.");
+    return { ...DEFAULT_INSET };
+  }
+  if (raw === null) return { ...DEFAULT_INSET };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("saved inset map settings is not an object");
+    }
+    return normalizeInset(parsed);
+  } catch (err) {
+    console.error("saved inset map settings corrupt; ignoring:", err);
+    showError("Saved inset map settings were corrupted and have been ignored.");
+    return { ...DEFAULT_INSET };
+  }
+}
+
+export function saveInset(value) {
+  try {
+    localStorage.setItem(INSET_KEY, JSON.stringify(normalizeInset(value)));
+  } catch (err) {
+    console.error("failed to save inset map settings:", err);
+    showError(
+      "Could not save inset map settings (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Field-by-field clamp/coerce, mirroring normalizeBottomFade's contract — a
+// caller can pass a partial object (e.g. `{ enabled: true }` from a single
+// change event) and get a complete, well-formed value back. Unknown keys are
+// dropped. Exported so the UI/export tasks can normalize a live read into the
+// exact same shape loadInset() returns.
+//
+// groupId is intentionally NOT validated against the live group store here
+// (storage.js doesn't import it, and the stale-group contract says a
+// now-deleted id is legal at any moment): a non-empty string is preserved
+// verbatim, anything else becomes null. showLocator backfills to its default
+// (true) only when the field is genuinely absent — an explicit `false` is
+// preserved.
+export function normalizeInset(value) {
+  const v = value || {};
+  const corner = INSET_CORNERS.includes(v.corner) ? v.corner : DEFAULT_INSET.corner;
+  const sizeNum = Number(v.sizePct);
+  const sizePct = Number.isFinite(sizeNum)
+    ? Math.max(INSET_SIZE_MIN, Math.min(INSET_SIZE_MAX, Math.round(sizeNum)))
+    : DEFAULT_INSET.sizePct;
+  const groupId =
+    typeof v.groupId === "string" && v.groupId ? v.groupId : null;
+  return {
+    enabled: Boolean(v.enabled),
+    corner,
+    sizePct,
+    groupId,
+    showLocator:
+      v.showLocator === undefined
+        ? DEFAULT_INSET.showLocator
+        : Boolean(v.showLocator),
+  };
+}
+
 // Global pin style — size of the pin icon plus the shared label typography
 // (labelSize/labelColor/labelBold/labelFont). Own standalone key, same
 // defensive load/clamp/save shape as loadBottomFade/saveBottomFade/
