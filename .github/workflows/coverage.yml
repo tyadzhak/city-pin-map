@@ -1,0 +1,32 @@
+name: Test coverage
+
+# Dev-only tooling: node --test + c8 over the app's logic-layer ES modules.
+# This does NOT add a build step to the app itself — index.html still opens
+# directly, unmodified. See CLAUDE.md → "Hard rules" #1 and the
+# package.json description.
+#
+# Security note: no untrusted github.event input is interpolated into any
+# run: block below.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage gate (>= 80% lines)
+        run: npm run coverage
