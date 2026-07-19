@@ -21,5 +21,18 @@
 
 # Test coverage tooling (dev-only, see package.json)
 node_modules/
-coverage/
+# Anchored to repo root (leading slash): an unanchored `coverage/` here would
+# also match test/coverage/ — the harness SOURCE tree (test/coverage/run.mjs
+# etc, see npm run coverage:all) — at any depth, silently gitignoring it.
+# This must only ignore c8's own root-level output dir.
+/coverage/
 .nyc_output/
+
+# Combined node+browser coverage report (test/coverage/run.mjs → npm run coverage:all)
+/coverage-all/
+
+# Playwright artifacts (browser download cache lives outside the repo under
+# ~/.cache/ms-playwright or similar; this covers any local run/report output)
+/test-results/
+/playwright-report/
+/playwright/.cache/
