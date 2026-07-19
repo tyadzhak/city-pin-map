@@ -41,7 +41,7 @@ import {
   loadOnMapTitle,
   loadBottomFade,
 } from "./storage.js";
-import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
+import { getPinLabelSize, setPinLabelSize } from "./map.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
 // Same budgets the previous Leaflet impl used; MapLibre's `idle` event
@@ -263,7 +263,13 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // through MapLibre's symbol layer, so the next render frame picks up
     // the new size; setLayoutProperty itself queues a repaint, the
     // explicit triggerRepaint+waitForRender below is belt-and-suspenders.
-    setPinLabelSize(BASE_PIN_LABEL_SIZE * coeff);
+    //
+    // Base is the USER'S CONFIGURED label size (Design tab "Pin style"),
+    // not a hardcoded constant — getPinLabelSize() reads map.js's
+    // currentPinStyle.labelSize, so a custom size scales by `coeff` exactly
+    // like the on-map title and frame do, instead of the export silently
+    // reverting every capture to the pre-Pin-style-feature default.
+    setPinLabelSize(getPinLabelSize() * coeff);
 
     mapInstance.triggerRepaint();
     await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);

@@ -130,12 +130,14 @@ function clearDropdown() {
 /**
  * Build a short, readable default name for a newly-pinned city.
  *
+ * City-only (batch item MISC: dropped the ", country" suffix HARDEN-004
+ * originally added — the country was more clutter than signal once the
+ * side panel already lists every pin, and the user can always rename).
+ *
  * Priority:
- *   1. "${city}, ${country}" when Nominatim's address block supplies both,
- *      where `city` is the first non-empty of:
+ *   1. The first non-empty of Nominatim's address block:
  *        city → town → village → municipality → county
- *   2. Otherwise, the segment before the first comma of `displayName`,
- *      followed by ", ${country}" when address.country is present.
+ *   2. Otherwise, the segment before the first comma of `displayName`.
  *   3. Otherwise, `displayName` unchanged (never returns empty).
  *
  * @param {{ displayName: string, address: object | null }} result
@@ -143,14 +145,12 @@ function clearDropdown() {
  */
 function shortName(result) {
   const addr = result.address ?? {};
-  const country = addr.country;
   const city =
     addr.city ?? addr.town ?? addr.village ?? addr.municipality ?? addr.county;
 
-  if (city && country) return `${city}, ${country}`;
+  if (city) return city;
 
   const head = result.displayName?.split(",")[0]?.trim();
-  if (head && country) return `${head}, ${country}`;
   if (head) return head;
 
   return result.displayName;

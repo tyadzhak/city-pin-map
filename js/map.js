@@ -352,7 +352,43 @@ const ROUTE_LAYER_ID = "city-pin-map.route-line";
 // pixels at the live map zoom. Hoisted so setPinLabelSize(null) and the
 // layer's initial `text-size` stay in sync — and so js/export.js can
 // scale this value by the canvas-size coefficient at export time (PO-006).
+// Kept as the storage-layer DEFAULT_PIN_STYLE.labelSize baseline — see
+// currentPinStyle below, which is what actually drives the live layers once
+// setPinStyle() has run.
 export const BASE_PIN_LABEL_SIZE = 13;
+
+// Baseline pin icon size in CSS px at icon-size 1.0 (128px source SVG /
+// pixelRatio 4). setPinStyle()'s `size` field is an ABSOLUTE px target, so
+// every icon-size write is `pinStyle.size / BASE_PIN_ICON_SIZE`.
+const BASE_PIN_ICON_SIZE = 32;
+
+// Un-scaled geometry for the non-tintable-icon color ring (see
+// PINS_COLOR_RING_LAYER_ID below) at BASE_PIN_ICON_SIZE. setPinStyle scales
+// all three by the same size ratio so the ring stays proportionate to the
+// icon it sits under.
+const PINS_COLOR_RING_BASE_RADIUS = 6;
+const PINS_COLOR_RING_BASE_TRANSLATE_Y = -2;
+const PINS_COLOR_RING_BASE_STROKE_WIDTH = 1.5;
+
+// Global pin style (Design tab "Pin style" group; storage.js's
+// city-pin-map.pin-style.v1). Module-scoped so:
+//   1. Layer creation (addPinAndRouteLayers) can read it directly instead of
+//      hardcoding the pre-this-feature constants, which makes a basemap
+//      swap's styledata re-add naturally pick up whatever was last set —
+//      no separate "re-apply after swap" bookkeeping needed.
+//   2. setPinLabelSize(null)'s restore-to-default path (used by export.js
+//      around the label-size-bump-for-capture window) restores to the
+//      user's CONFIGURED size, not a hardcoded baseline.
+// Defaults mirror storage.js's DEFAULT_PIN_STYLE exactly so a page that
+// never calls setPinStyle() (e.g. a stray direct initMap() call bypassing
+// app.js) still renders at today's pre-this-feature visual baseline.
+let currentPinStyle = {
+  size: BASE_PIN_ICON_SIZE,
+  labelSize: BASE_PIN_LABEL_SIZE,
+  labelColor: "#1f2937",
+  labelBold: false,
+  labelFont: "",
+};
 
 // Pin icon registry. Single source of truth for both the map layer (image
 // id used by `icon-image`) and the side-panel picker (label + same id).
@@ -666,7 +702,11 @@ export function applyLabelVisibility(hide) {
  * Override or restore the pins-labels layer's `text-size`. Used by the
  * PNG export (PO-006) to bump label size in proportion to the export
  * canvas, then restore the live default after capture. Passing `null`
- * (or omitting the argument) restores BASE_PIN_LABEL_SIZE.
+ * (or omitting the argument) restores the user's CONFIGURED label size
+ * (currentPinStyle.labelSize — set via setPinStyle(), defaulting to
+ * BASE_PIN_LABEL_SIZE until a caller sets a custom one) rather than a
+ * hardcoded baseline, so the export's "restore" step never reverts a
+ * custom pin-style choice back to the pre-Pin-style-feature default.
  *
  * Idempotent: silently no-ops when the map or the labels layer don't
  * exist yet (e.g. during the gap between a setStyle() request and the
@@ -675,8 +715,107 @@ export function applyLabelVisibility(hide) {
 export function setPinLabelSize(sizeOrNull) {
   if (!mapInstance) return;
   if (!mapInstance.getLayer(PINS_LABELS_LAYER_ID)) return;
-  const size = sizeOrNull == null ? BASE_PIN_LABEL_SIZE : sizeOrNull;
+  const size = sizeOrNull == null ? currentPinStyle.labelSize : sizeOrNull;
   mapInstance.setLayoutProperty(PINS_LABELS_LAYER_ID, "text-size", size);
+}
+
+/**
+ * Read the currently CONFIGURED pin-label size (not any transient override
+ * setPinLabelSize() may have applied for an in-flight export). js/export.js
+ * uses this as the base it multiplies by the export coefficient, so a
+ * custom labelSize scales correctly into every export preset instead of the
+ * pipeline assuming BASE_PIN_LABEL_SIZE.
+ */
+export function getPinLabelSize() {
+  return currentPinStyle.labelSize;
+}
+
+/**
+ * Apply the global pin style (Design tab "Pin style" group) to the live
+ * marker/label layers. Called once at boot with storage.js's
+ * loadPinStyle(), and again on every Design-tab edit.
+ *
+ * Deliberately does NOT touch pinStyle.labelFont beyond storing it —
+ * MapLibre's `text-font` can only reference glyphs the active basemap's
+ * `glyphs` endpoint actually serves (see the PINS_LABELS_LAYER_ID comment
+ * in addPinAndRouteLayers), and OpenFreeMap + the raster wrapper styles
+ * only guarantee the Noto Sans Regular/Bold pair used for text-font below.
+ * An arbitrary family would 404 the glyph fetch and silently blank BOTH the
+ * labels layer and the pin-icon symbol layer sharing that source (a prior
+ * incident this codebase already hit once — see the text-font comment on
+ * PINS_LABELS_LAYER_ID). So labelFont is persisted for forward-compat but
+ * has no UI control yet and is not applied to text-font; see the "Font
+ * family" note in this task's report/commit for the full rationale.
+ *
+ * Merges over the previous value (partial updates from a single control's
+ * change event don't clobber the other fields) and is safe to call before
+ * the map/layers exist — it just updates the module-scoped baseline that
+ * addPinAndRouteLayers reads when it (re)creates the layers.
+ */
+export function setPinStyle(pinStyle) {
+  if (!pinStyle) return;
+  currentPinStyle = {
+    size: Number.isFinite(pinStyle.size) ? pinStyle.size : currentPinStyle.size,
+    labelSize: Number.isFinite(pinStyle.labelSize)
+      ? pinStyle.labelSize
+      : currentPinStyle.labelSize,
+    labelColor:
+      typeof pinStyle.labelColor === "string"
+        ? pinStyle.labelColor
+        : currentPinStyle.labelColor,
+    labelBold: Boolean(pinStyle.labelBold),
+    labelFont:
+      typeof pinStyle.labelFont === "string"
+        ? pinStyle.labelFont
+        : currentPinStyle.labelFont,
+  };
+  applyPinStyleToLayers();
+}
+
+// Pushes currentPinStyle onto whatever pin/label/ring layers currently
+// exist. No-ops per-layer (not per-call) so a mid-styledata call where only
+// some layers have been re-added yet doesn't throw — addPinAndRouteLayers
+// also calls this once at the end of layer setup as a defensive re-apply,
+// which is a harmless no-op when the layers were just created FROM
+// currentPinStyle in the first place.
+function applyPinStyleToLayers() {
+  if (!mapInstance) return;
+  const iconScale = currentPinStyle.size / BASE_PIN_ICON_SIZE;
+
+  if (mapInstance.getLayer(PINS_LAYER_ID)) {
+    mapInstance.setLayoutProperty(PINS_LAYER_ID, "icon-size", iconScale);
+  }
+  if (mapInstance.getLayer(PINS_COLOR_RING_LAYER_ID)) {
+    mapInstance.setPaintProperty(
+      PINS_COLOR_RING_LAYER_ID,
+      "circle-radius",
+      PINS_COLOR_RING_BASE_RADIUS * iconScale
+    );
+    mapInstance.setPaintProperty(PINS_COLOR_RING_LAYER_ID, "circle-translate", [
+      0,
+      PINS_COLOR_RING_BASE_TRANSLATE_Y * iconScale,
+    ]);
+    mapInstance.setPaintProperty(
+      PINS_COLOR_RING_LAYER_ID,
+      "circle-stroke-width",
+      PINS_COLOR_RING_BASE_STROKE_WIDTH * iconScale
+    );
+  }
+  if (mapInstance.getLayer(PINS_LABELS_LAYER_ID)) {
+    mapInstance.setLayoutProperty(
+      PINS_LABELS_LAYER_ID,
+      "text-size",
+      currentPinStyle.labelSize
+    );
+    mapInstance.setLayoutProperty(PINS_LABELS_LAYER_ID, "text-font", [
+      currentPinStyle.labelBold ? "Noto Sans Bold" : "Noto Sans Regular",
+    ]);
+    mapInstance.setPaintProperty(
+      PINS_LABELS_LAYER_ID,
+      "text-color",
+      currentPinStyle.labelColor
+    );
+  }
 }
 
 // True when the layer is a built-in basemap label layer that the toggle
@@ -1322,6 +1461,13 @@ async function addPinAndRouteLayers() {
   // color via icon-color and don't need the ring. Added BEFORE the fill
   // layer so it z-stacks underneath.
   if (!mapInstance.getLayer(PINS_COLOR_RING_LAYER_ID)) {
+    // Radius/translate/stroke seed from currentPinStyle so a styledata
+    // re-add after a basemap swap paints the ring at whatever size was last
+    // configured, not the pre-Pin-style-feature baseline — the defensive
+    // applyPinStyleToLayers() call at the end of this function then
+    // reconciles it (harmless no-op the first time since the values already
+    // match).
+    const iconScale = currentPinStyle.size / BASE_PIN_ICON_SIZE;
     mapInstance.addLayer({
       id: PINS_COLOR_RING_LAYER_ID,
       type: "circle",
@@ -1329,10 +1475,10 @@ async function addPinAndRouteLayers() {
       filter: ["==", ["get", "tintable"], false],
       paint: {
         "circle-color": ["get", "color"],
-        "circle-radius": 6,
-        "circle-translate": [0, -2],
+        "circle-radius": PINS_COLOR_RING_BASE_RADIUS * iconScale,
+        "circle-translate": [0, PINS_COLOR_RING_BASE_TRANSLATE_Y * iconScale],
         "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 1.5,
+        "circle-stroke-width": PINS_COLOR_RING_BASE_STROKE_WIDTH * iconScale,
       },
     });
   }
@@ -1366,7 +1512,7 @@ async function addPinAndRouteLayers() {
         "icon-anchor": "bottom",
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
-        "icon-size": 1.0,
+        "icon-size": currentPinStyle.size / BASE_PIN_ICON_SIZE,
       },
       paint: {
         "icon-color": ["get", "color"],
@@ -1391,28 +1537,48 @@ async function addPinAndRouteLayers() {
       source: PINS_SOURCE_ID,
       layout: {
         "text-field": ["get", "name"],
-        // Noto Sans Regular is the font the OpenFreeMap basemap uses for its
-        // own labels, so we know the glyph PBF exists at the expected URL.
-        // The previous combo "Open Sans Regular,Arial Unicode MS Regular"
-        // 404'd silently — fine when markers were a non-symbol circle layer,
-        // but PO-003 puts pin icons into the same symbol bucket and a failed
-        // glyph load on this layer suppresses the icons too.
-        "text-font": ["Noto Sans Regular"],
-        "text-size": BASE_PIN_LABEL_SIZE,
+        // Noto Sans Regular/Bold are the fonts the OpenFreeMap basemap uses
+        // for its own labels, so we know both glyph PBFs exist at the
+        // expected URL. The previous combo "Open Sans Regular,Arial Unicode
+        // MS Regular" 404'd silently — fine when markers were a non-symbol
+        // circle layer, but PO-003 puts pin icons into the same symbol
+        // bucket and a failed glyph load on this layer suppresses the icons
+        // too. currentPinStyle.labelBold picks between the two; an
+        // arbitrary labelFont family is NOT wired here (see setPinStyle's
+        // doc comment) because nothing guarantees the active basemap's
+        // glyph endpoint serves any font beyond this pair.
+        "text-font": [currentPinStyle.labelBold ? "Noto Sans Bold" : "Noto Sans Regular"],
+        "text-size": currentPinStyle.labelSize,
         "text-anchor": "top",
         "text-offset": [0, 1.0],
         "text-padding": 4,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
+        // allow-overlap/ignore-placement: true — MapLibre's symbol
+        // collision culling was dropping labels (and would drop pins too,
+        // if icon-allow-overlap above were ever false) once enough markers
+        // crowded together at a given zoom. Labels/pins are the app's own
+        // small, finite dataset (tens of pins per CLAUDE.md), so the
+        // overdraw risk from disabling culling is negligible next to a
+        // label silently vanishing while zooming.
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
       },
       paint: {
-        "text-color": "#1f2937",
+        "text-color": currentPinStyle.labelColor,
         "text-halo-color": "#ffffff",
         "text-halo-width": 1.5,
         "text-halo-blur": 0.5,
       },
     });
   }
+
+  // Defensive re-apply: covers the case where SOME of the three layers
+  // above already existed (their `if (!getLayer(...))` guard skipped
+  // creation) while others were just freshly created from currentPinStyle
+  // directly. Also the only path that keeps an already-existing layer set
+  // in sync after setPinStyle() runs before a styledata cycle finishes
+  // re-adding layers. No-op (identical values) in the common case where
+  // every layer was just created fresh above.
+  applyPinStyleToLayers();
 }
 
 // Hover + drag wiring on the pin layer. Idempotent across style swaps:

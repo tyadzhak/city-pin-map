@@ -205,6 +205,63 @@
             </div>
 
             <div class="design-group">
+              <h2 class="design-group__heading">Pin style</h2>
+              <!-- Global pin appearance (Agent 4 batch: pin-style +
+                   label-culling + city-only-names). Applies to every pin's
+                   icon + label via js/map.js's setPinStyle(), persisted at
+                   city-pin-map.pin-style.v1 (js/storage.js). No font-family
+                   picker: MapLibre text-font can only reference glyphs the
+                   active basemap's glyph endpoint serves, and every basemap
+                   here is only guaranteed to carry the Noto Sans
+                   Regular/Bold pair used by the Bold toggle below — an
+                   arbitrary family would risk blanking labels (and, since
+                   pin icons share the same symbol source, the pins
+                   themselves) on some basemaps. -->
+              <div class="design-row">
+                <input
+                  id="pin-style-size"
+                  type="number"
+                  min="8"
+                  max="96"
+                  step="1"
+                  class="otm-format-size"
+                  aria-label="Pin size in pixels"
+                  title="Pin size (px)"
+                />
+                <input
+                  id="pin-style-label-size"
+                  type="number"
+                  min="8"
+                  max="48"
+                  step="1"
+                  class="otm-format-size"
+                  aria-label="Pin label size in pixels"
+                  title="Label size (px)"
+                />
+                <input
+                  id="pin-style-label-color"
+                  type="color"
+                  class="otm-format-color"
+                  aria-label="Pin label color"
+                  title="Label color"
+                />
+                <button
+                  id="pin-style-label-bold"
+                  type="button"
+                  class="otm-format-toggle"
+                  aria-pressed="false"
+                  aria-label="Bold pin labels"
+                  title="Bold labels"
+                >
+                  <span
+                    class="otm-format-toggle__glyph otm-format-toggle__glyph--bold"
+                    >B</span
+                  >
+                </button>
+              </div>
+            </div>
+
+            <div class="design-group">
               <h2 class="design-group__heading">Export size</h2>
               <label for="export-format" class="visually-hidden"
                 >Export format</label

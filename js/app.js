@@ -12,6 +12,7 @@ import {
   DEFAULT_MAP_STYLE_ID,
   applyLabelVisibility,
   isRasterStyleEntry,
+  setPinStyle,
 } from "./map.js";
 import * as pinStore from "./pins.js";
 import * as groupStore from "./groups.js";
@@ -38,6 +39,9 @@ import {
   saveOnMapTitle,
   defaultTitleLine,
   ON_MAP_TITLE_FONTS,
+  loadPinStyle,
+  savePinStyle,
+  normalizePinStyle,
   showError,
 } from "./storage.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
@@ -217,6 +221,13 @@ function init() {
     const showNotice = hideLabels && entry && isRasterStyleEntry(entry);
     notice.hidden = !showNotice;
   }
+
+  // Global pin style (size/label size/label color/label bold). Hydrates
+  // map.js's currentPinStyle baseline before the map's first `load` handler
+  // (async, gated on tile/sprite/glyph fetch) creates the pin/label layers,
+  // so the very first paint already reflects any previously-saved custom
+  // style — no flash of default-sized pins.
+  initPinStyleOptions();
 
   initExportFormatSelector();
   // Capture the live-state accessors so the export button consumes the same
@@ -522,6 +533,71 @@ function initBottomFadeOptions() {
   // same normalizeBottomFade() that loadBottomFade() applies — instead of
   // re-reading (possibly stale) localStorage at click time.
   return { getLiveFade: () => normalizeBottomFade(readFade()) };
+}
+
+// Global pin style (Design tab "Pin style" group, this batch's item 4).
+// Unlike the per-line title editor and the two frames, this is a single
+// flat control cluster — no add/remove, no enable toggle (pins are always
+// on) — so it's a much smaller version of initBottomFadeOptions' shape:
+// hydrate from storage, apply once, persist + re-apply on every change.
+//
+// Clamped at the UI layer too (mirrors the on-map title size input's
+// clampSize helper) so the input box, the live map, and the persisted
+// value can never disagree even mid-edit.
+function initPinStyleOptions() {
+  const sizeInput = document.getElementById("pin-style-size");
+  const labelSizeInput = document.getElementById("pin-style-label-size");
+  const labelColorInput = document.getElementById("pin-style-label-color");
+  const labelBoldBtn = document.getElementById("pin-style-label-bold");
+  if (!sizeInput || !labelSizeInput || !labelColorInput || !labelBoldBtn) {
+    return;
+  }
+
+  const clamp = (n, min, max, fallback) =>
+    Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : fallback;
+
+  const saved = loadPinStyle();
+  sizeInput.value = String(saved.size);
+  labelSizeInput.value = String(saved.labelSize);
+  labelColorInput.value = saved.labelColor;
+  labelBoldBtn.setAttribute("aria-pressed", saved.labelBold ? "true" : "false");
+
+  // Apply immediately so the map reflects a previously-saved custom style
+  // from its very first paint (see the comment at the call site in init()).
+  setPinStyle(saved);
+
+  // labelFont has no UI control (see index.html's Pin-style comment and
+  // map.js's setPinStyle doc comment for why an arbitrary family isn't
+  // wired up), so every persist() carries the persisted value straight
+  // through unchanged rather than silently dropping it back to "".
+  const persist = () => {
+    const next = normalizePinStyle({
+      size: sizeInput.valueAsNumber,
+      labelSize: labelSizeInput.valueAsNumber,
+      labelColor: labelColorInput.value,
+      labelBold: labelBoldBtn.getAttribute("aria-pressed") === "true",
+      labelFont: saved.labelFont,
+    });
+    savePinStyle(next);
+    setPinStyle(next);
+  };
+
+  sizeInput.addEventListener("change", () => {
+    sizeInput.value = String(clamp(sizeInput.valueAsNumber, 8, 96, saved.size));
+    persist();
+  });
+  labelSizeInput.addEventListener("change", () => {
+    labelSizeInput.value = String(
+      clamp(labelSizeInput.valueAsNumber, 8, 48, saved.labelSize)
+    );
+    persist();
+  });
+  labelColorInput.addEventListener("input", persist);
+  labelBoldBtn.addEventListener("click", () => {
+    const next = labelBoldBtn.getAttribute("aria-pressed") !== "true";
+    labelBoldBtn.setAttribute("aria-pressed", next ? "true" : "false");
+    persist();
+  });
 }
 
 // Reflects the persisted preference on the checkbox at boot and forwards
