@@ -1012,10 +1012,13 @@ body.dragging-on-map-title * {
 }
 
 /* Live WYSIWYG bottom-fade preview (js/map-fade.js). Bottom-anchored,
-   full-width band; z-index 3 sits at the BOTTOM of the overlay stack —
-   below the corner inset (4), the frame overlay (5), and the title overlay
-   (6) — so a frame still paints outermost and the title still reads
-   on top of the fade — same order js/export.js's composite pipeline uses.
+   full-width band; z-index 3 sits above only the pin-label overlay (2, and the
+   map canvas below that) — below the corner inset (4), the frame overlay (5),
+   and the title overlay (6) — so a frame still paints outermost and the title
+   still reads on top of the fade — same order js/export.js's composite
+   pipeline uses. Sitting ABOVE the pin labels (2) is deliberate: it dissolves
+   the labels into the fade color exactly as it dissolved the old WebGL labels
+   (which were painted into the canvas the fade covered).
    height/background are set inline by the module (percentage + gradient
    both depend on the live fade value); only stacking/positioning lives
    here, mirroring how .map-frame-overlay/.map-title-overlay split
@@ -1031,6 +1034,45 @@ body.dragging-on-map-title * {
 
 .map-fade-overlay[hidden] {
   display: none;
+}
+
+/* Live pin-label overlay (js/map-labels.js). Pin NAME labels moved out of the
+   WebGL symbol layer into these DOM nodes so they can use any system font
+   family/italic — the on-map-title's freedom, applied per the global pin
+   style. The container fills the map and z-index 2 places it at the BOTTOM of
+   the deliberate overlay stack (labels 2 < fade 3 < inset 4 < frame 5 < title
+   6) but still ABOVE the map canvas (the pins), so labels read over the pins
+   yet are covered by the bottom fade exactly as the old WebGL labels were.
+   pointer-events:none on the container lets map gestures (pan/zoom) pass
+   straight through to the canvas; only the individual label nodes on the MAIN
+   map opt back in (pointer-events:auto, set inline by the module) so they can
+   be dragged. The inset's labels are display-only and never set that. */
+.map-pin-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  /* Labels project past the container edges near the map border; let them show
+     on the main map (the .app-map mat clips the whole map anyway) — the inset's
+     own .map-inset-overlay overflow:hidden clips its labels to the box. */
+  overflow: visible;
+}
+
+/* One pin's label. Positioned via an inline transform (translate3d to the
+   projected pixel + translate(-50%,0) so its top-CENTER lands on the anchor,
+   matching the old layer's text-anchor:top). Typography (font-family/size/
+   color/weight/style) and the white halo (text-shadow) are all set inline from
+   computeLabelSpecs(); only the layout invariants live here. */
+.map-pin-labels__label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  line-height: 1;
+  user-select: none;
+  cursor: grab;
+  touch-action: none;
+  will-change: transform;
 }
 
 .app-side {

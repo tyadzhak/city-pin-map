@@ -959,6 +959,7 @@ test("normalizePinStyle: defaults for empty input", () => {
     labelColor: "#1f2937",
     labelBold: false,
     labelFont: "",
+    labelItalic: false,
   });
 });
 
@@ -983,6 +984,12 @@ test("normalizePinStyle: labelBold boolean coercion", () => {
   assert.equal(normalizePinStyle({ labelBold: 1 }).labelBold, true);
 });
 
+test("normalizePinStyle: labelItalic boolean coercion, backfills false when absent", () => {
+  assert.equal(normalizePinStyle({ labelItalic: 1 }).labelItalic, true);
+  assert.equal(normalizePinStyle({ labelItalic: 0 }).labelItalic, false);
+  assert.equal(normalizePinStyle({}).labelItalic, false);
+});
+
 test("loadPinStyle: missing key returns defaults", () => {
   assert.deepEqual(loadPinStyle(), {
     size: 32,
@@ -990,13 +997,29 @@ test("loadPinStyle: missing key returns defaults", () => {
     labelColor: "#1f2937",
     labelBold: false,
     labelFont: "",
+    labelItalic: false,
   });
 });
 
 test("loadPinStyle/savePinStyle: round trip", () => {
-  const style = { size: 40, labelSize: 20, labelColor: "#00ff00", labelBold: true, labelFont: "Arial" };
+  const style = {
+    size: 40,
+    labelSize: 20,
+    labelColor: "#00ff00",
+    labelBold: true,
+    labelFont: "Arial",
+    labelItalic: true,
+  };
   savePinStyle(style);
   assert.deepEqual(loadPinStyle(), style);
+});
+
+test("loadPinStyle: pre-feature saved value (no labelItalic) backfills to false", () => {
+  globalThis.localStorage.setItem(
+    "city-pin-map.pin-style.v1",
+    JSON.stringify({ size: 40, labelSize: 20, labelColor: "#00ff00", labelBold: true, labelFont: "Arial" })
+  );
+  assert.equal(loadPinStyle().labelItalic, false);
 });
 
 test("loadPinStyle: corrupt value falls back to defaults + banner", () => {
@@ -1007,6 +1030,7 @@ test("loadPinStyle: corrupt value falls back to defaults + banner", () => {
     labelColor: "#1f2937",
     labelBold: false,
     labelFont: "",
+    labelItalic: false,
   });
   assert.match(banner().textContent, /corrupted/);
 });

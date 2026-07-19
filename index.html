@@ -207,16 +207,15 @@
             <div class="design-group">
               <h2 class="design-group__heading">Pin style</h2>
               <!-- Global pin appearance (Agent 4 batch: pin-style +
-                   label-culling + city-only-names). Applies to every pin's
-                   icon + label via js/map.js's setPinStyle(), persisted at
-                   city-pin-map.pin-style.v1 (js/storage.js). No font-family
-                   picker: MapLibre text-font can only reference glyphs the
-                   active basemap's glyph endpoint serves, and every basemap
-                   here is only guaranteed to carry the Noto Sans
-                   Regular/Bold pair used by the Bold toggle below — an
-                   arbitrary family would risk blanking labels (and, since
-                   pin icons share the same symbol source, the pins
-                   themselves) on some basemaps. -->
+                   label-culling + city-only-names; font/italic added once
+                   labels moved to a DOM overlay, js/map-labels.js). Applies
+                   to every pin's icon + label via js/map.js's setPinStyle(),
+                   persisted at city-pin-map.pin-style.v1 (js/storage.js).
+                   The font <select> mirrors the on-map title's font list
+                   verbatim (ON_MAP_TITLE_FONTS / ON_MAP_TITLE_FONT_LABELS in
+                   js/app.js), with an extra leading "Default" option
+                   (value "") since pin labels have no per-line override —
+                   just one global choice. -->
               <div class="design-row">
                 <input
                   id="pin-style-size"
@@ -258,6 +257,41 @@
                     >B</span
                   >
                 </button>
+                <button
+                  id="pin-label-italic"
+                  type="button"
+                  class="otm-format-toggle"
+                  aria-pressed="false"
+                  aria-label="Italic pin labels"
+                  title="Italic labels"
+                >
+                  <span
+                    class="otm-format-toggle__glyph otm-format-toggle__glyph--italic"
+                    >I</span
+                  >
+                </button>
+                <label for="pin-style-label-font" class="visually-hidden"
+                  >Pin label font family</label
+                >
+                <!-- Option values/labels index-align with ON_MAP_TITLE_FONTS
+                     / ON_MAP_TITLE_FONT_LABELS in js/app.js, minus the
+                     leading "Default" option which is unique to this
+                     picker (value ""). -->
+                <select
+                  id="pin-label-font"
+                  class="otm-format-select"
+                  aria-label="Pin label font family"
+                  title="Font family"
+                >
+                  <option value="">Default (Noto Sans)</option>
+                  <option value='Georgia, "Times New Roman", serif'>Georgia</option>
+                  <option value='"Times New Roman", Times, serif'>Times</option>
+                  <option value="Helvetica, Arial, sans-serif">Helvetica</option>
+                  <option value="Verdana, Geneva, sans-serif">Verdana</option>
+                  <option value='"Trebuchet MS", "Lucida Sans Unicode", sans-serif'>Trebuchet</option>
+                  <option value='"Courier New", Courier, monospace'>Courier</option>
+                  <option value='Impact, "Arial Black", sans-serif'>Impact</option>
+                </select>
               </div>
             </div>
 
