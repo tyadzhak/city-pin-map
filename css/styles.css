@@ -827,15 +827,11 @@ body.dragging-pin * {
      still cover the overlay when needed. */
   z-index: 5;
 
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: #1f2937;
-  /* pre-line (not nowrap) so a user-typed "\n" renders as a real line
-     break for multi-line titles; center-align so a shorter second line
-     doesn't read as left-hung against a longer first line. */
-  white-space: pre-line;
+  /* Per-line model: this element is just the draggable pill/backdrop now.
+     Typography lives on each .export-on-map-title__line child (its own
+     font/weight/style/color/size, set inline by js/map-title.js), so no
+     text properties are declared here beyond the centering that keeps a
+     shorter line from reading as left-hung against a longer one. */
   text-align: center;
 
   background: rgba(255, 255, 255, 0.85);
@@ -850,6 +846,17 @@ body.dragging-pin * {
   pointer-events: auto;
   user-select: none;
   touch-action: none;
+}
+
+/* One line of the title block. Block-level so each line stacks on its own
+   row; centered to match the pill's overall text-align. line-height 1.2
+   mirrors ON_MAP_TITLE_BOX.lineHeightMultiplier in js/export.js so the
+   live preview's line spacing matches the exported PNG's. */
+.export-on-map-title__line {
+  display: block;
+  text-align: center;
+  line-height: 1.2;
+  white-space: pre;
 }
 
 .export-on-map-title[hidden] {
@@ -2209,24 +2216,97 @@ body.dragging-on-map-title * {
    widths). Inside the 320px vertical panel, the wide ones should fill the
    row instead. Scoped under .side-panel--design so nothing outside this
    tab is affected. */
-.side-panel--design #export-on-map-title,
 .side-panel--design #export-format {
   width: 100%;
 }
 
-/* #export-on-map-title is now a <textarea> (multi-line titles). It should
-   NOT inherit the live overlay's white-space: pre-line — a textarea already
-   wraps and shows newlines natively in its own edit box; this just keeps
-   the panel control comfortable to type/read in and resizable by the user. */
-.side-panel--design #export-on-map-title {
-  resize: vertical;
-  min-height: 2.5em;
-  line-height: normal;
-  font: inherit;
+/* Per-line title editor (#otm-lines): one .otm-line-row per line, stacked
+   vertically with a little breathing room between rows so each line's
+   control cluster reads as its own unit. */
+#otm-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.side-panel--design .design-row #otm-font {
-  flex: 1 1 auto;
+/* One line's control cluster: text input + font/bold/italic/color/size +
+   remove button. Wraps onto a second sub-row in the 320px panel rather than
+   overflowing — same wrap-not-scroll contract .export-frame-controls uses. */
+.otm-line-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Text input grows to fill the row's leading space; a sensible min-width
+   keeps it from collapsing to nothing once the format controls wrap. */
+.otm-line-text {
+  flex: 1 1 120px;
+  min-width: 80px;
+  height: 32px;
+  padding: 0 10px;
+  font: inherit;
+  color: inherit;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.otm-line-text:hover {
+  background: #ffffff;
+}
+
+.otm-line-text:focus {
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+/* Small square ✕ button, deliberately understated (quiet border, no fill)
+   since deleting a line is a low-frequency, slightly destructive action —
+   distinct from the format controls it sits beside. */
+.otm-line-remove {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: #6b7280;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 120ms ease, border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.otm-line-remove:hover {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.otm-line-remove:focus-visible {
+  outline: none;
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+/* "+ Add line" reuses .group-panel__add's compact-secondary-button look
+   (see that rule for the rationale) so it doesn't compete visually with
+   Export PNG. Full width here since it's the only action at the bottom of
+   the line list, not sharing a row with a heading. */
+#otm-add-line {
+  width: 100%;
+  text-align: center;
 }
 
 /* Frame sub-controls (thickness/color/padding/margin/radius/shadow) need

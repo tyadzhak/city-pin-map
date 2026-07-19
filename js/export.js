@@ -290,8 +290,7 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
       titleChip = {
         x: onMapTitle.nx * outputWidth,
         y: onMapTitle.ny * outputHeight,
-        text: onMapTitle.text,
-        style: onMapTitle.style,
+        lines: onMapTitle.lines,
       };
     }
 
@@ -400,8 +399,7 @@ function composite({
     drawOnMapTitle(ctx, {
       x: titleChip.x,
       y: titleChip.y,
-      style: titleChip.style,
-      text: titleChip.text,
+      lines: titleChip.lines,
       coeff: coeff * chipScale,
     });
   }
@@ -589,70 +587,83 @@ function paintFrameBand(ctx, frameEl, scale, canvasWidth, canvasHeight) {
   ctx.restore();
 }
 
-// PO-008/009 (frame-relative anchor). Validates the stored on-map title and
-// extracts what the export needs — the anchor's normalized nx/ny fraction
-// plus the user's formatting — or null when there's nothing renderable
-// (missing/empty text, non-finite fractions). The pixel position is
-// deliberately NOT computed here: captureFramed multiplies nx/ny by the
-// output dims directly, so the chip stays frame-fixed at any aspect ratio
-// without any re-projection off the live map.
+// Per-line title model (this milestone). Validates the stored/live on-map
+// title and extracts what the export needs — the anchor's normalized nx/ny
+// fraction plus the ordered list of renderable lines, each with its own
+// style — or null when there's nothing renderable (no lines with non-empty
+// text, non-finite fractions). The pixel position is deliberately NOT
+// computed here: captureFramed multiplies nx/ny by the output dims
+// directly, so the block stays frame-fixed at any aspect ratio without any
+// re-projection off the live map.
+//
+// Lines with empty text are dropped (only rendered ones need to reach the
+// canvas painter) but ORDER among the remaining lines is preserved, so a
+// blank line used purely for vertical spacing between two styled lines still
+// does what the user expects.
 function prepareOnMapTitle(raw) {
-  if (!raw || !raw.text) return null;
+  if (!raw || !Array.isArray(raw.lines)) return null;
   if (!Number.isFinite(raw.nx) || !Number.isFinite(raw.ny)) return null;
 
-  return {
-    text: raw.text,
-    nx: raw.nx,
-    ny: raw.ny,
-    style: {
-      font: raw.font,
-      bold: Boolean(raw.bold),
-      italic: Boolean(raw.italic),
-      color: raw.color,
-      size: raw.size,
-    },
-  };
+  const lines = raw.lines
+    .filter((line) => line && typeof line.text === "string" && line.text.length > 0)
+    .map((line) => ({
+      text: line.text,
+      style: {
+        font: line.font,
+        bold: Boolean(line.bold),
+        italic: Boolean(line.italic),
+        color: line.color,
+        size: line.size,
+      },
+    }));
+  if (lines.length === 0) return null;
+
+  return { nx: raw.nx, ny: raw.ny, lines };
 }
 
-// PO-008/009. Paints the chip at (x, y) — interpreted as the chip's
-// CENTER, mirroring the live overlay's translate(-50%, -50%) trick.
-// `style` carries the user's font/bold/italic/color/size picks; the box
-// constants (background, border, padding, radius) come from
-// ON_MAP_TITLE_BOX. Every dimension scales by `coeff` so a 1080² preset
-// gets a slightly smaller pill than a 1920×1080 one — same proportional-
-// sizing contract the pin labels follow.
-function drawOnMapTitle(ctx, { x, y, style, text, coeff }) {
-  const fontSize = style.size * coeff;
+// Per-line title model (this milestone). Paints the chip at (x, y) —
+// interpreted as the chip's CENTER, mirroring the live overlay's
+// translate(-50%, -50%) trick. Each entry in `lines` carries its OWN style
+// (font/bold/italic/color/size) — unlike the old single-style title, this
+// draws every line with its own `ctx.font`/fillStyle rather than one shared
+// style for the whole block. The box constants (background, border,
+// padding, radius) still come from ON_MAP_TITLE_BOX and stay uniform across
+// lines so the backdrop reads as one pill. Every dimension scales by
+// `coeff` so a 1080² preset gets a slightly smaller pill than a 1920×1080
+// one — same proportional-sizing contract the pin labels follow.
+//
+// A single-line title is a 1-element `lines` array, so this collapses back
+// to exactly the old single-style box math.
+function drawOnMapTitle(ctx, { x, y, lines, coeff }) {
   const padX = ON_MAP_TITLE_BOX.paddingX * coeff;
   const padY = ON_MAP_TITLE_BOX.paddingY * coeff;
   const radius = ON_MAP_TITLE_BOX.borderRadius * coeff;
   const borderWidth = ON_MAP_TITLE_BOX.borderWidth * coeff;
 
   ctx.save();
-
-  // ctx.font shorthand: "italic 700 32px Georgia, serif". Order matters:
-  // style → weight → size → family. Skipping italic when off keeps the
-  // string short; weight=400 is the implicit normal default.
-  const weight = style.bold ? "700" : "400";
-  const styleToken = style.italic ? "italic " : "";
-  ctx.font = `${styleToken}${weight} ${fontSize}px ${style.font}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // Multi-line support (mirrors the live overlay's `white-space: pre-line`,
-  // which renders "\n" as a break): split on "\n" and stack lines using the
-  // same lineHeightMultiplier the live CSS uses. A single-line title is a
-  // 1-element array, so lineHeight/textBlockHeight collapse back to the
-  // original textHeight/boxHeight math exactly.
-  const lines = text.split("\n");
-  const lineHeight = fontSize * ON_MAP_TITLE_BOX.lineHeightMultiplier;
-  const textWidth = lines.reduce(
-    (max, line) => Math.max(max, ctx.measureText(line).width),
-    0
-  );
-  const textBlockHeight = lineHeight * lines.length;
-  const boxWidth = textWidth + padX * 2;
-  const boxHeight = textBlockHeight + padY * 2;
+  // First pass: measure every line at its OWN font/size (ctx.font must be
+  // set before measureText reflects it), building parallel arrays of
+  // { fontString, lineHeight } and the running maxWidth/totalHeight the box
+  // needs. A second pass (below) re-sets ctx.font per line when actually
+  // drawing — cheap, and avoids caching font strings across two loops.
+  let maxWidth = 0;
+  let totalHeight = 0;
+  const lineHeights = lines.map((line) => {
+    const fontSize = line.style.size * coeff;
+    const weight = line.style.bold ? "700" : "400";
+    const styleToken = line.style.italic ? "italic " : "";
+    ctx.font = `${styleToken}${weight} ${fontSize}px ${line.style.font}`;
+    maxWidth = Math.max(maxWidth, ctx.measureText(line.text).width);
+    const lineHeight = fontSize * ON_MAP_TITLE_BOX.lineHeightMultiplier;
+    totalHeight += lineHeight;
+    return lineHeight;
+  });
+
+  const boxWidth = maxWidth + padX * 2;
+  const boxHeight = totalHeight + padY * 2;
   const boxX = x - boxWidth / 2;
   const boxY = y - boxHeight / 2;
 
@@ -671,10 +682,18 @@ function drawOnMapTitle(ctx, { x, y, style, text, coeff }) {
     ctx.stroke();
   }
 
-  ctx.fillStyle = style.color;
+  // Stack lines top → bottom, each drawn with its own font + fill color.
+  let runningTop = y - totalHeight / 2;
   lines.forEach((line, i) => {
-    const lineY = y - textBlockHeight / 2 + lineHeight * (i + 0.5);
-    ctx.fillText(line, x, lineY);
+    const lineHeight = lineHeights[i];
+    const fontSize = line.style.size * coeff;
+    const weight = line.style.bold ? "700" : "400";
+    const styleToken = line.style.italic ? "italic " : "";
+    ctx.font = `${styleToken}${weight} ${fontSize}px ${line.style.font}`;
+    ctx.fillStyle = line.style.color;
+    const centerY = runningTop + lineHeight / 2;
+    ctx.fillText(line.text, x, centerY);
+    runningTop += lineHeight;
   });
 
   ctx.restore();

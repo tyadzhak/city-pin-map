@@ -190,76 +190,18 @@
           <div class="design-scroll">
             <div class="design-group">
               <h2 class="design-group__heading">Title</h2>
-              <!-- PO-008/009: on-map title. The input drives a draggable
+              <!-- Per-line on-map title. Each line in #otm-lines is its own
+                   row with independent font/bold/italic/color/size, built by
+                   js/app.js (initOnMapTitle) — no per-row ids needed here
+                   since the rows are dynamic. The rows drive a draggable
                    overlay rendered both in the live map (js/map-title.js)
                    and in the exported PNG (js/export.js → drawOnMapTitle).
-                   PO-009 retired the title strip — this is the only text
-                   pass on the export now, and the toolbar below (font / B /
-                   I / color / size) is the user's full set of formatting
-                   controls. -->
-              <textarea
-                id="export-on-map-title"
-                class="export-options__input"
-                placeholder="On-map title (Enter for a new line)"
-                autocomplete="off"
-                spellcheck="false"
-                rows="2"
-              ></textarea>
-              <div class="design-row">
-                <select
-                  id="otm-font"
-                  class="otm-format-select"
-                  aria-label="Font family"
-                  title="Font family"
-                >
-                  <option value='Georgia, "Times New Roman", serif'>Georgia</option>
-                  <option value='"Times New Roman", Times, serif'>Times</option>
-                  <option value="Helvetica, Arial, sans-serif">Helvetica</option>
-                  <option value="Verdana, Geneva, sans-serif">Verdana</option>
-                  <option value='"Trebuchet MS", "Lucida Sans Unicode", sans-serif'>
-                    Trebuchet
-                  </option>
-                  <option value='"Courier New", Courier, monospace'>Courier</option>
-                  <option value='Impact, "Arial Black", sans-serif'>Impact</option>
-                </select>
-                <button
-                  id="otm-bold"
-                  type="button"
-                  class="otm-format-toggle"
-                  aria-pressed="true"
-                  aria-label="Bold"
-                  title="Bold"
-                >
-                  <span class="otm-format-toggle__glyph otm-format-toggle__glyph--bold">B</span>
-                </button>
-                <button
-                  id="otm-italic"
-                  type="button"
-                  class="otm-format-toggle"
-                  aria-pressed="false"
-                  aria-label="Italic"
-                  title="Italic"
-                >
-                  <span class="otm-format-toggle__glyph otm-format-toggle__glyph--italic">I</span>
-                </button>
-                <input
-                  id="otm-color"
-                  type="color"
-                  class="otm-format-color"
-                  aria-label="Text color"
-                  title="Text color"
-                />
-                <input
-                  id="otm-size"
-                  type="number"
-                  min="10"
-                  max="80"
-                  step="1"
-                  class="otm-format-size"
-                  aria-label="Font size in pixels"
-                  title="Size (px)"
-                />
-              </div>
+                   "Add line" appends a fresh line (storage.js's
+                   defaultTitleLine()); each row's own ✕ removes it. -->
+              <div id="otm-lines"></div>
+              <button id="otm-add-line" type="button" class="group-panel__add">
+                + Add line
+              </button>
             </div>
 
             <div class="design-group">
