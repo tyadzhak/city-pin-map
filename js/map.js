@@ -553,13 +553,16 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
 
   // Vector: styledata confirms; any error is a real load failure (vector
   // styles have a `glyphs` property, so the pins-labels layer never trips a
-  // benign style-validation error the way the raster inline object does).
+  // benign style-validation error the way the raster inline object could).
   const onBootStyleData = () => confirmBoot();
   const onBootError = (err) => failBoot(err && err.error && err.error.status);
 
   // Raster: confirm only when a basemap tile actually loads; fail only on an
-  // error attributable to the raster source (ignoring the benign no-sourceId
-  // glyphs validation error our pins-labels layer emits over inline styles).
+  // error attributable to the raster source. rasterStyle() now sets its own
+  // `glyphs` URL too (see that function), so the pins-labels layer no longer
+  // trips the old no-sourceId glyphs validation error here — but the
+  // sourceId gate stays regardless, since it also has to ignore unrelated
+  // noise from the app's own pins/route GeoJSON sources.
   const onBootTileData = (e) => {
     if (
       e.dataType === "source" &&
@@ -1075,8 +1078,7 @@ export function setMapStyle(styleId, { persist = true } = {}) {
 
   // Vector failure: any error during a vector swap is a real load failure
   // (vector styles HAVE a `glyphs` property, so adding pin layers never
-  // trips the style-validation error the raster path must ignore). Unchanged
-  // from the pre-FBL-006 behavior.
+  // trips a style-validation error). Unchanged from the pre-FBL-006 behavior.
   const onVectorError = (err) => {
     const status = err && err.error && err.error.status;
     settleFailure(status);
@@ -1088,11 +1090,12 @@ export function setMapStyle(styleId, { persist = true } = {}) {
   // timeout. Not `settled`-guarded because it's registered via once() and
   // only performs idempotent layer setup — it never commits the verdict.
   //
-  // Adding the pins-labels symbol layer here fires a BENIGN style-validation
-  // error ("text-field requires a style glyphs property") because the inline
-  // rasterStyle() objects have no `glyphs`. That error has no `sourceId`, so
-  // onRasterTileError below ignores it — only errors attributable to the
-  // basemap raster source revert the swap.
+  // rasterStyle() now sets its own `glyphs` URL (see that function), so
+  // adding the pins-labels symbol layer here no longer trips the old
+  // no-sourceId "text-field requires a style glyphs property" validation
+  // error. onRasterTileError below still gates on sourceId regardless —
+  // that gate independently has to ignore pins/route source noise too (see
+  // its comment), so it's kept as the one shared, defensive filter.
   const onRasterStyleData = async () => {
     await addPinAndRouteLayers();
     if (!mapInstance) return;
@@ -1119,9 +1122,8 @@ export function setMapStyle(styleId, { persist = true } = {}) {
   };
 
   // Raster failure: only a basemap tile fetch failure counts. Gate on the
-  // raster source id so we ignore (a) the benign glyphs style-validation
-  // error from our pins-labels layer and (b) any pins/route source noise —
-  // neither should revert a swap whose tiles are loading fine.
+  // raster source id so we ignore any pins/route source noise — that
+  // shouldn't revert a swap whose tiles are loading fine.
   const onRasterTileError = (err) => {
     if (settled) return;
     if (!err || err.sourceId !== "raster-source") return;
@@ -1260,6 +1262,17 @@ export function effectiveIcon(pin) {
 function rasterStyle({ tiles, maxzoom, attribution }) {
   return {
     version: 8,
+    // The pins-labels layer's text-font references "Noto Sans Regular" /
+    // "Noto Sans Bold" (see PINS_LABELS_LAYER_ID comments below), which
+    // requires a `glyphs` endpoint on whatever style is active — vector
+    // styles get theirs from OpenFreeMap's style JSON, but these inline
+    // raster styles previously had none, so pin labels silently never
+    // rendered on Wikimedia/OpenTopoMap/Esri Satellite. Reuse OpenFreeMap's
+    // own keyless, CORS-open glyphs host (confirmed serving both Noto Sans
+    // Regular and Bold PBF ranges) rather than standing up a second
+    // dependency — it's already load-bearing for the vector basemaps this
+    // app ships, so relying on it here adds no new failure surface.
+    glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
     sources: {
       "raster-source": {
         type: "raster",

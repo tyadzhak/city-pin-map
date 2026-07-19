@@ -1173,19 +1173,33 @@ export function normalizeOnMapTitle(value) {
 
   let rawLines = v.lines;
   if (!Array.isArray(rawLines)) {
-    rawLines =
-      typeof v.text === "string" && v.text.length > 0
-        ? [
-            {
-              text: v.text,
-              font: v.font,
-              bold: v.bold,
-              italic: v.italic,
-              color: v.color,
-              size: v.size,
-            },
-          ]
-        : [];
+    if (typeof v.text === "string" && v.text.length > 0) {
+      // Legacy (pre-PO-008/009) titles stored multi-line text as a single
+      // string with embedded "\n" breaks. Splitting on that here — rather
+      // than wrapping the whole legacy string into one line object — means
+      // the overlay (white-space:pre), the per-line <input> editor (which
+      // can't hold a literal line break), and canvas fillText (which bakes
+      // an embedded \n as tofu) all render the SAME multi-line title
+      // instead of three inconsistent ones. Every segment shares the
+      // legacy top-level font/bold/italic/color/size. A legacy text with no
+      // \n still yields exactly one line; trailing empty segments (from a
+      // trailing \n) are dropped, but intentional interior blank lines are
+      // preserved.
+      const segments = v.text.split(/\r?\n/);
+      while (segments.length > 1 && segments[segments.length - 1] === "") {
+        segments.pop();
+      }
+      rawLines = segments.map((segment) => ({
+        text: segment,
+        font: v.font,
+        bold: v.bold,
+        italic: v.italic,
+        color: v.color,
+        size: v.size,
+      }));
+    } else {
+      rawLines = [];
+    }
   }
   return { nx, ny, lines: rawLines.map(normalizeTitleLine) };
 }

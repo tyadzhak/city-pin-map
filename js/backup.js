@@ -244,6 +244,16 @@ function normalizePins(rawPins, dropped) {
       pin.originalLat = originalLat;
       pin.originalLon = originalLon;
     }
+    // labelDx/labelDy (per-pin label drag offset, screen px): optional,
+    // like originalLat/originalLon — only carried over when finite, else
+    // omitted so a consumer's `pin.labelDx ?? 0` fallback applies. Mirrors
+    // js/storage.js normalizeLoadedPins exactly so Export JSON → Import
+    // JSON round-trips a dragged label offset instead of silently
+    // resetting it to the pin's default position.
+    const labelDx = toFiniteNumber(raw.labelDx);
+    if (labelDx !== null) pin.labelDx = labelDx;
+    const labelDy = toFiniteNumber(raw.labelDy);
+    if (labelDy !== null) pin.labelDy = labelDy;
     out.push(pin);
   }
   return out;

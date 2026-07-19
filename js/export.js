@@ -726,9 +726,10 @@ function paintFrameBand(ctx, frameEl, scale, canvasWidth, canvasHeight) {
 // re-projection off the live map.
 //
 // Lines with empty text are dropped (only rendered ones need to reach the
-// canvas painter) but ORDER among the remaining lines is preserved, so a
-// blank line used purely for vertical spacing between two styled lines still
-// does what the user expects.
+// canvas painter) but ORDER among the remaining lines is preserved. Note
+// this means an empty line does NOT act as vertical spacing — it renders as
+// zero height, same as the live overlay — so this filter never removes a
+// gap the user was relying on.
 function prepareOnMapTitle(raw) {
   if (!raw || !Array.isArray(raw.lines)) return null;
   if (!Number.isFinite(raw.nx) || !Number.isFinite(raw.ny)) return null;
