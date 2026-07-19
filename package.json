@@ -1,0 +1,16 @@
+{
+  "name": "city-pin-map",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev-only test tooling for city-pin-map. The app itself has no build step and no dependencies — see CLAUDE.md. This package.json exists solely for `node --test` + c8 coverage in CI.",
+  "scripts": {
+    "test": "node --test",
+    "coverage": "c8 --check-coverage --lines 80 --all --reporter=text --reporter=lcov --include 'js/storage.js' --include 'js/svg-ingest.js' --include 'js/import-foreign.js' --include 'js/pins.js' --include 'js/groups.js' --include 'js/settings.js' --include 'js/user-icons.js' --include 'js/icons.js' --include 'js/geocode.js' --include 'js/backup.js' --include 'js/search.js' node --test",
+    "coverage:all": "node test/coverage/run.mjs"
+  },
+  "devDependencies": {
+    "c8": "^12.0.0",
+    "monocart-coverage-reports": "^2.12.12",
+    "playwright": "^1.61.1"
+  }
+}

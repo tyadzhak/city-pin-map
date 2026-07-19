@@ -86,6 +86,15 @@ city-pin-map/
 
 Keep modules small and focused. `map.js` is the outlier (~1690 lines — basemap registry + style-swap pipeline + image registration loop + marker/route/color-ring rendering + global pin style + drag, all of which need to share state); `storage.js` is now the second-largest at ~847 lines after picking up the FBL-013..016 hardening (normalizeFrame, boot-time element normalizers, corrupt-value stash, import pre-verify) plus the side-tab persistence helpers, alongside its existing localStorage-key/showError duties; other top files (`export.js`, `icon-picker.js`, `app.js`, `style-picker.js`, `import-foreign.js`, `pin-list.js`) sit roughly 330–645 lines. `side-tabs.js` is a small (~85-line) module — content-agnostic ARIA-tabs glue with no dependency on what's inside each panel. Split when adding new responsibilities, not before.
 
+## Testing
+
+Dev-only tooling — it does NOT add an app build step; the app still runs by opening `index.html`. `package.json` is a `devDependencies`-only manifest. Two coverage layers, both dev-only:
+
+- **Logic layer (fast, node-only).** Tests are `node:test` files co-located as `js/*.test.mjs`, run via `npm test`. `npm run coverage` runs them under `c8`, gating ≥80% aggregate **line** coverage over 11 pure/logic modules (`storage`, `svg-ingest`, `import-foreign`, `pins`, `groups`, `settings`, `user-icons`, `icons`, `geocode`, `backup`, `search`) — currently ~99.7% aggregate. No jsdom — shared shims are `js/test-helpers.mjs` (localStorage/document/fetch/timer stand-ins) and `js/xml-shim.mjs` (DOMParser/XMLSerializer stand-in).
+- **Combined whole-repo (browser + node).** `npm run coverage:all` (`test/coverage/run.mjs`) merges the same node V8 coverage with Playwright headless-chromium browser V8 coverage — via `monocart-coverage-reports` — driving the DOM/WebGL-heavy modules (`map.js`, `export.js`, `app.js`, `icon-picker.js`, `style-picker.js`, `map-frame.js`, `map-title.js`, `pin-list.js`, `group-panel.js`, `settings-panel.js`, `map-viewport.js`, `map-fade.js`, `side-tabs.js`) through interaction scenarios in `test/coverage/scenarios/*.mjs` against a real served `index.html` (`test/coverage/serve.mjs`, a dependency-free static server). Currently ~86% whole-repo line coverage, gated at 80%. Requires `npx playwright install chromium` once locally.
+
+`.github/workflows/coverage.yml` runs both as separate jobs on every push/PR (Node 22): `coverage` (fast, node-only logic-layer gate) and `coverage-full` (installs Playwright chromium, runs the combined whole-repo gate). Both block the workflow under their gate.
+
 ## Coding conventions
 
 - **Modules:** Use ES modules (`<script type="module">`). Each `js/` file exports named functions.

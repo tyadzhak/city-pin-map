@@ -64,6 +64,32 @@ npx serve .
 
 Open `http://localhost:8000`. No build step. Edits to `index.html` / `css/` / `js/` show up on reload.
 
+## Testing & coverage
+
+The app itself has no dependencies, but the repo carries a dev-only test harness for the logic-layer modules (storage, pins, groups, settings, user icons, icons, geocode, backup, search, SVG ingest, foreign-file import). One-time setup:
+
+```bash
+npm install
+```
+
+Then:
+
+```bash
+npm test         # run the test suite (node:test)
+npm run coverage # run the suite under c8 and enforce the logic-layer coverage gate
+```
+
+`npm run coverage` fails if aggregate line coverage across those logic modules drops below 80% (currently ~99.7%). The tests run under plain Node (`node:test`), not a browser — there's no jsdom. Two small hand-rolled shims (`js/test-helpers.mjs` for `localStorage`/`document`/`fetch`/timers, `js/xml-shim.mjs` for `DOMParser`/`XMLSerializer`) stand in for just enough of the browser environment to exercise the logic modules.
+
+There's also a combined whole-repo coverage gate that drives the browser/WebGL-facing modules (`map.js`, `app.js`, `export.js`, the `map-*`/`*-panel`/`*-picker`/`pin-list`/`side-tabs` UI modules) through real interactions in headless Chromium via Playwright, merging that with the node coverage above:
+
+```bash
+npx playwright install chromium # one-time, local only
+npm run coverage:all            # combined node + browser coverage, gated at 80% whole-repo
+```
+
+`npm run coverage:all` (`test/coverage/run.mjs`) currently reports ~86% whole-repo line coverage. A GitHub Actions workflow (`.github/workflows/coverage.yml`) runs both gates as separate jobs (`coverage` and `coverage-full`) on every push and pull request, so a regression in either fails CI before it merges.
+
 ## Where the source lives
 
 ```
