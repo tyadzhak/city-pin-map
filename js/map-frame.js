@@ -209,6 +209,19 @@ export function update(frameSet) {
   overlay.hidden = drawnCount === 0 && !outsideVisible;
 }
 
+/**
+ * The frame SET last passed to update(), as `{ frames, outside }`. Lets other
+ * live overlays (js/map-inset.js) read the CURRENTLY-APPLIED frame geometry
+ * — including edits that are applied-but-not-yet-persisted — without re-reading
+ * localStorage. `frames` is the raw array update() received (each element may
+ * carry un-clamped live number-input reads); the caller is expected to clamp
+ * defensively, exactly as update() does. Returns empty defaults before the
+ * first update().
+ */
+export function getFrameSetInUse() {
+  return { frames: lastFrames, outside: lastOutside };
+}
+
 function setRing(el, { inset, width, color, radius }) {
   el.style.top = `${inset}px`;
   el.style.right = `${inset}px`;

@@ -51,8 +51,9 @@ import {
 } from "./map.js";
 import { listPins, subscribe as subscribePins } from "./pins.js";
 import { subscribe as subscribeGroups } from "./groups.js";
-import { loadRouteVisible } from "./storage.js";
+import { loadRouteVisible, saveInset } from "./storage.js";
 import { attachTo as attachLabelOverlay } from "./map-labels.js";
+import { getFrameSetInUse } from "./map-frame.js";
 
 // App-added sources/layers all live under this id prefix (pins fill/ring/
 // labels, route, locator). Stripped from the seed style so we don't reference
@@ -70,15 +71,31 @@ const MARGIN_PX = 16;
 const FIT_PADDING_PX = 40;
 const FIT_MAX_ZOOM = 10;
 
+// Shared 0-200 px clamp for a frame element's margin/thickness/padding, mirroring
+// js/map-frame.js's clampLength and js/storage.js's normalizeFrame — reused here
+// because getFrameSetInUse() can hand back un-normalized live number-input reads.
+const FRAME_LENGTH_MIN = 0;
+const FRAME_LENGTH_MAX = 200;
+
 let mainMap = null;
 let overlay = null; // .map-inset-overlay (positioned, square, bordered)
 let insetMapEl = null; // child div hosting the inset MapLibre map
 let insetMap = null; // second maplibregl.Map, created LAZILY on first enable
-let insetLabels = null; // display-only DOM label overlay for the inset (map-labels.js)
+let insetLabels = null; // DOM label overlay for the inset (map-labels.js), draggable
 let lastCfg = null; // last config passed to update()
 let boundsInUse = null; // LngLatBounds currently fitted, or null when hidden
 let resizeObserver = null;
 let deferPending = false; // a one-shot "retry once the main map is ready" wait
+
+// Box-drag state (Pointer Events + setPointerCapture on the overlay, mirroring
+// js/map-title.js). Null/false when idle. `boxDragLast` caches the final clamped
+// top-left + the container size it was clamped against, so pointerup can derive
+// the persisted freePos fractions from exactly the pixels last drawn.
+let boxDragging = false;
+let boxDragPointerId = null;
+let boxDragOffsetX = 0;
+let boxDragOffsetY = 0;
+let boxDragLast = null;
 
 /**
  * Wire the inset to the main map. Idempotent: a second call reuses the
@@ -102,15 +119,35 @@ export function init(map) {
     // inside #map and travels with it during js/export.js's off-screen
     // capture reparent.
     map.getContainer().appendChild(overlay);
+
+    // The box is draggable: Pointer Events + setPointerCapture on the overlay
+    // itself (same mechanics as js/map-title.js). CSS gives the box
+    // pointer-events:auto so a pointerdown on it starts a drag; the map beneath
+    // still pans when the pointer is OUTSIDE the (small) box. A pointerdown that
+    // lands on an inset LABEL never reaches here — the label's own handler
+    // stopPropagation()s first (js/map-labels.js) — so label drag and box drag
+    // never fight.
+    overlay.addEventListener("pointerdown", onBoxPointerDown);
+    overlay.addEventListener("pointermove", onBoxPointerMove);
+    overlay.addEventListener("pointerup", onBoxPointerUp);
+    overlay.addEventListener("pointercancel", onBoxPointerUp);
   }
 
-  // Keep the inset MapLibre map sized to its (square) overlay box. Observing
-  // the OVERLAY itself is safe across the export reparent: it lives inside
-  // #map and moves with it, so — unlike js/map-viewport.js, which observes
-  // .app-map and needs a parent-check guard — no guard is required here.
+  // Keep the inset MapLibre map sized to its (square) overlay box AND re-run
+  // the dock/clamp math on every container resize (window resize, side-panel
+  // toggle, export-preset letterbox, and — critically — js/export.js's
+  // capture-time resize to the preset dims, which getResolvedPlacement() must
+  // read fresh). Observing the OVERLAY is safe across the export reparent: it
+  // lives inside #map and moves with it, and applyPlacement only writes the
+  // overlay's OWN inline geometry (never #map's), so — unlike
+  // js/map-viewport.js, which observes .app-map and mutates #map, needing a
+  // parent-check guard — no guard is required here.
   if (!resizeObserver && typeof ResizeObserver === "function") {
     resizeObserver = new ResizeObserver(() => {
       if (insetMap && overlay && overlay.style.display !== "none") {
+        // Don't fight an in-flight box drag: the pointer is the source of
+        // truth until pointerup commits.
+        if (!boxDragging) applyPlacement(lastCfg);
         insetMap.resize();
       }
     });
@@ -138,7 +175,14 @@ export function init(map) {
     if (lastCfg) update(lastCfg);
   });
 
-  return { update, getInsetMap, getPlacement, getBoundsInUse };
+  return {
+    update,
+    getInsetMap,
+    getPlacement,
+    getBoundsInUse,
+    getResolvedPlacement,
+    refreshPlacement,
+  };
 }
 
 /**
@@ -159,9 +203,10 @@ function update(cfg) {
     return;
   }
 
-  // Show + dock + size FIRST so the inset map's container has real dimensions
-  // when (and if) it's lazily constructed just below.
-  applyPlacement(c.corner, c.sizePct);
+  // Show + place + size FIRST so the inset map's container has real dimensions
+  // when (and if) it's lazily constructed just below. Placement honors freePos
+  // (custom drag position, clamped) or docks to the frame-aware corner.
+  applyPlacement(c);
 
   const ready = ensureInsetMap();
   if (!ready) {
@@ -256,14 +301,18 @@ function ensureInsetMap() {
     fadeDuration: 0, // crisp labels immediately, no cross-fade on (re)style
   });
 
-  // Display-only pin-label overlay for the inset (interactive:false → no
-  // pointer events, so it never intercepts anything and its labels can't be
-  // dragged). Created once with the inset map; it lives inside the inset's
+  // Pin-label overlay for the inset. interactive:true → each label div is a
+  // drag target (Pointer Events, same labelDx/labelDy store path as the main
+  // map), so dragging a label INSIDE the inset moves it on the main map in
+  // lockstep (both overlays subscribe to the pins store). A label pointerdown
+  // stopPropagation()s (js/map-labels.js), so it never starts a box drag; a
+  // pointerdown on the bare inset map area falls through to the box drag
+  // instead. Created once with the inset map; it lives inside the inset's
   // container (insetMapEl) so the .map-inset-overlay's overflow:hidden clips
   // labels at the box edge. It survives a basemap swap (setStyle only touches
   // WebGL layers, not this sibling DOM), so we just refresh it after re-styles
   // rather than tearing it down — see onInsetStyleData.
-  insetLabels = attachLabelOverlay(insetMap, { interactive: false });
+  insetLabels = attachLabelOverlay(insetMap, { interactive: true });
 
   // Re-add pins/route (+ re-register sprite images) once the seed style is
   // parsed. once() — re-armed after each setStyle in rebuildInsetStyle.
@@ -347,17 +396,227 @@ function fitInset(bounds) {
   });
 }
 
-function applyPlacement(corner, sizePct) {
+// Show the overlay and position/size it from the resolved placement. Writes
+// explicit px left/top/width/height (not the old corner-anchored
+// top/right/bottom/left + percentage width) so a freePos drag and a corner
+// dock share ONE geometry path — the exact px getResolvedPlacement() reports.
+function applyPlacement(cfg) {
   if (!overlay) return;
+  const { x, y, size } = resolvePlacement(cfg);
   overlay.style.display = "block";
-  // Width is a percentage of the map container; the box is kept SQUARE via
-  // the CSS aspect-ratio (height tracks width automatically, including on a
-  // container resize).
-  overlay.style.width = `${sizePct}%`;
-  overlay.style.top = corner.startsWith("top") ? `${MARGIN_PX}px` : "";
-  overlay.style.bottom = corner.startsWith("bottom") ? `${MARGIN_PX}px` : "";
-  overlay.style.left = corner.endsWith("left") ? `${MARGIN_PX}px` : "";
-  overlay.style.right = corner.endsWith("right") ? `${MARGIN_PX}px` : "";
+  overlay.style.left = `${x}px`;
+  overlay.style.top = `${y}px`;
+  overlay.style.right = "";
+  overlay.style.bottom = "";
+  overlay.style.width = `${size}px`;
+  overlay.style.height = `${size}px`;
+}
+
+/**
+ * The inset box's ACTUAL top-left + outer (border-box) size in CSS px for the
+ * CURRENT container size, in whatever mode (docked or free). Recomputed live on
+ * every call, so it stays correct after the ResizeObserver fires AND after
+ * js/export.js resizes the container to a preset's dims at capture time (the
+ * export follow-up multiplies this by its CSS→output scale). Returns zeros
+ * defensively when there's no map/config yet.
+ */
+export function getResolvedPlacement() {
+  return resolvePlacement(lastCfg);
+}
+
+/**
+ * Re-run the dock/clamp math against the CURRENT frame + container state and
+ * repaint the box. Called by app.js's frame wiring whenever a frame control
+ * changes, so enabling/scrubbing a frame re-docks the corner-anchored inset
+ * inside the innermost band immediately (and re-clamps a free-dragged box into
+ * the new inner rect). No-op while hidden or mid-drag.
+ */
+export function refreshPlacement() {
+  if (!overlay || overlay.style.display === "none") return;
+  if (boxDragging) return;
+  applyPlacement(lastCfg);
+  if (insetMap) insetMap.resize();
+}
+
+// Resolve the box's outer top-left (x, y) + square outer size, all CSS px, for
+// the live container size. Free mode positions the box at (nx·W, ny·H) clamped
+// into the allowed inner rect; docked mode pins it to `corner` with the
+// frame-aware offset. The allowed rect is inset from the container edges by
+// `offset` = 16px + the deepest enabled frame band (margin+thickness+padding),
+// so a docked box sits INSIDE the innermost frame and a free box can never
+// overlap it. If the box is LARGER than that inner rect (a big sizePct under a
+// deep frame), the clamp gracefully falls back to the container bounds instead
+// of producing a negative/NaN range.
+function resolvePlacement(cfg) {
+  const c = cfg || {};
+  const container =
+    mainMap && typeof mainMap.getContainer === "function"
+      ? mainMap.getContainer()
+      : null;
+  const W = container ? container.clientWidth : 0;
+  const H = container ? container.clientHeight : 0;
+
+  const sizePct = clampSizePct(c.sizePct);
+  const size = (sizePct / 100) * W;
+  const offset = MARGIN_PX + maxFrameInset();
+
+  // Allowed range for the box's outer top-left corner (box fully inside the
+  // inner rect). When the box overflows the inner rect, fall back to clamping
+  // against the container so the value is always a finite, non-negative px.
+  let xMin = offset;
+  let xMax = W - offset - size;
+  if (xMax < xMin) {
+    xMin = 0;
+    xMax = Math.max(0, W - size);
+  }
+  let yMin = offset;
+  let yMax = H - offset - size;
+  if (yMax < yMin) {
+    yMin = 0;
+    yMax = Math.max(0, H - size);
+  }
+
+  const free = normalizeFreePos(c.freePos);
+  let x;
+  let y;
+  if (free) {
+    x = clamp(free.nx * W, xMin, xMax);
+    y = clamp(free.ny * H, yMin, yMax);
+  } else {
+    const corner =
+      typeof c.corner === "string" ? c.corner : "top-right";
+    x = corner.endsWith("left") ? xMin : xMax;
+    y = corner.startsWith("top") ? yMin : yMax;
+  }
+  return { x, y, size };
+}
+
+// The deepest enabled frame band, in CSS px: max over ENABLED frame elements of
+// (margin + thickness + padding). Read LIVE from js/map-frame.js so an applied-
+// but-unsaved frame edit re-docks the inset too. 0 when no frame is enabled.
+function maxFrameInset() {
+  const set = getFrameSetInUse();
+  const frames = Array.isArray(set && set.frames) ? set.frames : [];
+  let deepest = 0;
+  for (const f of frames) {
+    if (!f || !f.enabled) continue;
+    const inset =
+      clampFrameLen(f.margin) + clampFrameLen(f.thickness) + clampFrameLen(f.padding);
+    if (inset > deepest) deepest = inset;
+  }
+  return deepest;
+}
+
+function clampFrameLen(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(FRAME_LENGTH_MIN, Math.min(FRAME_LENGTH_MAX, Math.round(n)));
+}
+
+function clampSizePct(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 32;
+  return Math.max(0, Math.min(100, n));
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+// Defensive re-read of a freePos coming off lastCfg / a live drag: fractions in
+// [0,1] or null. Mirrors js/storage.js's normalizeInsetFreePos so the module
+// never trusts an unclamped value even if one slips in mid-drag.
+function normalizeFreePos(value) {
+  if (!value || typeof value !== "object") return null;
+  const nx = Number(value.nx);
+  const ny = Number(value.ny);
+  if (!Number.isFinite(nx) || !Number.isFinite(ny)) return null;
+  return { nx: clamp(nx, 0, 1), ny: clamp(ny, 0, 1) };
+}
+
+// ---- Box drag ---------------------------------------------------------
+
+function onBoxPointerDown(ev) {
+  if (!mainMap || !overlay || overlay.style.display === "none") return;
+  if (ev.button !== undefined && ev.button !== 0) return;
+  // A drag that started on an inset label is the label's, not the box's — the
+  // label handler already stopPropagation()s, so this guard is belt-and-braces.
+  if (ev.target && ev.target.closest && ev.target.closest(".map-pin-labels__label")) {
+    return;
+  }
+
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  try {
+    overlay.setPointerCapture(ev.pointerId);
+  } catch (_err) {
+    // Older browsers without pointer capture — listeners on `overlay` still
+    // fire while the cursor is over the box.
+  }
+  boxDragPointerId = ev.pointerId;
+
+  const rect = mainMap.getContainer().getBoundingClientRect();
+  const { x, y } = resolvePlacement(lastCfg);
+  // Offset from the box's top-left to the grab point, so the box doesn't snap
+  // its corner to the cursor.
+  boxDragOffsetX = ev.clientX - rect.left - x;
+  boxDragOffsetY = ev.clientY - rect.top - y;
+
+  boxDragging = true;
+  overlay.classList.add("is-dragging");
+  document.body.classList.add("dragging-inset");
+}
+
+function onBoxPointerMove(ev) {
+  if (!boxDragging || !mainMap || ev.pointerId !== boxDragPointerId) return;
+
+  const rect = mainMap.getContainer().getBoundingClientRect();
+  const W = rect.width;
+  const H = rect.height;
+  const desiredX = ev.clientX - rect.left - boxDragOffsetX;
+  const desiredY = ev.clientY - rect.top - boxDragOffsetY;
+
+  // Reuse resolvePlacement's free-mode clamping by feeding it a tentative
+  // freePos derived from the cursor — so the box respects the exact same inner
+  // rect the dock/persist paths use.
+  const tentative = {
+    ...(lastCfg || {}),
+    freePos: { nx: W > 0 ? desiredX / W : 0, ny: H > 0 ? desiredY / H : 0 },
+  };
+  const { x, y, size } = resolvePlacement(tentative);
+  overlay.style.left = `${x}px`;
+  overlay.style.top = `${y}px`;
+  overlay.style.width = `${size}px`;
+  overlay.style.height = `${size}px`;
+  boxDragLast = { x, y, W, H };
+}
+
+function onBoxPointerUp(ev) {
+  if (!boxDragging || ev.pointerId !== boxDragPointerId) return;
+
+  boxDragging = false;
+  boxDragPointerId = null;
+  overlay.classList.remove("is-dragging");
+  document.body.classList.remove("dragging-inset");
+  try {
+    overlay.releasePointerCapture(ev.pointerId);
+  } catch (_err) {
+    // no-op if capture was never taken
+  }
+
+  // Derive the persisted fractions from the CLAMPED top-left last drawn, so the
+  // stored freePos round-trips cleanly (re-resolving it lands on the same px).
+  const last = boxDragLast;
+  boxDragLast = null;
+  if (!last || last.W <= 0 || last.H <= 0) return;
+
+  const freePos = { nx: last.x / last.W, ny: last.y / last.H };
+  lastCfg = { ...(lastCfg || {}), freePos };
+  // Persist directly: this module owns freePos writes. app.js's UI persist
+  // preserves it (readInset reads it back via loadInset) and clears it only on
+  // an explicit corner pick — so there's one writer per intent, no clobber.
+  saveInset(lastCfg);
 }
 
 function hideInset() {

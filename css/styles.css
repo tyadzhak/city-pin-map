@@ -919,22 +919,47 @@ body.dragging-on-map-title * {
    map fitted to one group's pins at higher zoom. z-index 4 sits ABOVE the
    bottom fade (3) but BELOW the decorative frame (5) and the on-map title
    (6), so a frame drawn around the whole poster still reads outermost and the
-   title still reads on top. Corner (top/right/bottom/left), width (a
-   percentage of the map container) are set inline by the module; the box is
-   kept square via aspect-ratio and its margin from the edge is a fixed 16px
-   (js/map-inset.js's MARGIN_PX). pointer-events:none — decorative-only, and
-   the inner MapLibre map is created interactive:false regardless. */
+   title still reads on top. Position (left/top) and size (width/height, kept
+   square) are set inline in px by the module — a corner dock offsets from the
+   edge by 16px + the innermost enabled frame band (js/map-inset.js), and a
+   free-drag position is clamped into that same inner rect. The box opts INTO
+   pointer events so it can be dragged (the inner MapLibre map is still
+   interactive:false — no pan/zoom); its pin labels are draggable too, updating
+   the same per-pin offset as the main map. */
 .map-inset-overlay {
   position: absolute;
   z-index: 4;
-  aspect-ratio: 1 / 1;
   border: 2px solid #ffffff;
   border-radius: 6px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
   overflow: hidden;
-  pointer-events: none;
+  /* Draggable box (js/map-inset.js): the box opts into pointer events so a
+     pointerdown on it starts a drag, while the map beneath still pans when the
+     pointer is OUTSIDE the (small) box. touch-action:none tells the browser not
+     to treat a finger drag on the box as scroll/zoom. The module writes explicit
+     px left/top/width/height, so no aspect-ratio is needed to keep it square. */
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  transition: box-shadow 0.12s ease;
   /* Reads as a canvas mat while the inset map's first tiles paint in. */
   background: #dbe2ea;
+}
+
+/* Discoverability hint: a slightly stronger shadow on hover/active signals the
+   box is grabbable. */
+.map-inset-overlay:hover {
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
+}
+
+.map-inset-overlay.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+}
+
+body.dragging-inset,
+body.dragging-inset * {
+  cursor: grabbing !important;
 }
 
 .map-inset-overlay__map {
@@ -1044,9 +1069,9 @@ body.dragging-on-map-title * {
    6) but still ABOVE the map canvas (the pins), so labels read over the pins
    yet are covered by the bottom fade exactly as the old WebGL labels were.
    pointer-events:none on the container lets map gestures (pan/zoom) pass
-   straight through to the canvas; only the individual label nodes on the MAIN
-   map opt back in (pointer-events:auto, set inline by the module) so they can
-   be dragged. The inset's labels are display-only and never set that. */
+   straight through to the canvas; only the individual label nodes opt back in
+   (pointer-events:auto, set inline by the module) so they can be dragged — on
+   the main map AND inside the (now interactive) corner inset. */
 .map-pin-labels {
   position: absolute;
   inset: 0;

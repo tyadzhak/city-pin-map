@@ -849,6 +849,7 @@ test("normalizeInset: defaults for empty input", () => {
     sizePct: 32,
     groupId: null,
     showLocator: true,
+    freePos: null,
   });
 });
 
@@ -883,6 +884,33 @@ test("normalizeInset: boolean coercion for enabled", () => {
   assert.equal(normalizeInset({}).enabled, false);
 });
 
+test("normalizeInset: freePos backfills to null when absent", () => {
+  assert.equal(normalizeInset({}).freePos, null);
+  assert.equal(normalizeInset({ enabled: true }).freePos, null);
+});
+
+test("normalizeInset: freePos keeps valid fractions, clamps to [0,1]", () => {
+  assert.deepEqual(normalizeInset({ freePos: { nx: 0.25, ny: 0.75 } }).freePos, {
+    nx: 0.25,
+    ny: 0.75,
+  });
+  // Out-of-range values clamp per-axis rather than nulling the whole thing.
+  assert.deepEqual(normalizeInset({ freePos: { nx: 1.4, ny: -0.3 } }).freePos, {
+    nx: 1,
+    ny: 0,
+  });
+});
+
+test("normalizeInset: malformed freePos coerces to null", () => {
+  assert.equal(normalizeInset({ freePos: null }).freePos, null);
+  assert.equal(normalizeInset({ freePos: 42 }).freePos, null);
+  assert.equal(normalizeInset({ freePos: "nope" }).freePos, null);
+  assert.equal(normalizeInset({ freePos: {} }).freePos, null);
+  assert.equal(normalizeInset({ freePos: { nx: 0.5 } }).freePos, null);
+  assert.equal(normalizeInset({ freePos: { nx: "a", ny: "b" } }).freePos, null);
+  assert.equal(normalizeInset({ freePos: { nx: NaN, ny: 0.5 } }).freePos, null);
+});
+
 test("loadInset: missing key returns defaults", () => {
   assert.deepEqual(loadInset(), {
     enabled: false,
@@ -890,6 +918,7 @@ test("loadInset: missing key returns defaults", () => {
     sizePct: 32,
     groupId: null,
     showLocator: true,
+    freePos: null,
   });
 });
 
@@ -907,7 +936,20 @@ test("loadInset/saveInset: round trip", () => {
     sizePct: 40,
     groupId: "grp-1",
     showLocator: false,
+    freePos: null,
   });
+});
+
+test("loadInset/saveInset: round trip preserves freePos", () => {
+  saveInset({
+    enabled: true,
+    corner: "top-left",
+    sizePct: 30,
+    groupId: "grp-2",
+    showLocator: true,
+    freePos: { nx: 0.4, ny: 0.6 },
+  });
+  assert.deepEqual(loadInset().freePos, { nx: 0.4, ny: 0.6 });
 });
 
 test("loadInset: legacy saved value without showLocator backfills to true", () => {
@@ -926,6 +968,7 @@ test("loadInset: corrupt/non-object value falls back to defaults + banner", () =
     sizePct: 32,
     groupId: null,
     showLocator: true,
+    freePos: null,
   });
   assert.match(banner().textContent, /corrupted/);
 
@@ -936,6 +979,7 @@ test("loadInset: corrupt/non-object value falls back to defaults + banner", () =
     sizePct: 32,
     groupId: null,
     showLocator: true,
+    freePos: null,
   });
 });
 
