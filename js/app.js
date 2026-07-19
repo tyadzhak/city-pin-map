@@ -63,6 +63,12 @@ import * as mapViewport from "./map-viewport.js";
 import * as mapInset from "./map-inset.js";
 import * as mapLabels from "./map-labels.js";
 
+// The live inset handle, exposed at module scope so the frame-control wiring
+// (initExportFrameOptions) can trigger a re-dock/re-clamp of the inset whenever
+// a frame changes — the inset docks INSIDE the innermost enabled frame band, so
+// a frame edit must move it. Set in init(); null on a headless/no-map boot.
+let insetHandle = null;
+
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
   // boot (token-required style guards, picker render) sees the persisted
@@ -252,7 +258,7 @@ function init() {
   const exportFrameHandle = initExportFrameOptions();
   const bottomFadeHandle = initBottomFadeOptions();
   const onMapTitleHandle = initOnMapTitle();
-  const insetHandle = initInset();
+  insetHandle = initInset();
   initInsetOptions(insetHandle);
   initExportButton({
     getFrame: exportFrameHandle?.getLiveFrame,
@@ -350,6 +356,13 @@ function initExportFrameOptions() {
     const next = readFrameSet();
     saveExportFrame(next);
     if (map) mapFrame.update(next);
+    // The corner-docked inset sits inside the innermost enabled frame band, so
+    // a frame change shifts where it docks (and re-clamps a free-dragged box
+    // into the new inner rect). Re-run the placement immediately. Reads the
+    // module-scoped handle set later in init(): null during this function's own
+    // boot-time mapFrame.update(saved) below — harmless, because initInset()
+    // runs AFTER and docks against the freshly-applied frame state.
+    if (insetHandle) insetHandle.refreshPlacement();
   };
   if (frame1) frame1.onChange(persist);
   if (frame2) frame2.onChange(persist);
@@ -645,16 +658,24 @@ function initInsetOptions(insetHandle) {
   // select can never show a stale id (renderGroupOptions resets it to ""
   // the moment the id stops existing), so this is the one place the
   // stale-id-becomes-null translation happens for the UI layer.
-  const readInset = () => ({
+  //
+  // freePos (the box's dragged position) is owned by js/map-inset.js, which
+  // saves it directly on drag-end. This UI layer has no control for it, so it
+  // must PRESERVE whatever is persisted (read back via loadInset) on every
+  // control change — otherwise adjusting size/group/etc. after a drag would
+  // wipe the custom position. The one exception is picking a corner, which
+  // deliberately re-docks: `clearFree` forces freePos back to null.
+  const readInset = (clearFree = false) => ({
     enabled: enabled.checked,
     corner: cornerSelect.value,
     sizePct: sizeInput.valueAsNumber,
     groupId: groupSelect.value || null,
     showLocator: locator.checked,
+    freePos: clearFree ? null : loadInset().freePos,
   });
 
-  const persist = () => {
-    const next = normalizeInset(readInset());
+  const persist = (clearFree = false) => {
+    const next = normalizeInset(readInset(clearFree));
     saveInset(next);
     if (insetHandle) insetHandle.update(next);
   };
@@ -663,8 +684,9 @@ function initInsetOptions(insetHandle) {
     controls.dataset.insetEnabled = enabled.checked ? "true" : "false";
     persist();
   });
-  groupSelect.addEventListener("change", persist);
-  cornerSelect.addEventListener("change", persist);
+  groupSelect.addEventListener("change", () => persist());
+  // Choosing a corner re-docks the box: clear the dragged freePos.
+  cornerSelect.addEventListener("change", () => persist(true));
   // `input` for the live-drag slider (mirrors the frame/fade number
   // fields' `input` wiring) so the readout + live overlay track the drag in
   // real time, not just on release.
@@ -672,7 +694,7 @@ function initInsetOptions(insetHandle) {
     if (sizeValue) sizeValue.textContent = `${sizeInput.value}%`;
     persist();
   });
-  locator.addEventListener("change", persist);
+  locator.addEventListener("change", () => persist());
 
   // Keep the group <select> honest across the group store's entire
   // lifecycle (create/rename/recolor/delete) — not just at boot. Reads the

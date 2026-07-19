@@ -18,8 +18,12 @@
 //                                          labels are draggable (Pointer Events
 //                                          + setPointerCapture, same px
 //                                          semantics as the old layer's drag).
-//   - attachTo(insetMap,{interactive:false}) — the corner inset's display-only
-//                                          overlay (js/map-inset.js).
+//   - attachTo(insetMap,{interactive:true}) — the corner inset's overlay
+//                                          (js/map-inset.js). Also interactive:
+//                                          a label dragged inside the inset
+//                                          updates the same per-pin labelDx/
+//                                          labelDy, so the main map's label
+//                                          moves in lockstep.
 //
 // computeLabelSpecs(map[, {sizeMultiplier}]) is the SINGLE source of truth for
 // label geometry + style — used by the live overlays here AND by js/export.js's

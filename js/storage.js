@@ -948,6 +948,7 @@ const DEFAULT_INSET = Object.freeze({
   sizePct: 32,
   groupId: null,
   showLocator: true,
+  freePos: null,
 });
 const INSET_SIZE_MIN = 15;
 const INSET_SIZE_MAX = 50;
@@ -1016,7 +1017,23 @@ export function normalizeInset(value) {
       v.showLocator === undefined
         ? DEFAULT_INSET.showLocator
         : Boolean(v.showLocator),
+    freePos: normalizeInsetFreePos(v.freePos),
   };
+}
+
+// freePos is the inset box's TOP-LEFT corner expressed as fractions of the map
+// container's width/height (nx/ny, each clamped [0,1]) — set when the user has
+// DRAGGED the box to a custom spot; null means "docked to `corner`" (the
+// default). Anything malformed (absent, non-object, or a non-finite nx/ny)
+// coerces to null so a corrupt value degrades to the safe docked mode rather
+// than positioning the box off-screen or throwing.
+function normalizeInsetFreePos(value) {
+  if (!value || typeof value !== "object") return null;
+  const nx = Number(value.nx);
+  const ny = Number(value.ny);
+  if (!Number.isFinite(nx) || !Number.isFinite(ny)) return null;
+  const clamp01 = (n) => Math.max(0, Math.min(1, n));
+  return { nx: clamp01(nx), ny: clamp01(ny) };
 }
 
 // Global pin style — size of the pin icon plus the shared label typography

@@ -9,10 +9,13 @@
 // inset → title, mirroring the live z-order (labels z2 < fade z3 < inset z4 <
 // title z6) so the fade dissolves labels and the inset/title read on top —
 // then optionally wraps the result in a decorative frame (PO-007, outermost of
-// all), then toDataURL. The inset box geometry (16px margin, sizePct% width,
-// 2px white border, 6px radius, drop shadow) mirrors .map-inset-overlay in
-// css/styles.css and js/map-inset.js 1:1 so the live preview and the exported
-// PNG agree.
+// all), then toDataURL. The inset box's position/size (free-dragged or
+// frame-aware corner-docked, per the box's current freePos/corner config)
+// comes from js/map-inset.js's getResolvedPlacement() — its CSS-px outer
+// top-left + square size for the map container's CURRENT dimensions — scaled
+// by the same CSS→output-pixel factor as the rest of the composite's fixed-px
+// chrome (border/radius/shadow, mirroring .map-inset-overlay in
+// css/styles.css 1:1) so the live preview and the exported PNG agree.
 //
 // Markers and the route line are layers inside the WebGL canvas (see
 // js/map.js — Option B GeoJSONSource + circle/line layers), so they are
@@ -57,7 +60,7 @@ import {
   loadBottomFade,
 } from "./storage.js";
 import { computeLabelSpecs } from "./map-labels.js";
-import { getInsetMap, getPlacement } from "./map-inset.js";
+import { getInsetMap, getResolvedPlacement } from "./map-inset.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
 // Same budgets the previous Leaflet impl used; MapLibre's `idle` event
@@ -357,9 +360,15 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // could in principle flip to null between the settle and here (a pin/group
     // change firing the live subscription mid-export); re-read once and gate
     // the composite paint on it so we never drawImage a hidden box.
+    // getResolvedPlacement() is read AFTER the container's resize()+idle+render
+    // settle above (both the main map's and, if present, the inset's own), so
+    // it reflects the box's actual px rect at the EXPORT's resized container
+    // dimensions — freePos fractions and the frame-aware dock offset both
+    // included, exactly like the live overlay computes it on every
+    // ResizeObserver tick.
     const activeInset = getInsetMap();
     const insetCanvas = activeInset ? activeInset.getCanvas() : null;
-    const insetPlacement = activeInset ? getPlacement() : null;
+    const insetPlacement = activeInset ? getResolvedPlacement() : null;
     // Inset labels use the SAME sizeMultiplier convention; positions are in the
     // inset map's own (resized) CSS px, transformed into the box inside
     // paintInset.
@@ -480,19 +489,13 @@ function composite({
   // Corner inset — painted AFTER the fade but BEFORE the on-map title, so the
   // composite order is map → fade → inset → title (the title always reads on
   // top of the box, and wrapFrame still runs last in the caller so the frame
-  // stays outermost). The CSS-px box chrome (margin/border/radius/shadow)
-  // scales by `chipScale` — the same CSS→output-pixel factor the frame band
-  // uses — NOT the typography coeff, because the box is a fixed-CSS-px
-  // decoration like the frame, not readability-scaled text.
-  paintInset(
-    ctx,
-    insetCanvas,
-    insetPlacement,
-    outputWidth,
-    outputHeight,
-    chipScale,
-    insetLabelSpecs
-  );
+  // stays outermost). The box's position/size (insetPlacement, from
+  // getResolvedPlacement()) is already resolved in CSS px for the export's
+  // resized container, so it — and the CSS-px box chrome
+  // (border/radius/shadow) — scale by `chipScale`, the same CSS→output-pixel
+  // factor the frame band uses, NOT the typography coeff, because the box is a
+  // fixed-CSS-px decoration like the frame, not readability-scaled text.
+  paintInset(ctx, insetCanvas, insetPlacement, chipScale, insetLabelSpecs);
 
   // PO-008/009 — draw the on-map title chip AFTER the map pixels (so it
   // floats on top of tiles + markers) and BEFORE wrapFrame (which runs in
@@ -515,13 +518,14 @@ function composite({
 }
 
 // Corner inset box (js/map-inset.js). Draws the inset map's own canvas into a
-// framed square docked in one corner, mirroring the live .map-inset-overlay
-// 1:1 so the preview and the exported PNG agree. Geometry:
-//   • box is SQUARE, its outer (border-box) width = sizePct% of the output
-//     canvas width — a percentage, so it auto-scales with the preset and needs
-//     no CSS→px factor of its own;
-//   • the box's outer edge sits `marginPx * coeff` from the two edges of the
-//     configured corner (16px in CSS, scaled to output px);
+// framed square at its resolved placement, mirroring the live
+// .map-inset-overlay 1:1 so the preview and the exported PNG agree. Geometry:
+//   • `placement` is js/map-inset.js's getResolvedPlacement() result — the
+//     box's ACTUAL outer top-left (x, y) + square outer size, all in CSS px,
+//     already resolved for the export's (resized) container: freePos
+//     fractions and the frame-aware dock offset are both baked in, so this
+//     function does no corner/margin math of its own — it just scales the
+//     resolved rect into output px via `coeff`;
 //   • a 2px white border, 6px outer radius, and the .map-inset-overlay drop
 //     shadow (0 2px 10px rgba(0,0,0,.25)) — all CSS-px values scaled by
 //     `coeff` (= the frame's chipScale: CSS→output-pixel scale, 1 for a
@@ -534,21 +538,19 @@ function composite({
 // part of its canvas either, so `insetLabelSpecs` (computeLabelSpecs on the
 // inset map) is painted inside the same rounded-rect clip after the canvas —
 // see the paintPinLabels call below.
-function paintInset(ctx, insetCanvas, placement, width, height, coeff, insetLabelSpecs) {
+function paintInset(ctx, insetCanvas, placement, coeff, insetLabelSpecs) {
   if (!insetCanvas || !placement) return;
 
-  const margin = (placement.marginPx || 0) * coeff;
-  const sizePct = Math.max(0, Math.min(100, Number(placement.sizePct) || 0));
-  const boxSize = (sizePct / 100) * width;
+  const boxSize = Math.max(0, Number(placement.size) || 0) * coeff;
   if (boxSize <= 0) return;
 
   const border = 2 * coeff;
   const radius = 6 * coeff;
-  const corner = placement.corner || "top-right";
 
-  // Top-left origin of the outer (border-box) square from the corner + margin.
-  const x = corner.endsWith("left") ? margin : width - margin - boxSize;
-  const y = corner.startsWith("top") ? margin : height - margin - boxSize;
+  // Outer (border-box) top-left, scaled from the resolved CSS-px rect into
+  // output px by the same CSS→output-pixel factor as the border/radius/shadow.
+  const x = (Number(placement.x) || 0) * coeff;
+  const y = (Number(placement.y) || 0) * coeff;
 
   ctx.save();
 
