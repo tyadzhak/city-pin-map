@@ -588,7 +588,8 @@ body {
 .export-frame-controls__margin,
 .export-frame-controls__radius,
 .bottom-fade-controls__height,
-.bottom-fade-controls__intensity {
+.bottom-fade-controls__intensity,
+.frame-outside-controls__blur {
   width: 64px;
   height: 32px;
   padding: 0 6px;
@@ -607,7 +608,8 @@ body {
 .export-frame-controls__margin:hover,
 .export-frame-controls__radius:hover,
 .bottom-fade-controls__height:hover,
-.bottom-fade-controls__intensity:hover {
+.bottom-fade-controls__intensity:hover,
+.frame-outside-controls__blur:hover {
   background: #ffffff;
 }
 
@@ -616,7 +618,8 @@ body {
 .export-frame-controls__margin:focus,
 .export-frame-controls__radius:focus,
 .bottom-fade-controls__height:focus,
-.bottom-fade-controls__intensity:focus {
+.bottom-fade-controls__intensity:focus,
+.frame-outside-controls__blur:focus {
   border-color: #4c6ef5;
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
@@ -629,7 +632,8 @@ body {
    feature) is the same native color-input affordance, folded into the same
    selector list to stay DRY. */
 .export-frame-controls__color,
-.bottom-fade-controls__color {
+.bottom-fade-controls__color,
+.frame-outside-controls__color {
   width: 32px;
   height: 32px;
   padding: 0;
@@ -643,24 +647,28 @@ body {
 }
 
 .export-frame-controls__color::-webkit-color-swatch-wrapper,
-.bottom-fade-controls__color::-webkit-color-swatch-wrapper {
+.bottom-fade-controls__color::-webkit-color-swatch-wrapper,
+.frame-outside-controls__color::-webkit-color-swatch-wrapper {
   padding: 0;
 }
 
 .export-frame-controls__color::-webkit-color-swatch,
-.bottom-fade-controls__color::-webkit-color-swatch {
+.bottom-fade-controls__color::-webkit-color-swatch,
+.frame-outside-controls__color::-webkit-color-swatch {
   border: none;
   border-radius: 5px;
 }
 
 .export-frame-controls__color::-moz-color-swatch,
-.bottom-fade-controls__color::-moz-color-swatch {
+.bottom-fade-controls__color::-moz-color-swatch,
+.frame-outside-controls__color::-moz-color-swatch {
   border: none;
   border-radius: 5px;
 }
 
 .export-frame-controls__color:focus-visible,
-.bottom-fade-controls__color:focus-visible {
+.bottom-fade-controls__color:focus-visible,
+.frame-outside-controls__color:focus-visible {
   border-color: #4c6ef5;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
 }
@@ -704,6 +712,36 @@ body {
 .export-frame-shadow-toggle__label {
   font: inherit;
   line-height: 1;
+}
+
+/* Outside-frame treatment cluster: sub-heading + mode select + color/blur
+   inputs. Nests inside the last .export-frame-block of the Frames group
+   (its "+ margin-top" sibling rule already spaces it from Frame 2 above).
+   No enable checkbox here — "None" in the mode select IS the off state, so
+   the sub-heading is a plain label rather than the toggle chrome the two
+   frames use. */
+.frame-outside-block__heading {
+  font: inherit;
+  font-weight: 600;
+  color: #1f2933;
+  margin: 0 0 6px;
+}
+
+.frame-outside-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Only the input relevant to the selected mode is shown — mirrors
+   [data-frame-enabled="false"]'s single-attribute-driven show/hide above.
+   "none" hides both dependent inputs; "white" keeps only the color swatch;
+   "blur" keeps only the blur-radius number field. */
+.frame-outside-controls[data-outside-mode="none"] .frame-outside-controls__color,
+.frame-outside-controls[data-outside-mode="none"] .frame-outside-controls__blur,
+.frame-outside-controls[data-outside-mode="white"] .frame-outside-controls__blur,
+.frame-outside-controls[data-outside-mode="blur"] .frame-outside-controls__color {
+  display: none;
 }
 
 /* Sits to the right of the style picker. margin-left switches from `auto`
@@ -827,15 +865,11 @@ body.dragging-pin * {
      still cover the overlay when needed. */
   z-index: 5;
 
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: #1f2937;
-  /* pre-line (not nowrap) so a user-typed "\n" renders as a real line
-     break for multi-line titles; center-align so a shorter second line
-     doesn't read as left-hung against a longer first line. */
-  white-space: pre-line;
+  /* Per-line model: this element is just the draggable pill/backdrop now.
+     Typography lives on each .export-on-map-title__line child (its own
+     font/weight/style/color/size, set inline by js/map-title.js), so no
+     text properties are declared here beyond the centering that keeps a
+     shorter line from reading as left-hung against a longer one. */
   text-align: center;
 
   background: rgba(255, 255, 255, 0.85);
@@ -850,6 +884,17 @@ body.dragging-pin * {
   pointer-events: auto;
   user-select: none;
   touch-action: none;
+}
+
+/* One line of the title block. Block-level so each line stacks on its own
+   row; centered to match the pill's overall text-align. line-height 1.2
+   mirrors ON_MAP_TITLE_BOX.lineHeightMultiplier in js/export.js so the
+   live preview's line spacing matches the exported PNG's. */
+.export-on-map-title__line {
+  display: block;
+  text-align: center;
+  line-height: 1.2;
+  white-space: pre;
 }
 
 .export-on-map-title[hidden] {
@@ -893,6 +938,45 @@ body.dragging-on-map-title * {
   border-width: 0;
   background: transparent;
   pointer-events: none;
+  /* Sits above the outside-frame layer below so a band's edge still reads
+     crisply over the outside fill/blur (js/map-frame.js paints/updates
+     outside first, rings second — this z-index is belt-and-suspenders for
+     that DOM order). */
+  z-index: 1;
+}
+
+/* Outside-frame treatment (this milestone): fills/blurs the region beyond
+   the outer edge of the OUTERMOST ENABLED frame — the margin band between
+   the container edge and that frame's outer rounded-rect. Two elements,
+   only one shown at a time (js/map-frame.js's applyOutside decides which):
+     - --white: positioned/sized to the outer rect itself (top/right/
+       bottom/left = margin, border-radius = radius) with NO fill of its
+       own; a huge box-shadow spread paints the configured color everywhere
+       OUTSIDE that box. Pure CSS box model — no JS pixel measurement
+       needed, so it stays correct across any container resize for free
+       (mirrors .map-frame-overlay__ring's own inset-based approach).
+       Clipped by .app-map's overflow:hidden so it never bleeds past the
+       live map's edge.
+     - --blur: covers the whole overlay and applies backdrop-filter,
+       masked (mask-image: a JS-generated SVG data URI) so only the region
+       outside the same rounded rect actually blurs. The mask bakes actual
+       pixel dimensions, so js/map-frame.js recomputes it on a
+       ResizeObserver tick (mirrors js/map-viewport.js's own
+       ResizeObserver-on-container pattern for the same "must track live
+       pixel size" problem).
+   z-index 0 keeps both below the ring layer (1). */
+.map-frame-overlay__outside {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.map-frame-overlay__outside--blur {
+  inset: 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
 }
 
 /* Live WYSIWYG bottom-fade preview (js/map-fade.js). Bottom-anchored,
@@ -1346,8 +1430,7 @@ body.dragging-on-map-title * {
 }
 
 .remove-pin,
-.edit-pin,
-.reset-pin {
+.edit-pin {
   flex: 0 0 auto;
   width: 22px;
   height: 22px;
@@ -1374,23 +1457,9 @@ body.dragging-on-map-title * {
 
 .pin-list__row:hover .remove-pin,
 .pin-list__row:hover .edit-pin,
-.pin-list__row:hover .reset-pin,
 .remove-pin:focus-visible,
-.edit-pin:focus-visible,
-.reset-pin:focus-visible {
+.edit-pin:focus-visible {
   opacity: 1;
-}
-
-.reset-pin:hover {
-  color: #1d4ed8;
-  background: #eef2ff;
-}
-
-.reset-pin:focus-visible {
-  outline: none;
-  color: #1d4ed8;
-  border-color: #4c6ef5;
-  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
 }
 
 .remove-pin:hover {
@@ -2209,24 +2278,97 @@ body.dragging-on-map-title * {
    widths). Inside the 320px vertical panel, the wide ones should fill the
    row instead. Scoped under .side-panel--design so nothing outside this
    tab is affected. */
-.side-panel--design #export-on-map-title,
 .side-panel--design #export-format {
   width: 100%;
 }
 
-/* #export-on-map-title is now a <textarea> (multi-line titles). It should
-   NOT inherit the live overlay's white-space: pre-line — a textarea already
-   wraps and shows newlines natively in its own edit box; this just keeps
-   the panel control comfortable to type/read in and resizable by the user. */
-.side-panel--design #export-on-map-title {
-  resize: vertical;
-  min-height: 2.5em;
-  line-height: normal;
-  font: inherit;
+/* Per-line title editor (#otm-lines): one .otm-line-row per line, stacked
+   vertically with a little breathing room between rows so each line's
+   control cluster reads as its own unit. */
+#otm-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.side-panel--design .design-row #otm-font {
-  flex: 1 1 auto;
+/* One line's control cluster: text input + font/bold/italic/color/size +
+   remove button. Wraps onto a second sub-row in the 320px panel rather than
+   overflowing — same wrap-not-scroll contract .export-frame-controls uses. */
+.otm-line-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Text input grows to fill the row's leading space; a sensible min-width
+   keeps it from collapsing to nothing once the format controls wrap. */
+.otm-line-text {
+  flex: 1 1 120px;
+  min-width: 80px;
+  height: 32px;
+  padding: 0 10px;
+  font: inherit;
+  color: inherit;
+  background: #f5f7fa;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.otm-line-text:hover {
+  background: #ffffff;
+}
+
+.otm-line-text:focus {
+  border-color: #4c6ef5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
+}
+
+/* Small square ✕ button, deliberately understated (quiet border, no fill)
+   since deleting a line is a low-frequency, slightly destructive action —
+   distinct from the format controls it sits beside. */
+.otm-line-remove {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: #6b7280;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 120ms ease, border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.otm-line-remove:hover {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.otm-line-remove:focus-visible {
+  outline: none;
+  border-color: #4c6ef5;
+  box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
+}
+
+/* "+ Add line" reuses .group-panel__add's compact-secondary-button look
+   (see that rule for the rationale) so it doesn't compete visually with
+   Export PNG. Full width here since it's the only action at the bottom of
+   the line list, not sharing a row with a heading. */
+#otm-add-line {
+  width: 100%;
+  text-align: center;
 }
 
 /* Frame sub-controls (thickness/color/padding/margin/radius/shadow) need
@@ -2234,7 +2376,8 @@ body.dragging-on-map-title * {
    layout the header toolbar used. The number inputs already default to a
    compact 64px (.export-frame-controls__thickness etc., declared above) —
    that width is what makes the wrap fit six controls across ~320px. */
-.side-panel--design .export-frame-controls {
+.side-panel--design .export-frame-controls,
+.side-panel--design .frame-outside-controls {
   flex-wrap: wrap;
 }
 

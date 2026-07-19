@@ -337,10 +337,10 @@ export function isRasterStyleEntry(entry) {
 // the render functions agree on naming. Prefix avoids collisions with any
 // layer id baked into the OpenFreeMap styles.
 //
-// PINS_LAYER_ID is the canonical pins layer for hover/drag/
-// queryRenderedFeatures. It paints every pin as a tintable SDF symbol
-// driven by `pin.icon`, with a built-in white halo standing in for the
-// previous shadow companion.
+// PINS_LAYER_ID is the canonical pins layer. It paints every pin as a
+// tintable SDF symbol driven by `pin.icon`, with a built-in white halo
+// standing in for the previous shadow companion. Pins are never draggable
+// — only PINS_LABELS_LAYER_ID (below) accepts drag interaction.
 const PINS_SOURCE_ID = "city-pin-map.pins";
 const PINS_LAYER_ID = "city-pin-map.pins-fill";
 const PINS_COLOR_RING_LAYER_ID = "city-pin-map.pins-color-ring";
@@ -352,7 +352,50 @@ const ROUTE_LAYER_ID = "city-pin-map.route-line";
 // pixels at the live map zoom. Hoisted so setPinLabelSize(null) and the
 // layer's initial `text-size` stay in sync — and so js/export.js can
 // scale this value by the canvas-size coefficient at export time (PO-006).
+// Kept as the storage-layer DEFAULT_PIN_STYLE.labelSize baseline — see
+// currentPinStyle below, which is what actually drives the live layers once
+// setPinStyle() has run.
 export const BASE_PIN_LABEL_SIZE = 13;
+
+// Baseline vertical text-offset (ems) that anchors a label just below its
+// pin — the original static value from before labels were draggable.
+// Per-pin drag offsets (pin.labelDy) are added on top of this, not in
+// place of it, so an un-dragged label keeps rendering exactly where it
+// always has.
+const PIN_LABEL_BASE_OFFSET_Y_EMS = 1.0;
+
+// Baseline pin icon size in CSS px at icon-size 1.0 (128px source SVG /
+// pixelRatio 4). setPinStyle()'s `size` field is an ABSOLUTE px target, so
+// every icon-size write is `pinStyle.size / BASE_PIN_ICON_SIZE`.
+const BASE_PIN_ICON_SIZE = 32;
+
+// Un-scaled geometry for the non-tintable-icon color ring (see
+// PINS_COLOR_RING_LAYER_ID below) at BASE_PIN_ICON_SIZE. setPinStyle scales
+// all three by the same size ratio so the ring stays proportionate to the
+// icon it sits under.
+const PINS_COLOR_RING_BASE_RADIUS = 6;
+const PINS_COLOR_RING_BASE_TRANSLATE_Y = -2;
+const PINS_COLOR_RING_BASE_STROKE_WIDTH = 1.5;
+
+// Global pin style (Design tab "Pin style" group; storage.js's
+// city-pin-map.pin-style.v1). Module-scoped so:
+//   1. Layer creation (addPinAndRouteLayers) can read it directly instead of
+//      hardcoding the pre-this-feature constants, which makes a basemap
+//      swap's styledata re-add naturally pick up whatever was last set —
+//      no separate "re-apply after swap" bookkeeping needed.
+//   2. setPinLabelSize(null)'s restore-to-default path (used by export.js
+//      around the label-size-bump-for-capture window) restores to the
+//      user's CONFIGURED size, not a hardcoded baseline.
+// Defaults mirror storage.js's DEFAULT_PIN_STYLE exactly so a page that
+// never calls setPinStyle() (e.g. a stray direct initMap() call bypassing
+// app.js) still renders at today's pre-this-feature visual baseline.
+let currentPinStyle = {
+  size: BASE_PIN_ICON_SIZE,
+  labelSize: BASE_PIN_LABEL_SIZE,
+  labelColor: "#1f2937",
+  labelBold: false,
+  labelFont: "",
+};
 
 // Pin icon registry. Single source of truth for both the map layer (image
 // id used by `icon-image`) and the side-panel picker (label + same id).
@@ -404,8 +447,9 @@ let mapInstance = null;
 let lastPinsSnapshot = [];
 let lastRouteVisible = false;
 
-// Drag state. Set when a mousedown on a pin starts a drag; cleared on
-// mouseup. The handlers live on `document` (not the map container) so a
+// Drag state for an in-progress LABEL drag (pins themselves are never
+// draggable). Set when a mousedown on a pin's label starts a drag; cleared
+// on mouseup. The handlers live on `document` (not the map container) so a
 // drag that passes through the side panel or briefly leaves the window
 // doesn't desync.
 let dragState = null;
@@ -509,13 +553,16 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
 
   // Vector: styledata confirms; any error is a real load failure (vector
   // styles have a `glyphs` property, so the pins-labels layer never trips a
-  // benign style-validation error the way the raster inline object does).
+  // benign style-validation error the way the raster inline object could).
   const onBootStyleData = () => confirmBoot();
   const onBootError = (err) => failBoot(err && err.error && err.error.status);
 
   // Raster: confirm only when a basemap tile actually loads; fail only on an
-  // error attributable to the raster source (ignoring the benign no-sourceId
-  // glyphs validation error our pins-labels layer emits over inline styles).
+  // error attributable to the raster source. rasterStyle() now sets its own
+  // `glyphs` URL too (see that function), so the pins-labels layer no longer
+  // trips the old no-sourceId glyphs validation error here — but the
+  // sourceId gate stays regardless, since it also has to ignore unrelated
+  // noise from the app's own pins/route GeoJSON sources.
   const onBootTileData = (e) => {
     if (
       e.dataType === "source" &&
@@ -666,7 +713,11 @@ export function applyLabelVisibility(hide) {
  * Override or restore the pins-labels layer's `text-size`. Used by the
  * PNG export (PO-006) to bump label size in proportion to the export
  * canvas, then restore the live default after capture. Passing `null`
- * (or omitting the argument) restores BASE_PIN_LABEL_SIZE.
+ * (or omitting the argument) restores the user's CONFIGURED label size
+ * (currentPinStyle.labelSize — set via setPinStyle(), defaulting to
+ * BASE_PIN_LABEL_SIZE until a caller sets a custom one) rather than a
+ * hardcoded baseline, so the export's "restore" step never reverts a
+ * custom pin-style choice back to the pre-Pin-style-feature default.
  *
  * Idempotent: silently no-ops when the map or the labels layer don't
  * exist yet (e.g. during the gap between a setStyle() request and the
@@ -675,8 +726,115 @@ export function applyLabelVisibility(hide) {
 export function setPinLabelSize(sizeOrNull) {
   if (!mapInstance) return;
   if (!mapInstance.getLayer(PINS_LABELS_LAYER_ID)) return;
-  const size = sizeOrNull == null ? BASE_PIN_LABEL_SIZE : sizeOrNull;
+  const size = sizeOrNull == null ? currentPinStyle.labelSize : sizeOrNull;
   mapInstance.setLayoutProperty(PINS_LABELS_LAYER_ID, "text-size", size);
+}
+
+/**
+ * Read the currently CONFIGURED pin-label size (not any transient override
+ * setPinLabelSize() may have applied for an in-flight export). js/export.js
+ * uses this as the base it multiplies by the export coefficient, so a
+ * custom labelSize scales correctly into every export preset instead of the
+ * pipeline assuming BASE_PIN_LABEL_SIZE.
+ */
+export function getPinLabelSize() {
+  return currentPinStyle.labelSize;
+}
+
+/**
+ * Apply the global pin style (Design tab "Pin style" group) to the live
+ * marker/label layers. Called once at boot with storage.js's
+ * loadPinStyle(), and again on every Design-tab edit.
+ *
+ * Deliberately does NOT touch pinStyle.labelFont beyond storing it —
+ * MapLibre's `text-font` can only reference glyphs the active basemap's
+ * `glyphs` endpoint actually serves (see the PINS_LABELS_LAYER_ID comment
+ * in addPinAndRouteLayers), and OpenFreeMap + the raster wrapper styles
+ * only guarantee the Noto Sans Regular/Bold pair used for text-font below.
+ * An arbitrary family would 404 the glyph fetch and silently blank BOTH the
+ * labels layer and the pin-icon symbol layer sharing that source (a prior
+ * incident this codebase already hit once — see the text-font comment on
+ * PINS_LABELS_LAYER_ID). So labelFont is persisted for forward-compat but
+ * has no UI control yet and is not applied to text-font; see the "Font
+ * family" note in this task's report/commit for the full rationale.
+ *
+ * Merges over the previous value (partial updates from a single control's
+ * change event don't clobber the other fields) and is safe to call before
+ * the map/layers exist — it just updates the module-scoped baseline that
+ * addPinAndRouteLayers reads when it (re)creates the layers.
+ */
+export function setPinStyle(pinStyle) {
+  if (!pinStyle) return;
+  currentPinStyle = {
+    size: Number.isFinite(pinStyle.size) ? pinStyle.size : currentPinStyle.size,
+    labelSize: Number.isFinite(pinStyle.labelSize)
+      ? pinStyle.labelSize
+      : currentPinStyle.labelSize,
+    labelColor:
+      typeof pinStyle.labelColor === "string"
+        ? pinStyle.labelColor
+        : currentPinStyle.labelColor,
+    labelBold: Boolean(pinStyle.labelBold),
+    labelFont:
+      typeof pinStyle.labelFont === "string"
+        ? pinStyle.labelFont
+        : currentPinStyle.labelFont,
+  };
+  applyPinStyleToLayers();
+}
+
+// Pushes currentPinStyle onto whatever pin/label/ring layers currently
+// exist. No-ops per-layer (not per-call) so a mid-styledata call where only
+// some layers have been re-added yet doesn't throw — addPinAndRouteLayers
+// also calls this once at the end of layer setup as a defensive re-apply,
+// which is a harmless no-op when the layers were just created FROM
+// currentPinStyle in the first place.
+function applyPinStyleToLayers() {
+  if (!mapInstance) return;
+  const iconScale = currentPinStyle.size / BASE_PIN_ICON_SIZE;
+
+  if (mapInstance.getLayer(PINS_LAYER_ID)) {
+    mapInstance.setLayoutProperty(PINS_LAYER_ID, "icon-size", iconScale);
+  }
+  if (mapInstance.getLayer(PINS_COLOR_RING_LAYER_ID)) {
+    mapInstance.setPaintProperty(
+      PINS_COLOR_RING_LAYER_ID,
+      "circle-radius",
+      PINS_COLOR_RING_BASE_RADIUS * iconScale
+    );
+    mapInstance.setPaintProperty(PINS_COLOR_RING_LAYER_ID, "circle-translate", [
+      0,
+      PINS_COLOR_RING_BASE_TRANSLATE_Y * iconScale,
+    ]);
+    mapInstance.setPaintProperty(
+      PINS_COLOR_RING_LAYER_ID,
+      "circle-stroke-width",
+      PINS_COLOR_RING_BASE_STROKE_WIDTH * iconScale
+    );
+  }
+  if (mapInstance.getLayer(PINS_LABELS_LAYER_ID)) {
+    mapInstance.setLayoutProperty(
+      PINS_LABELS_LAYER_ID,
+      "text-size",
+      currentPinStyle.labelSize
+    );
+    mapInstance.setLayoutProperty(PINS_LABELS_LAYER_ID, "text-font", [
+      currentPinStyle.labelBold ? "Noto Sans Bold" : "Noto Sans Regular",
+    ]);
+    mapInstance.setPaintProperty(
+      PINS_LABELS_LAYER_ID,
+      "text-color",
+      currentPinStyle.labelColor
+    );
+    // labelSize may just have changed. text-offset is authored in ems (×
+    // text-size) but pin.labelDx/labelDy are stored in constant screen px,
+    // so every feature's materialized `labelOffset` (computeLabelOffsetEms)
+    // is only correct for the labelSize it was built against — rebuild the
+    // source data so dragged labels keep their PIXEL offset instead of
+    // drifting when the user changes the global label size.
+    const source = mapInstance.getSource(PINS_SOURCE_ID);
+    if (source) source.setData(pinsToFeatureCollection(lastPinsSnapshot));
+  }
 }
 
 // True when the layer is a built-in basemap label layer that the toggle
@@ -920,8 +1078,7 @@ export function setMapStyle(styleId, { persist = true } = {}) {
 
   // Vector failure: any error during a vector swap is a real load failure
   // (vector styles HAVE a `glyphs` property, so adding pin layers never
-  // trips the style-validation error the raster path must ignore). Unchanged
-  // from the pre-FBL-006 behavior.
+  // trips a style-validation error). Unchanged from the pre-FBL-006 behavior.
   const onVectorError = (err) => {
     const status = err && err.error && err.error.status;
     settleFailure(status);
@@ -933,11 +1090,12 @@ export function setMapStyle(styleId, { persist = true } = {}) {
   // timeout. Not `settled`-guarded because it's registered via once() and
   // only performs idempotent layer setup — it never commits the verdict.
   //
-  // Adding the pins-labels symbol layer here fires a BENIGN style-validation
-  // error ("text-field requires a style glyphs property") because the inline
-  // rasterStyle() objects have no `glyphs`. That error has no `sourceId`, so
-  // onRasterTileError below ignores it — only errors attributable to the
-  // basemap raster source revert the swap.
+  // rasterStyle() now sets its own `glyphs` URL (see that function), so
+  // adding the pins-labels symbol layer here no longer trips the old
+  // no-sourceId "text-field requires a style glyphs property" validation
+  // error. onRasterTileError below still gates on sourceId regardless —
+  // that gate independently has to ignore pins/route source noise too (see
+  // its comment), so it's kept as the one shared, defensive filter.
   const onRasterStyleData = async () => {
     await addPinAndRouteLayers();
     if (!mapInstance) return;
@@ -964,9 +1122,8 @@ export function setMapStyle(styleId, { persist = true } = {}) {
   };
 
   // Raster failure: only a basemap tile fetch failure counts. Gate on the
-  // raster source id so we ignore (a) the benign glyphs style-validation
-  // error from our pins-labels layer and (b) any pins/route source noise —
-  // neither should revert a swap whose tiles are loading fine.
+  // raster source id so we ignore any pins/route source noise — that
+  // shouldn't revert a swap whose tiles are loading fine.
   const onRasterTileError = (err) => {
     if (settled) return;
     if (!err || err.sourceId !== "raster-source") return;
@@ -1105,6 +1262,17 @@ export function effectiveIcon(pin) {
 function rasterStyle({ tiles, maxzoom, attribution }) {
   return {
     version: 8,
+    // The pins-labels layer's text-font references "Noto Sans Regular" /
+    // "Noto Sans Bold" (see PINS_LABELS_LAYER_ID comments below), which
+    // requires a `glyphs` endpoint on whatever style is active — vector
+    // styles get theirs from OpenFreeMap's style JSON, but these inline
+    // raster styles previously had none, so pin labels silently never
+    // rendered on Wikimedia/OpenTopoMap/Esri Satellite. Reuse OpenFreeMap's
+    // own keyless, CORS-open glyphs host (confirmed serving both Noto Sans
+    // Regular and Bold PBF ranges) rather than standing up a second
+    // dependency — it's already load-bearing for the vector basemaps this
+    // app ships, so relying on it here adds no new failure surface.
+    glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
     sources: {
       "raster-source": {
         type: "raster",
@@ -1151,10 +1319,28 @@ function pinsToFeatureCollection(pins) {
           color: effectiveColor(pin),
           icon: iconId,
           tintable,
+          labelOffset: computeLabelOffsetEms(pin),
         },
       };
     }),
   };
+}
+
+// Per-pin label offset in EMS for the labels layer's data-driven
+// `text-offset` (draggable labels). pin.labelDx/labelDy are stored in constant
+// SCREEN PIXELS (set by dragging the label on the map); text-offset only
+// accepts ems (× text-size), so we divide by the CONFIGURED label size here
+// — not any transient export-time override (setPinLabelSize) — so the
+// on-screen offset stays pixel-constant across zoom (ems × a fixed
+// text-size is a fixed px value at every zoom) and is recomputed whenever
+// currentPinStyle.labelSize changes (see applyPinStyleToLayers, which
+// re-sets the pins source data after a labelSize edit for exactly this
+// reason).
+function computeLabelOffsetEms(pin) {
+  const labelSize = currentPinStyle.labelSize || BASE_PIN_LABEL_SIZE;
+  const dxPx = Number.isFinite(pin.labelDx) ? pin.labelDx : 0;
+  const dyPx = Number.isFinite(pin.labelDy) ? pin.labelDy : 0;
+  return [dxPx / labelSize, PIN_LABEL_BASE_OFFSET_Y_EMS + dyPx / labelSize];
 }
 
 function emptyLineFeatureCollection() {
@@ -1322,6 +1508,13 @@ async function addPinAndRouteLayers() {
   // color via icon-color and don't need the ring. Added BEFORE the fill
   // layer so it z-stacks underneath.
   if (!mapInstance.getLayer(PINS_COLOR_RING_LAYER_ID)) {
+    // Radius/translate/stroke seed from currentPinStyle so a styledata
+    // re-add after a basemap swap paints the ring at whatever size was last
+    // configured, not the pre-Pin-style-feature baseline — the defensive
+    // applyPinStyleToLayers() call at the end of this function then
+    // reconciles it (harmless no-op the first time since the values already
+    // match).
+    const iconScale = currentPinStyle.size / BASE_PIN_ICON_SIZE;
     mapInstance.addLayer({
       id: PINS_COLOR_RING_LAYER_ID,
       type: "circle",
@@ -1329,10 +1522,10 @@ async function addPinAndRouteLayers() {
       filter: ["==", ["get", "tintable"], false],
       paint: {
         "circle-color": ["get", "color"],
-        "circle-radius": 6,
-        "circle-translate": [0, -2],
+        "circle-radius": PINS_COLOR_RING_BASE_RADIUS * iconScale,
+        "circle-translate": [0, PINS_COLOR_RING_BASE_TRANSLATE_Y * iconScale],
         "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 1.5,
+        "circle-stroke-width": PINS_COLOR_RING_BASE_STROKE_WIDTH * iconScale,
       },
     });
   }
@@ -1366,7 +1559,7 @@ async function addPinAndRouteLayers() {
         "icon-anchor": "bottom",
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
-        "icon-size": 1.0,
+        "icon-size": currentPinStyle.size / BASE_PIN_ICON_SIZE,
       },
       paint: {
         "icon-color": ["get", "color"],
@@ -1391,110 +1584,134 @@ async function addPinAndRouteLayers() {
       source: PINS_SOURCE_ID,
       layout: {
         "text-field": ["get", "name"],
-        // Noto Sans Regular is the font the OpenFreeMap basemap uses for its
-        // own labels, so we know the glyph PBF exists at the expected URL.
-        // The previous combo "Open Sans Regular,Arial Unicode MS Regular"
-        // 404'd silently — fine when markers were a non-symbol circle layer,
-        // but PO-003 puts pin icons into the same symbol bucket and a failed
-        // glyph load on this layer suppresses the icons too.
-        "text-font": ["Noto Sans Regular"],
-        "text-size": BASE_PIN_LABEL_SIZE,
+        // Noto Sans Regular/Bold are the fonts the OpenFreeMap basemap uses
+        // for its own labels, so we know both glyph PBFs exist at the
+        // expected URL. The previous combo "Open Sans Regular,Arial Unicode
+        // MS Regular" 404'd silently — fine when markers were a non-symbol
+        // circle layer, but PO-003 puts pin icons into the same symbol
+        // bucket and a failed glyph load on this layer suppresses the icons
+        // too. currentPinStyle.labelBold picks between the two; an
+        // arbitrary labelFont family is NOT wired here (see setPinStyle's
+        // doc comment) because nothing guarantees the active basemap's
+        // glyph endpoint serves any font beyond this pair.
+        "text-font": [currentPinStyle.labelBold ? "Noto Sans Bold" : "Noto Sans Regular"],
+        "text-size": currentPinStyle.labelSize,
         "text-anchor": "top",
-        "text-offset": [0, 1.0],
+        // Data-driven (draggable labels): reads the per-feature `labelOffset`
+        // ([x,y] in ems) materialized by pinsToFeatureCollection/
+        // computeLabelOffsetEms, so a per-pin label drag renders without a
+        // second layer or a static baseline that ignores pin.labelDx/Dy.
+        "text-offset": ["get", "labelOffset"],
         "text-padding": 4,
-        "text-allow-overlap": false,
-        "text-ignore-placement": false,
+        // allow-overlap/ignore-placement: true — MapLibre's symbol
+        // collision culling was dropping labels (and would drop pins too,
+        // if icon-allow-overlap above were ever false) once enough markers
+        // crowded together at a given zoom. Labels/pins are the app's own
+        // small, finite dataset (tens of pins per CLAUDE.md), so the
+        // overdraw risk from disabling culling is negligible next to a
+        // label silently vanishing while zooming.
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
       },
       paint: {
-        "text-color": "#1f2937",
+        "text-color": currentPinStyle.labelColor,
         "text-halo-color": "#ffffff",
         "text-halo-width": 1.5,
         "text-halo-blur": 0.5,
       },
     });
   }
+
+  // Defensive re-apply: covers the case where SOME of the three layers
+  // above already existed (their `if (!getLayer(...))` guard skipped
+  // creation) while others were just freshly created from currentPinStyle
+  // directly. Also the only path that keeps an already-existing layer set
+  // in sync after setPinStyle() runs before a styledata cycle finishes
+  // re-adding layers. No-op (identical values) in the common case where
+  // every layer was just created fresh above.
+  applyPinStyleToLayers();
 }
 
-// Hover + drag wiring on the pin layer. Idempotent across style swaps:
-// MapLibre keeps `map.on(eventType, layerId, handler)` listeners through
-// setStyle() because they're attached to the map, not to layer instances.
-// We only register them once at init time.
+// Hover + drag wiring on the LABEL layer only. The pin itself is never
+// draggable — a mousedown on a pin falls through untouched so the map pans
+// normally exactly as if no marker were there. Only a pin's text label can
+// be dragged, which sets a per-pin screen-pixel offset (pin.labelDx/
+// labelDy) rather than moving the pin's true lat/lon.
+//
+// Idempotent across style swaps: MapLibre keeps `map.on(eventType,
+// layerId, handler)` listeners through setStyle() because they're attached
+// to the map, not to layer instances. We only register them once at init
+// time.
 function attachPinInteractions() {
   if (!mapInstance) return;
 
-  // A pin drag is deliberate-only (FBL-008): it moves a city off its real
-  // geocoded location, so it fires ONLY while the Alt/Option modifier is
-  // held. Plain hover/drag over a pin behaves exactly like anywhere else on
-  // the map — so we must not advertise a grab cursor unless Alt is down, or
-  // the cursor would promise a drag that a plain mousedown won't deliver.
-  //
-  // `hoveringPin` remembers whether the cursor is currently over the pins
-  // layer so the document-level keydown/keyup handlers can refresh the
-  // cursor the moment Alt is pressed or released without the mouse moving.
-  let hoveringPin = false;
-  const refreshHoverCursor = (altDown) => {
-    if (!mapInstance || dragState) return;
-    mapInstance.getCanvas().style.cursor =
-      hoveringPin && altDown ? "grab" : "";
-  };
-
-  mapInstance.on("mouseenter", PINS_LAYER_ID, (e) => {
-    hoveringPin = true;
-    refreshHoverCursor(e.originalEvent?.altKey);
+  // Hover cursor feedback: grab affordance only over a label, never over a
+  // pin (which isn't draggable and shouldn't promise a drag it won't
+  // deliver).
+  mapInstance.on("mouseenter", PINS_LABELS_LAYER_ID, () => {
+    if (!dragState) mapInstance.getCanvas().style.cursor = "grab";
   });
-  mapInstance.on("mouseleave", PINS_LAYER_ID, () => {
-    hoveringPin = false;
+  mapInstance.on("mouseleave", PINS_LABELS_LAYER_ID, () => {
     if (!dragState) mapInstance.getCanvas().style.cursor = "";
   });
-  // Toggle the grab affordance live as Alt is pressed/released over a pin.
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Alt") refreshHoverCursor(true);
-  });
-  document.addEventListener("keyup", (ev) => {
-    if (ev.key === "Alt") refreshHoverCursor(false);
-  });
 
-  mapInstance.on("mousedown", PINS_LAYER_ID, (e) => {
+  mapInstance.on("mousedown", PINS_LABELS_LAYER_ID, (e) => {
+    if (dragState) return; // a drag is already in flight
     if (e.originalEvent.button !== 0) return;
-    // Guard: without Alt held, do NOT start a drag. Fall through with no
-    // preventDefault and no dragPan.disable() so MapLibre pans the map
-    // normally even though the cursor is over a pin (FBL-008).
-    if (!e.originalEvent.altKey) return;
     const feature = e.features?.[0];
     if (!feature) return;
-
-    e.preventDefault();
-    e.originalEvent.stopPropagation();
-
-    mapInstance.dragPan.disable();
-    document.body.classList.add("dragging-pin");
-    mapInstance.getCanvas().style.cursor = "grabbing";
-
-    dragState = {
-      pinId: feature.properties.id,
-      lastLngLat: e.lngLat,
-    };
-
-    document.addEventListener("mousemove", onDocMove);
-    document.addEventListener("mouseup", onDocUp);
-    // mouseleave on document fires when the cursor exits the window —
-    // commit there so a drag ending off-screen doesn't leak listeners.
-    document.addEventListener("mouseleave", onDocUp);
+    startLabelDrag(e, feature);
   });
+  // No mousedown handler on PINS_LAYER_ID: a click on a pin is intentionally
+  // left unhandled so MapLibre's default pan behavior takes over — pins are
+  // fixed in place and never intercept the map's own drag gesture.
+}
+
+function startLabelDrag(e, feature) {
+  e.preventDefault();
+  e.originalEvent.stopPropagation();
+
+  mapInstance.dragPan.disable();
+  document.body.classList.add("dragging-pin");
+  mapInstance.getCanvas().style.cursor = "grabbing";
+
+  const pinId = feature.properties.id;
+  const pin = lastPinsSnapshot.find((p) => p.id === pinId);
+  const startDx = pin && Number.isFinite(pin.labelDx) ? pin.labelDx : 0;
+  const startDy = pin && Number.isFinite(pin.labelDy) ? pin.labelDy : 0;
+
+  dragState = {
+    pinId,
+    startClientX: e.originalEvent.clientX,
+    startClientY: e.originalEvent.clientY,
+    startDx,
+    startDy,
+    // Mirrors the live value onDocMove writes as the cursor moves; onDocUp
+    // commits whatever this holds at mouseup.
+    lastDx: startDx,
+    lastDy: startDy,
+  };
+
+  document.addEventListener("mousemove", onDocMove);
+  document.addEventListener("mouseup", onDocUp);
+  // mouseleave on document fires when the cursor exits the window —
+  // commit there so a drag ending off-screen doesn't leak listeners.
+  document.addEventListener("mouseleave", onDocUp);
 }
 
 function onDocMove(ev) {
   if (!dragState || !mapInstance) return;
-  const rect = mapInstance.getContainer().getBoundingClientRect();
-  const point = [ev.clientX - rect.left, ev.clientY - rect.top];
-  const lngLat = mapInstance.unproject(point);
-  dragState.lastLngLat = lngLat;
 
-  // Mutate the live source data so the dragged pin tracks the cursor.
-  // We re-use the cached snapshot, swap the dragged pin's coordinates,
-  // and re-set the source. Cheap at this app's scale (tens of pins).
+  // Constant-offset drag: the label moves by exactly the mouse's screen
+  // delta from mousedown, added on top of whatever offset it already had.
+  // No projection math needed — text-offset only cares about the delta
+  // from the anchor, not the pin's on-screen position.
+  const dx = dragState.startDx + (ev.clientX - dragState.startClientX);
+  const dy = dragState.startDy + (ev.clientY - dragState.startClientY);
+  dragState.lastDx = dx;
+  dragState.lastDy = dy;
   const updated = lastPinsSnapshot.map((p) =>
-    p.id === dragState.pinId ? { ...p, lat: lngLat.lat, lon: lngLat.lng } : p
+    p.id === dragState.pinId ? { ...p, labelDx: dx, labelDy: dy } : p
   );
   lastPinsSnapshot = updated;
   const source = mapInstance.getSource(PINS_SOURCE_ID);
@@ -1503,7 +1720,7 @@ function onDocMove(ev) {
 
 function onDocUp() {
   if (!dragState || !mapInstance) return;
-  const { pinId, lastLngLat } = dragState;
+  const { pinId, lastDx, lastDy } = dragState;
   dragState = null;
 
   document.removeEventListener("mousemove", onDocMove);
@@ -1514,9 +1731,8 @@ function onDocUp() {
   document.body.classList.remove("dragging-pin");
   mapInstance.getCanvas().style.cursor = "";
 
-  // Routing the new position through updatePin keeps storage and the
-  // pin list in sync. The resulting renderPins call repaints the source
-  // with the same coordinates we already drew, so it's effectively a
-  // no-op for this pin.
-  updatePin(pinId, { lat: lastLngLat.lat, lon: lastLngLat.lng });
+  // Routing the new offset through updatePin keeps storage and the pin
+  // list in sync. The resulting renderPins call repaints the source with
+  // the same offset we already drew, so it's effectively a no-op here.
+  updatePin(pinId, { labelDx: lastDx, labelDy: lastDy });
 }

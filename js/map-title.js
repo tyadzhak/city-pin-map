@@ -13,17 +13,32 @@
 // where the cursor goes (over the side panel, off-window) so we don't need
 // the document-level handlers the pin drag in map.js relies on.
 //
+// PER-LINE model (this milestone): the overlay is still ONE draggable block
+// anchored at (nx, ny), but its content is now a STACK of independently
+// styled lines rather than a single text run — see js/storage.js's
+// normalizeOnMapTitle / normalizeTitleLine for the shape. Each line gets its
+// own child element with its own inline font/weight/style/color/size, so two
+// lines can look completely different (e.g. a bold serif headline over a
+// small sans-serif subtitle) while still dragging as one unit.
+//
 // Public surface:
 //   init(map, { onAnchorChange })   — wire the overlay to a map instance.
 //                                     onAnchorChange fires whenever the
 //                                     stored nx/ny changes (drag commit,
-//                                     keyboard nudge).
-//   update({ text, nx, ny })        — replace the overlay's full state.
-//                                     Empty text hides the overlay without
-//                                     dropping its position; nx/ny default
+//                                     keyboard nudge, recenterX()).
+//   update({ nx, ny, lines })       — replace the overlay's full state.
+//                                     Omitting `lines` keeps the current
+//                                     lines; the overlay hides whenever no
+//                                     line has non-empty text. nx/ny default
 //                                     to bottom-center (0.5, 0.85) when
 //                                     absent.
-//   getPosition()                   — read the live { text, nx, ny }.
+//   getPosition()                   — read the live { nx, ny, lines }.
+//   recenterX()                     — set nx back to 0.5 (horizontal
+//                                     re-center only; ny is untouched) and
+//                                     persist via onAnchorChange. Used when
+//                                     the export-size preset changes.
+
+import { normalizeTitleLine } from "./storage.js";
 
 const OVERLAY_ID = "export-on-map-title-overlay";
 
@@ -33,18 +48,12 @@ let onAnchorChange = null;
 
 // Full overlay state. Normalized frame-relative anchor (nx/ny, each in
 // [0,1]) drives the transform whenever the map container is RESIZED;
-// formatting fields (font/bold/italic/color/size) drive the inline element
-// styles on every update. PO-009 expanded this from just the anchor + text
-// to the full toolbar shape.
+// `lines` is an ordered array of { text, font, bold, italic, color, size }
+// rendered top-to-bottom, each with its own formatting.
 let position = {
-  text: "",
   nx: 0.5,
   ny: 0.85,
-  font: 'Georgia, "Times New Roman", serif',
-  bold: true,
-  italic: false,
-  color: "#1f2937",
-  size: 20,
+  lines: [],
 };
 
 // Drag state. Set on pointerdown, cleared on pointerup. The pixel offset
@@ -99,65 +108,85 @@ export function init(map, opts = {}) {
   // pixel dimensions.
   map.on("resize", reproject);
 
-  return { update, getPosition };
+  return { update, getPosition, recenterX };
 }
 
 /**
- * Replace the overlay's stored state. Empty `text` hides the overlay
- * without forgetting nx/ny — re-typing brings it back at the same place,
- * which is the contract the task spells out for the input clearing flow.
+ * Replace the overlay's stored state. Merges over existing fields so a
+ * partial caller (e.g. "just move the anchor") doesn't have to know about
+ * every field: `nx`/`ny` fall back to the current value when absent, and
+ * `lines` is kept as-is when not provided (defensively re-normalized via
+ * normalizeTitleLine when it IS provided, so a hand-built array from the
+ * editor UI can never poison the overlay).
  *
- * nx/ny always have valid defaults (bottom-center), so there is no
- * null-seeding case to handle here.
+ * The overlay hides whenever no line has non-empty text — re-typing brings
+ * it back at the same place with the same per-line look, which is the
+ * contract the previous single-string version had.
  */
 export function update(next) {
-  // Merge over existing fields so a partial caller (e.g. "just toggle
-  // bold") doesn't have to know about every field. The CSS-applied
-  // formatting fields (font/bold/italic/color/size) fall back to the
-  // current value rather than the module's hard-coded defaults so a
-  // mid-session call with only `{ text: "..." }` doesn't reset the
-  // user's font picks.
+  const lines = Array.isArray(next.lines)
+    ? next.lines.map(normalizeTitleLine)
+    : position.lines;
+
   position = {
-    text: typeof next.text === "string" ? next.text : position.text,
     nx: Number.isFinite(next.nx) ? clamp01(next.nx) : position.nx,
     ny: Number.isFinite(next.ny) ? clamp01(next.ny) : position.ny,
-    font: typeof next.font === "string" ? next.font : position.font,
-    bold: typeof next.bold === "boolean" ? next.bold : position.bold,
-    italic: typeof next.italic === "boolean" ? next.italic : position.italic,
-    color: typeof next.color === "string" ? next.color : position.color,
-    size: Number.isFinite(next.size) ? next.size : position.size,
+    lines,
   };
 
   if (!element || !mapInstance) return;
 
-  // Apply the formatting fields to the live element on every update so a
-  // toggle reflects without waiting for a re-render. Cheap (style writes
-  // batch into one layout pass).
-  applyFormatting();
+  renderLines();
 
-  if (!position.text) {
+  if (!hasRenderableText(position.lines)) {
     element.hidden = true;
-    element.textContent = "";
     return;
   }
 
-  element.textContent = position.text;
   element.hidden = false;
   reproject();
 }
 
-function applyFormatting() {
-  if (!element) return;
-  element.style.fontFamily = position.font;
-  element.style.fontWeight = position.bold ? "700" : "400";
-  element.style.fontStyle = position.italic ? "italic" : "normal";
-  element.style.color = position.color;
-  element.style.fontSize = `${position.size}px`;
+function hasRenderableText(lines) {
+  return lines.some((line) => typeof line.text === "string" && line.text.length > 0);
 }
 
-/** Read the live { text, nx, ny }. Returns a fresh copy so callers can mutate freely. */
+// Rebuilds the overlay's child elements — one per line, each carrying its
+// own inline formatting — from the current `position.lines`. Cheap full
+// teardown/rebuild rather than a diff: line counts stay in the single
+// digits, so there's no perf case for anything fancier.
+function renderLines() {
+  if (!element) return;
+  element.innerHTML = "";
+  position.lines.forEach((line) => {
+    const lineEl = document.createElement("div");
+    lineEl.className = "export-on-map-title__line";
+    lineEl.textContent = line.text;
+    lineEl.style.fontFamily = line.font;
+    lineEl.style.fontWeight = line.bold ? "700" : "400";
+    lineEl.style.fontStyle = line.italic ? "italic" : "normal";
+    lineEl.style.color = line.color;
+    lineEl.style.fontSize = `${line.size}px`;
+    element.appendChild(lineEl);
+  });
+}
+
+/**
+ * Re-center the title BLOCK horizontally (nx = 0.5), leaving ny untouched.
+ * Used when the export-size preset changes so the title doesn't end up
+ * off-center against the newly letterboxed crop. Fires onAnchorChange so
+ * the new anchor persists, even if the overlay is currently hidden (an
+ * empty title should still remember to reappear centered).
+ */
+export function recenterX() {
+  position = { ...position, nx: 0.5 };
+  reproject();
+  if (onAnchorChange) onAnchorChange(getPosition());
+}
+
+/** Read the live { nx, ny, lines }. Returns a fresh copy so callers can mutate freely. */
 export function getPosition() {
-  return { ...position };
+  return { nx: position.nx, ny: position.ny, lines: position.lines.map((l) => ({ ...l })) };
 }
 
 // Clamp a fraction into [0, 1] — shared by every path that derives nx/ny
@@ -270,7 +299,7 @@ function onPointerUp(ev) {
 
   applyTransform(newCenterX, newCenterY);
 
-  if (onAnchorChange) onAnchorChange({ ...position });
+  if (onAnchorChange) onAnchorChange(getPosition());
 }
 
 function onKeyDown(ev) {
@@ -313,5 +342,5 @@ function onKeyDown(ev) {
   };
   applyTransform(newX, newY);
 
-  if (onAnchorChange) onAnchorChange({ ...position });
+  if (onAnchorChange) onAnchorChange(getPosition());
 }

@@ -139,28 +139,10 @@ function buildRow(pin, groups) {
   edit.addEventListener("click", () => enterRenameMode(pin, name));
   row.appendChild(edit);
 
-  // Reset-position affordance (FBL-008). Shown only when the pin carries a
-  // finite geocoded origin AND it has actually been moved away from it (an
-  // Alt-drag). Pins created before this change have no originalLat/Lon —
-  // the Number.isFinite guard keeps them button-less and never crashes.
-  // Once reset, current == original again, so the next re-render drops the
-  // button, matching the acceptance criterion.
-  if (
-    Number.isFinite(pin.originalLat) &&
-    Number.isFinite(pin.originalLon) &&
-    (pin.lat !== pin.originalLat || pin.lon !== pin.originalLon)
-  ) {
-    const reset = document.createElement("button");
-    reset.type = "button";
-    reset.className = "reset-pin";
-    reset.textContent = "⟲";
-    reset.title = "Reset position to original location";
-    reset.setAttribute("aria-label", `Reset position of pin ${pin.name}`);
-    reset.addEventListener("click", () =>
-      updatePin(pin.id, { lat: pin.originalLat, lon: pin.originalLon })
-    );
-    row.appendChild(reset);
-  }
+  // No "reset position" affordance: the pin itself is fixed in place and
+  // can never be dragged, so pin.lat/lon can never drift from
+  // originalLat/originalLon. That FBL-008 button is intentionally removed
+  // — see originalLat/originalLon's doc comment in CLAUDE.md.
 
   const remove = document.createElement("button");
   remove.type = "button";

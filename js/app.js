@@ -12,6 +12,7 @@ import {
   DEFAULT_MAP_STYLE_ID,
   applyLabelVisibility,
   isRasterStyleEntry,
+  setPinStyle,
 } from "./map.js";
 import * as pinStore from "./pins.js";
 import * as groupStore from "./groups.js";
@@ -36,6 +37,11 @@ import {
   saveHideLabels,
   loadOnMapTitle,
   saveOnMapTitle,
+  defaultTitleLine,
+  ON_MAP_TITLE_FONTS,
+  loadPinStyle,
+  savePinStyle,
+  normalizePinStyle,
   showError,
 } from "./storage.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
@@ -216,6 +222,13 @@ function init() {
     notice.hidden = !showNotice;
   }
 
+  // Global pin style (size/label size/label color/label bold). Hydrates
+  // map.js's currentPinStyle baseline before the map's first `load` handler
+  // (async, gated on tile/sprite/glyph fetch) creates the pin/label layers,
+  // so the very first paint already reflects any previously-saved custom
+  // style — no flash of default-sized pins.
+  initPinStyleOptions();
+
   initExportFormatSelector();
   // Capture the live-state accessors so the export button consumes the same
   // in-memory frame/title the on-map overlays render from (FBL-013), rather
@@ -264,10 +277,15 @@ function initExportFormatSelector() {
 
   select.addEventListener("change", (event) => {
     saveExportFormat(event.target.value);
-    // The title's anchor is now a normalized frame-relative fraction
-    // (nx/ny), so it's already static across export-size/letterbox
-    // changes — no re-anchoring needed here.
     viewport?.setPreset(EXPORT_PRESETS[event.target.value] ?? null);
+    // The title's anchor (nx/ny) is a normalized frame-relative fraction,
+    // so it stays visually put across the letterbox resize above — but a
+    // title dragged off-center under one aspect ratio can end up oddly
+    // placed under another. Re-center horizontally (ny/vertical position
+    // is left alone) so a portrait↔landscape switch always reads centered.
+    // Deliberately NOT called on the boot-time setPreset() above this
+    // handler — only on an explicit user change.
+    mapTitle.recenterX();
   });
 }
 
@@ -296,18 +314,20 @@ function initExportFrameOptions() {
   const saved = loadExportFrame();
   const frame1 = wireFrameControls("-1", saved.frames[0]);
   const frame2 = wireFrameControls("-2", saved.frames[1]);
-  if (!frame1 && !frame2) return undefined;
+  const outside = wireFrameOutsideControls(saved.outside);
+  if (!frame1 && !frame2 && !outside) return undefined;
 
-  // Builds the full 2-element FRAME SET straight from the DOM — the single
-  // read path both persist() and the live-overlay update share, so they can
-  // never disagree about what's currently on screen. A frame whose controls
-  // are missing from the DOM falls back to its own stored/default value
-  // (never crashes, never silently vanishes from the persisted set).
+  // Builds the full FRAME SET straight from the DOM — the single read path
+  // both persist() and the live-overlay update share, so they can never
+  // disagree about what's currently on screen. A frame/cluster whose
+  // controls are missing from the DOM falls back to its own stored/default
+  // value (never crashes, never silently vanishes from the persisted set).
   const readFrameSet = () => ({
     frames: [
       frame1 ? frame1.readFrame() : saved.frames[0],
       frame2 ? frame2.readFrame() : saved.frames[1],
     ],
+    outside: outside ? outside.readOutside() : saved.outside,
   });
 
   const persist = () => {
@@ -317,6 +337,7 @@ function initExportFrameOptions() {
   };
   if (frame1) frame1.onChange(persist);
   if (frame2) frame2.onChange(persist);
+  if (outside) outside.onChange(persist);
 
   // Reflect the persisted state on the overlay at boot, same as
   // mapTitle.update(saved) in initOnMapTitle — otherwise the live preview
@@ -400,6 +421,51 @@ function wireFrameControls(suffix, savedFrameEl) {
   return { readFrame, onChange };
 }
 
+// Wires the "outside the frame" treatment cluster (mode select + color +
+// blur inputs). Sibling of wireFrameControls: same "return null if any
+// element is missing" defensive contract, so a malformed/edited-by-hand
+// index.html skips just this cluster rather than crashing all of
+// initExportFrameOptions. The wrapper's `data-outside-mode` attribute
+// drives which of color/blur is shown — see .frame-outside-controls in
+// css/styles.css — mirroring `data-frame-enabled` above.
+function wireFrameOutsideControls(savedOutside) {
+  const mode = document.getElementById("frame-outside-mode");
+  const color = document.getElementById("frame-outside-color");
+  const blur = document.getElementById("frame-outside-blur");
+  const wrapper = document.getElementById("frame-outside-controls");
+  if (!mode || !color || !blur || !wrapper) return null;
+
+  // Single read path both persist() and the live-overlay update share, so
+  // they can never disagree about what's currently on screen. Normalization
+  // (mode enum, color hex, blur clamp 0-50) happens at the storage.js
+  // boundary (normalizeFrameOutside, via normalizeFrameSet/saveExportFrame),
+  // same as wireFrameControls's readFrame — this function just reflects the
+  // raw DOM state.
+  const readOutside = () => ({
+    mode: mode.value,
+    color: color.value,
+    blur: blur.valueAsNumber,
+  });
+
+  mode.value = savedOutside.mode;
+  color.value = savedOutside.color;
+  blur.value = String(savedOutside.blur);
+  wrapper.dataset.outsideMode = savedOutside.mode;
+
+  const onChange = (persist) => {
+    mode.addEventListener("change", () => {
+      wrapper.dataset.outsideMode = mode.value;
+      persist();
+    });
+    // `input` instead of `change` for color/blur so the live overlay updates
+    // as the user scrubs a value, mirroring the frame controls' behaviour.
+    color.addEventListener("input", persist);
+    blur.addEventListener("input", persist);
+  };
+
+  return { readOutside, onChange };
+}
+
 // Bottom fade (poster-style caption zone). Sibling of initExportFrameOptions:
 // hydrates the toggle/height/color inputs from localStorage, persists every
 // change, and drives the live WYSIWYG overlay (js/map-fade.js) so the fade
@@ -469,6 +535,71 @@ function initBottomFadeOptions() {
   return { getLiveFade: () => normalizeBottomFade(readFade()) };
 }
 
+// Global pin style (Design tab "Pin style" group, this batch's item 4).
+// Unlike the per-line title editor and the two frames, this is a single
+// flat control cluster — no add/remove, no enable toggle (pins are always
+// on) — so it's a much smaller version of initBottomFadeOptions' shape:
+// hydrate from storage, apply once, persist + re-apply on every change.
+//
+// Clamped at the UI layer too (mirrors the on-map title size input's
+// clampSize helper) so the input box, the live map, and the persisted
+// value can never disagree even mid-edit.
+function initPinStyleOptions() {
+  const sizeInput = document.getElementById("pin-style-size");
+  const labelSizeInput = document.getElementById("pin-style-label-size");
+  const labelColorInput = document.getElementById("pin-style-label-color");
+  const labelBoldBtn = document.getElementById("pin-style-label-bold");
+  if (!sizeInput || !labelSizeInput || !labelColorInput || !labelBoldBtn) {
+    return;
+  }
+
+  const clamp = (n, min, max, fallback) =>
+    Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : fallback;
+
+  const saved = loadPinStyle();
+  sizeInput.value = String(saved.size);
+  labelSizeInput.value = String(saved.labelSize);
+  labelColorInput.value = saved.labelColor;
+  labelBoldBtn.setAttribute("aria-pressed", saved.labelBold ? "true" : "false");
+
+  // Apply immediately so the map reflects a previously-saved custom style
+  // from its very first paint (see the comment at the call site in init()).
+  setPinStyle(saved);
+
+  // labelFont has no UI control (see index.html's Pin-style comment and
+  // map.js's setPinStyle doc comment for why an arbitrary family isn't
+  // wired up), so every persist() carries the persisted value straight
+  // through unchanged rather than silently dropping it back to "".
+  const persist = () => {
+    const next = normalizePinStyle({
+      size: sizeInput.valueAsNumber,
+      labelSize: labelSizeInput.valueAsNumber,
+      labelColor: labelColorInput.value,
+      labelBold: labelBoldBtn.getAttribute("aria-pressed") === "true",
+      labelFont: saved.labelFont,
+    });
+    savePinStyle(next);
+    setPinStyle(next);
+  };
+
+  sizeInput.addEventListener("change", () => {
+    sizeInput.value = String(clamp(sizeInput.valueAsNumber, 8, 96, saved.size));
+    persist();
+  });
+  labelSizeInput.addEventListener("change", () => {
+    labelSizeInput.value = String(
+      clamp(labelSizeInput.valueAsNumber, 8, 48, saved.labelSize)
+    );
+    persist();
+  });
+  labelColorInput.addEventListener("input", persist);
+  labelBoldBtn.addEventListener("click", () => {
+    const next = labelBoldBtn.getAttribute("aria-pressed") !== "true";
+    labelBoldBtn.setAttribute("aria-pressed", next ? "true" : "false");
+    persist();
+  });
+}
+
 // Reflects the persisted preference on the checkbox at boot and forwards
 // every user change to onChange. Kept dumb on purpose: this function does
 // not own the boolean — init() does — so re-rendering and persistence stay
@@ -494,29 +625,41 @@ function initHideLabelsToggle({ initialValue, onChange }) {
   });
 }
 
-// PO-008/009: hydrates the on-map title input + formatting toolbar +
-// overlay from localStorage and keeps all three in sync. The map-title
-// module owns the overlay's lifecycle (DOM, drag, projection); this
-// function only wires the input box, the toolbar controls, and the
-// persistence callbacks together.
-//
-// Three write paths feed saveOnMapTitle:
-//   1. Anchor-change callback — fires when the overlay's nx/ny (normalized
-//      frame-relative anchor) moves (drag commit, keyboard nudge).
-//   2. Text input event — fires on every keystroke.
-//   3. Toolbar control change — font / bold / italic / color / size.
-// Each path calls mapTitle.update() with only the changing field; the
-// module's merge-over-existing semantics keep the rest intact, then we
-// persist whatever the module's internal state ends up as.
-function initOnMapTitle() {
-  const input = document.getElementById("export-on-map-title");
-  if (!input) return;
+// Human-readable labels for ON_MAP_TITLE_FONTS, index-aligned with that
+// array (storage.js). Kept here rather than duplicated per-row: every line
+// row's font <select> is built from these two arrays zipped together. If
+// the arrays ever drift in length, the fallback below just labels the
+// option with its own fontstack string instead of crashing.
+const ON_MAP_TITLE_FONT_LABELS = [
+  "Georgia",
+  "Times",
+  "Helvetica",
+  "Verdana",
+  "Trebuchet",
+  "Courier",
+  "Impact",
+];
 
-  const fontSelect = document.getElementById("otm-font");
-  const boldBtn = document.getElementById("otm-bold");
-  const italicBtn = document.getElementById("otm-italic");
-  const colorInput = document.getElementById("otm-color");
-  const sizeInput = document.getElementById("otm-size");
+// Per-line on-map title (this milestone): hydrates the overlay from
+// localStorage and renders one editable ROW per line into #otm-lines, each
+// with its own text input + font/bold/italic/color/size controls (mirroring
+// the old single-toolbar's `.otm-format-*` classes so the look matches).
+// The map-title module owns the overlay's lifecycle (DOM, drag,
+// projection); this function only wires the row editor and the persistence
+// callbacks together.
+//
+// Two write paths feed saveOnMapTitle:
+//   1. Anchor-change callback — fires when the overlay's nx/ny (normalized
+//      frame-relative anchor) moves (drag commit, keyboard nudge,
+//      recenterX() on export-size change).
+//   2. Any row edit (text/font/bold/italic/color/size) or a row add/remove —
+//      rebuilds the full `lines` array from the rows in DOM order.
+// Both paths call mapTitle.update() then persist whatever the module's
+// internal state ends up as, so the overlay and localStorage never disagree.
+function initOnMapTitle() {
+  const linesContainer = document.getElementById("otm-lines");
+  const addLineBtn = document.getElementById("otm-add-line");
+  if (!linesContainer) return;
 
   const map = getMap();
   if (!map) return;
@@ -526,71 +669,179 @@ function initOnMapTitle() {
   });
 
   const saved = loadOnMapTitle();
-  input.value = saved.text;
-  if (fontSelect) fontSelect.value = saved.font;
-  if (boldBtn) boldBtn.setAttribute("aria-pressed", saved.bold ? "true" : "false");
-  if (italicBtn)
-    italicBtn.setAttribute("aria-pressed", saved.italic ? "true" : "false");
-  if (colorInput) colorInput.value = saved.color;
-  if (sizeInput) sizeInput.value = String(saved.size);
+  // A persisted title with zero lines starts the editor with ONE empty
+  // default line so the user has a row to type into; the overlay itself
+  // stays hidden (defaultTitleLine()'s text is "") until they do.
+  const initialLines = saved.lines.length > 0 ? saved.lines : [defaultTitleLine()];
+  mapTitle.update({ nx: saved.nx, ny: saved.ny, lines: initialLines });
 
-  // Hand the persisted state to the overlay. If text is set, the module
-  // shows the overlay at its stored nx/ny (bottom-center by default); if
-  // text is empty, the overlay stays hidden but nx/ny + formatting are
-  // remembered so re-typing brings the title back at the same place with
-  // the same look.
-  mapTitle.update(saved);
+  // Row handles currently mounted in the DOM, in display order — rebuilt
+  // wholesale on add/remove, read in place on every other edit.
+  let rowHandles = [];
 
-  // Helper that applies a partial diff and persists. The module merges
-  // over current state, so passing only the changed field is sufficient.
-  const apply = (partial) => {
-    mapTitle.update(partial);
-    saveOnMapTitle(mapTitle.getPosition());
-  };
+  const persist = () => saveOnMapTitle(mapTitle.getPosition());
 
-  input.addEventListener("input", () => apply({ text: input.value }));
+  const clampSize = (n) =>
+    Number.isFinite(n) ? Math.max(10, Math.min(80, Math.round(n))) : 20;
 
-  if (fontSelect) {
-    fontSelect.addEventListener("change", () =>
-      apply({ font: fontSelect.value })
-    );
+  // Rebuilds the full `lines` array from the rows in DOM order and pushes
+  // it through the overlay + persistence. Called on every in-place row edit
+  // (text/font/bold/italic/color/size) — it deliberately does NOT touch the
+  // DOM itself, so a keystroke never steals focus from the input mid-type.
+  function rebuildFromRows() {
+    const lines = rowHandles.map((h) => ({
+      text: h.textInput.value,
+      font: h.fontSelect.value,
+      bold: h.boldBtn.getAttribute("aria-pressed") === "true",
+      italic: h.italicBtn.getAttribute("aria-pressed") === "true",
+      color: h.colorInput.value,
+      size: clampSize(Number(h.sizeInput.value)),
+    }));
+    mapTitle.update({ lines });
+    persist();
   }
-  if (boldBtn) {
-    boldBtn.addEventListener("click", () => {
-      const next = boldBtn.getAttribute("aria-pressed") !== "true";
-      boldBtn.setAttribute("aria-pressed", next ? "true" : "false");
-      apply({ bold: next });
+
+  // Full teardown/rebuild of the row DOM from the overlay's current lines.
+  // Used only on structural changes (add/remove a line) — in-place edits
+  // go through rebuildFromRows() above instead, so typing never re-renders
+  // the row out from under the cursor.
+  function renderRows() {
+    linesContainer.innerHTML = "";
+    rowHandles = mapTitle.getPosition().lines.map((line) => {
+      const handle = buildLineRow(line);
+      wireRow(handle);
+      linesContainer.appendChild(handle.row);
+      return handle;
     });
   }
-  if (italicBtn) {
-    italicBtn.addEventListener("click", () => {
-      const next = italicBtn.getAttribute("aria-pressed") !== "true";
-      italicBtn.setAttribute("aria-pressed", next ? "true" : "false");
-      apply({ italic: next });
+
+  function wireRow(handle) {
+    handle.textInput.addEventListener("input", rebuildFromRows);
+    handle.fontSelect.addEventListener("change", rebuildFromRows);
+    handle.boldBtn.addEventListener("click", () => {
+      const next = handle.boldBtn.getAttribute("aria-pressed") !== "true";
+      handle.boldBtn.setAttribute("aria-pressed", next ? "true" : "false");
+      rebuildFromRows();
     });
-  }
-  if (colorInput) {
-    colorInput.addEventListener("input", () => apply({ color: colorInput.value }));
-  }
-  if (sizeInput) {
-    // `change` fires on blur/Enter/spinner; using it (not `input`) keeps
-    // the persist + reflow burst out of every digit-typed keystroke.
-    sizeInput.addEventListener("change", () => {
-      const parsed = Number(sizeInput.value);
-      if (!Number.isFinite(parsed)) return;
-      // Clamp here (not just in storage) so the live overlay, the input
-      // box, and the persisted value all agree. Bounds match the
+    handle.italicBtn.addEventListener("click", () => {
+      const next = handle.italicBtn.getAttribute("aria-pressed") !== "true";
+      handle.italicBtn.setAttribute("aria-pressed", next ? "true" : "false");
+      rebuildFromRows();
+    });
+    handle.colorInput.addEventListener("input", rebuildFromRows);
+    handle.sizeInput.addEventListener("change", () => {
+      // Clamp here (not just in storage) so the input box and the
+      // persisted value agree immediately. Bounds match the
       // ON_MAP_TITLE_SIZE_MIN/MAX in storage.js.
-      const clamped = Math.max(10, Math.min(80, Math.round(parsed)));
-      apply({ size: clamped });
-      sizeInput.value = String(clamped);
+      handle.sizeInput.value = String(clampSize(Number(handle.sizeInput.value)));
+      rebuildFromRows();
+    });
+    handle.removeBtn.addEventListener("click", () => {
+      const idx = rowHandles.indexOf(handle);
+      if (idx === -1) return;
+      const lines = mapTitle.getPosition().lines.filter((_, i) => i !== idx);
+      mapTitle.update({ lines });
+      persist();
+      renderRows();
     });
   }
+
+  if (addLineBtn) {
+    addLineBtn.addEventListener("click", () => {
+      const lines = [...mapTitle.getPosition().lines, defaultTitleLine()];
+      mapTitle.update({ lines });
+      persist();
+      renderRows();
+    });
+  }
+
+  renderRows();
 
   // FBL-013: expose the LIVE overlay position so the export reads the same
   // in-memory title state it renders — not the persisted copy, which can lag
   // behind after a "kept in memory only" save failure.
   return { getLivePosition: () => mapTitle.getPosition() };
+}
+
+// Builds one line row's DOM (not yet wired or mounted) from a title line.
+// Reuses the `.otm-format-*` classes the old single toolbar used so the
+// per-row controls read as the same design family; `.otm-line-row` /
+// `.otm-line-text` / `.otm-line-remove` are the new per-row wrapper classes
+// (see css/styles.css). Returns the row element plus handles to every
+// control so the caller can wire listeners and read values back out.
+function buildLineRow(line) {
+  const row = document.createElement("div");
+  row.className = "otm-line-row";
+
+  const textInput = document.createElement("input");
+  textInput.type = "text";
+  textInput.className = "otm-line-text";
+  textInput.placeholder = "Line text";
+  textInput.autocomplete = "off";
+  textInput.spellcheck = false;
+  textInput.value = line.text;
+
+  const fontSelect = document.createElement("select");
+  fontSelect.className = "otm-format-select";
+  fontSelect.setAttribute("aria-label", "Font family");
+  fontSelect.title = "Font family";
+  ON_MAP_TITLE_FONTS.forEach((font, i) => {
+    const opt = document.createElement("option");
+    opt.value = font;
+    opt.textContent = ON_MAP_TITLE_FONT_LABELS[i] || font;
+    fontSelect.appendChild(opt);
+  });
+  fontSelect.value = line.font;
+
+  const boldBtn = document.createElement("button");
+  boldBtn.type = "button";
+  boldBtn.className = "otm-format-toggle";
+  boldBtn.setAttribute("aria-label", "Bold");
+  boldBtn.title = "Bold";
+  boldBtn.setAttribute("aria-pressed", line.bold ? "true" : "false");
+  const boldGlyph = document.createElement("span");
+  boldGlyph.className = "otm-format-toggle__glyph otm-format-toggle__glyph--bold";
+  boldGlyph.textContent = "B";
+  boldBtn.appendChild(boldGlyph);
+
+  const italicBtn = document.createElement("button");
+  italicBtn.type = "button";
+  italicBtn.className = "otm-format-toggle";
+  italicBtn.setAttribute("aria-label", "Italic");
+  italicBtn.title = "Italic";
+  italicBtn.setAttribute("aria-pressed", line.italic ? "true" : "false");
+  const italicGlyph = document.createElement("span");
+  italicGlyph.className = "otm-format-toggle__glyph otm-format-toggle__glyph--italic";
+  italicGlyph.textContent = "I";
+  italicBtn.appendChild(italicGlyph);
+
+  const colorInput = document.createElement("input");
+  colorInput.type = "color";
+  colorInput.className = "otm-format-color";
+  colorInput.setAttribute("aria-label", "Text color");
+  colorInput.title = "Text color";
+  colorInput.value = line.color;
+
+  const sizeInput = document.createElement("input");
+  sizeInput.type = "number";
+  sizeInput.min = "10";
+  sizeInput.max = "80";
+  sizeInput.step = "1";
+  sizeInput.className = "otm-format-size";
+  sizeInput.setAttribute("aria-label", "Font size in pixels");
+  sizeInput.title = "Size (px)";
+  sizeInput.value = String(line.size);
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.className = "otm-line-remove";
+  removeBtn.setAttribute("aria-label", "Remove line");
+  removeBtn.title = "Remove line";
+  removeBtn.textContent = "✕";
+
+  row.append(textInput, fontSelect, boldBtn, italicBtn, colorInput, sizeInput, removeBtn);
+
+  return { row, textInput, fontSelect, boldBtn, italicBtn, colorInput, sizeInput, removeBtn };
 }
 
 // Disabling the button across the await prevents double-clicks during the

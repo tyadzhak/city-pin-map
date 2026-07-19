@@ -31,7 +31,16 @@ function notify() {
  * @param {number} [input.originalLon] - Geocoded origin longitude, captured once at creation (FBL-008). Optional; omitted for add paths that don't supply an origin.
  * @returns {object} The created pin.
  */
-export function addPin({ name, lat, lon, color, group = null, icon = null, originalLat, originalLon }) {
+export function addPin({
+  name,
+  lat,
+  lon,
+  color,
+  group = null,
+  icon = null,
+  originalLat,
+  originalLon,
+}) {
   const pin = {
     id: crypto.randomUUID(),
     name,
@@ -40,6 +49,10 @@ export function addPin({ name, lat, lon, color, group = null, icon = null, origi
     color,
     group,
     icon,
+    // labelDx/labelDy (per-pin label drag offset) are deliberately NOT
+    // defaulted here — absence means "no offset" (0), same contract as
+    // originalLat/originalLon just below. The pin itself is never
+    // draggable; only its label is.
     createdAt: Date.now(),
   };
   // originalLat/originalLon are optional (FBL-008): the "reset position"

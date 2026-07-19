@@ -83,8 +83,8 @@ export async function searchCities(query, { signal } = {}) {
   url.searchParams.set("accept-language", "en");
   // addressdetails=1 makes Nominatim return a structured `address` object
   // (city/town/village/country/etc.) alongside the flat display_name.
-  // search.js → shortName() uses this to default new pin names to a short
-  // "city, country" form. Single extra response field — no extra request.
+  // search.js → shortName() uses this to default new pin names to a
+  // city-only short form. Single extra response field — no extra request.
   url.searchParams.set("addressdetails", "1");
   url.searchParams.set("q", query);
 

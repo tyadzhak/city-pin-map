@@ -41,7 +41,7 @@ import {
   loadOnMapTitle,
   loadBottomFade,
 } from "./storage.js";
-import { BASE_PIN_LABEL_SIZE, setPinLabelSize } from "./map.js";
+import { getPinLabelSize, setPinLabelSize } from "./map.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
 // Same budgets the previous Leaflet impl used; MapLibre's `idle` event
@@ -263,7 +263,13 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // through MapLibre's symbol layer, so the next render frame picks up
     // the new size; setLayoutProperty itself queues a repaint, the
     // explicit triggerRepaint+waitForRender below is belt-and-suspenders.
-    setPinLabelSize(BASE_PIN_LABEL_SIZE * coeff);
+    //
+    // Base is the USER'S CONFIGURED label size (Design tab "Pin style"),
+    // not a hardcoded constant — getPinLabelSize() reads map.js's
+    // currentPinStyle.labelSize, so a custom size scales by `coeff` exactly
+    // like the on-map title and frame do, instead of the export silently
+    // reverting every capture to the pre-Pin-style-feature default.
+    setPinLabelSize(getPinLabelSize() * coeff);
 
     mapInstance.triggerRepaint();
     await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
@@ -290,8 +296,7 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
       titleChip = {
         x: onMapTitle.nx * outputWidth,
         y: onMapTitle.ny * outputHeight,
-        text: onMapTitle.text,
-        style: onMapTitle.style,
+        lines: onMapTitle.lines,
       };
     }
 
@@ -400,8 +405,7 @@ function composite({
     drawOnMapTitle(ctx, {
       x: titleChip.x,
       y: titleChip.y,
-      style: titleChip.style,
-      text: titleChip.text,
+      lines: titleChip.lines,
       coeff: coeff * chipScale,
     });
   }
@@ -491,9 +495,16 @@ function deviceScale(mapInstance) {
 // bare single legacy frame object (not wrapped in a set) is still tolerated.
 //
 // Defensive: if NO frame element is enabled with thickness > 0 (after
-// scaling), the inner canvas is returned untouched — nothing to draw.
+// scaling) AND the outside treatment is "none" (or has no enabled frame to
+// bound against), the inner canvas is returned untouched — nothing to draw.
 // Preserves the PO-007 "thickness=0 == toggle off" acceptance criterion per
 // element.
+//
+// `outside` (this milestone) fills/blurs the region beyond the OUTERMOST
+// ENABLED frame's outer edge — see outermostEnabledFrame / paintFrameOutside
+// below. Painted before the bands so a band's own edge still reads crisply
+// over it. A no-op when no frame is enabled at all (no boundary to paint
+// against), regardless of `outside.mode`.
 //
 // Each band is one even-odd fill: an outer rounded rect (inset by margin,
 // radius) with an inner rounded rect (inset by margin+thickness, radius minus
@@ -510,9 +521,16 @@ function wrapFrame(innerCanvas, frame, scale = 1) {
     : frame
     ? [frame]
     : [];
+  const outside = frame?.outside || null;
 
   const drawable = frames.filter((frameEl) => isFrameDrawable(frameEl, scale));
-  if (drawable.length === 0) return innerCanvas;
+  // "Outermost enabled" (not "drawable") on purpose: a frame with thickness
+  // 0 still defines a boundary via its own margin/radius even though it
+  // paints no band of its own — see outermostEnabledFrame's own comment.
+  const outermost = outermostEnabledFrame(frames);
+  const outsideMode = outermost ? normalizeOutsideMode(outside?.mode) : "none";
+
+  if (drawable.length === 0 && outsideMode === "none") return innerCanvas;
 
   const out = document.createElement("canvas");
   out.width = innerCanvas.width;
@@ -524,11 +542,120 @@ function wrapFrame(innerCanvas, frame, scale = 1) {
   // painted in array order (Frame 1, then Frame 2).
   ctx.drawImage(innerCanvas, 0, 0);
 
+  // Outside-frame treatment paints BEFORE the bands so a band's own edge
+  // still reads crisply on top of it (the fill/blur only ever touches the
+  // region beyond the outermost band's outer edge, but painting order keeps
+  // this correct even at the boundary pixel row).
+  if (outsideMode !== "none") {
+    paintFrameOutside(ctx, innerCanvas, outermost, outside, scale, out.width, out.height);
+  }
+
   for (const frameEl of drawable) {
     paintFrameBand(ctx, frameEl, scale, out.width, out.height);
   }
 
   return out;
+}
+
+// Among ENABLED frame elements, the one with the smallest `margin` — its
+// outer edge sits closest to the canvas edge, i.e. the largest outer
+// rounded-rect. Mirrors js/map-frame.js's identical helper so the live
+// preview and the exported PNG always agree on which frame the outside
+// treatment bounds against. Deliberately keys off `.enabled`, NOT
+// isFrameDrawable's additional thickness>0 requirement — an enabled frame
+// with a 0px band still has a real margin/radius boundary.
+function outermostEnabledFrame(frames) {
+  let best = null;
+  let bestMargin = Infinity;
+  for (const f of frames) {
+    if (!f || !f.enabled) continue;
+    const margin = Math.max(0, Number(f.margin) || 0);
+    if (margin < bestMargin) {
+      bestMargin = margin;
+      best = f;
+    }
+  }
+  return best;
+}
+
+const OUTSIDE_MODES = ["none", "white", "blur"];
+function normalizeOutsideMode(mode) {
+  return OUTSIDE_MODES.includes(mode) ? mode : "none";
+}
+
+// Paints the OUTSIDE-frame treatment (this milestone): the region beyond
+// the outer edge of the outermost ENABLED frame — the margin band between
+// the canvas edge and that frame's outer rounded-rect. Called BEFORE the
+// frame bands (paintFrameBand runs right after this in wrapFrame) so a
+// band still reads crisply over it at its own edges.
+//
+// `white` is a flat even-odd fill: full-canvas rect minus the inner
+// rounded-rect, filled with `outside.color`.
+//
+// `blur` clips to that same even-odd region and draws a blurred copy of
+// `sourceCanvas` (the ALREADY-COMPOSITED map — bottom fade + on-map title
+// included, per this file's header comment on composite order) via
+// ctx.filter. The clip means pixels inside the frame boundary are
+// untouched; the title/fade DO blur wherever they happen to fall in the
+// outside region, matching what a real optical blur would do to whatever
+// is physically out there. Falls back to the `white` behavior when
+// ctx.filter isn't supported by the running engine (never silently no-op —
+// CLAUDE.md's error convention).
+function paintFrameOutside(ctx, sourceCanvas, outermost, outside, scale, canvasWidth, canvasHeight) {
+  const mode = normalizeOutsideMode(outside?.mode);
+  if (mode === "none") return;
+
+  const margin = Math.round(Math.max(0, Number(outermost.margin) || 0) * scale);
+  const radius = Math.round(Math.max(0, Number(outermost.radius) || 0) * scale);
+  const innerX = margin;
+  const innerY = margin;
+  const innerW = canvasWidth - 2 * margin;
+  const innerH = canvasHeight - 2 * margin;
+
+  const buildOutsidePath = () => {
+    ctx.beginPath();
+    addRoundedRectSubpath(ctx, 0, 0, canvasWidth, canvasHeight, 0);
+    addRoundedRectSubpath(ctx, innerX, innerY, innerW, innerH, radius);
+  };
+
+  if (mode === "white") {
+    const color =
+      typeof outside.color === "string" && /^#[0-9a-fA-F]{6}$/.test(outside.color)
+        ? outside.color
+        : "#ffffff";
+    ctx.save();
+    buildOutsidePath();
+    ctx.fillStyle = color;
+    ctx.fill("evenodd");
+    ctx.restore();
+    return;
+  }
+
+  // mode === "blur". Feature-detect ctx.filter: an unsupporting engine never
+  // defines the property at all (typeof stays "undefined"), vs. a
+  // supporting one that always reads back a string ("none" by default).
+  const filterSupported = typeof ctx.filter === "string";
+  if (!filterSupported) {
+    paintFrameOutside(
+      ctx,
+      sourceCanvas,
+      outermost,
+      { mode: "white", color: "#ffffff" },
+      scale,
+      canvasWidth,
+      canvasHeight
+    );
+    return;
+  }
+
+  const blurPx = Math.round(Math.max(0, Math.min(50, Number(outside.blur) || 0)) * scale);
+  ctx.save();
+  buildOutsidePath();
+  ctx.clip("evenodd");
+  ctx.filter = blurPx > 0 ? `blur(${blurPx}px)` : "none";
+  ctx.drawImage(sourceCanvas, 0, 0, canvasWidth, canvasHeight);
+  ctx.filter = "none";
+  ctx.restore();
 }
 
 // True when `frameEl` has any band width to paint at all, after scaling —
@@ -589,70 +716,84 @@ function paintFrameBand(ctx, frameEl, scale, canvasWidth, canvasHeight) {
   ctx.restore();
 }
 
-// PO-008/009 (frame-relative anchor). Validates the stored on-map title and
-// extracts what the export needs — the anchor's normalized nx/ny fraction
-// plus the user's formatting — or null when there's nothing renderable
-// (missing/empty text, non-finite fractions). The pixel position is
-// deliberately NOT computed here: captureFramed multiplies nx/ny by the
-// output dims directly, so the chip stays frame-fixed at any aspect ratio
-// without any re-projection off the live map.
+// Per-line title model (this milestone). Validates the stored/live on-map
+// title and extracts what the export needs — the anchor's normalized nx/ny
+// fraction plus the ordered list of renderable lines, each with its own
+// style — or null when there's nothing renderable (no lines with non-empty
+// text, non-finite fractions). The pixel position is deliberately NOT
+// computed here: captureFramed multiplies nx/ny by the output dims
+// directly, so the block stays frame-fixed at any aspect ratio without any
+// re-projection off the live map.
+//
+// Lines with empty text are dropped (only rendered ones need to reach the
+// canvas painter) but ORDER among the remaining lines is preserved. Note
+// this means an empty line does NOT act as vertical spacing — it renders as
+// zero height, same as the live overlay — so this filter never removes a
+// gap the user was relying on.
 function prepareOnMapTitle(raw) {
-  if (!raw || !raw.text) return null;
+  if (!raw || !Array.isArray(raw.lines)) return null;
   if (!Number.isFinite(raw.nx) || !Number.isFinite(raw.ny)) return null;
 
-  return {
-    text: raw.text,
-    nx: raw.nx,
-    ny: raw.ny,
-    style: {
-      font: raw.font,
-      bold: Boolean(raw.bold),
-      italic: Boolean(raw.italic),
-      color: raw.color,
-      size: raw.size,
-    },
-  };
+  const lines = raw.lines
+    .filter((line) => line && typeof line.text === "string" && line.text.length > 0)
+    .map((line) => ({
+      text: line.text,
+      style: {
+        font: line.font,
+        bold: Boolean(line.bold),
+        italic: Boolean(line.italic),
+        color: line.color,
+        size: line.size,
+      },
+    }));
+  if (lines.length === 0) return null;
+
+  return { nx: raw.nx, ny: raw.ny, lines };
 }
 
-// PO-008/009. Paints the chip at (x, y) — interpreted as the chip's
-// CENTER, mirroring the live overlay's translate(-50%, -50%) trick.
-// `style` carries the user's font/bold/italic/color/size picks; the box
-// constants (background, border, padding, radius) come from
-// ON_MAP_TITLE_BOX. Every dimension scales by `coeff` so a 1080² preset
-// gets a slightly smaller pill than a 1920×1080 one — same proportional-
-// sizing contract the pin labels follow.
-function drawOnMapTitle(ctx, { x, y, style, text, coeff }) {
-  const fontSize = style.size * coeff;
+// Per-line title model (this milestone). Paints the chip at (x, y) —
+// interpreted as the chip's CENTER, mirroring the live overlay's
+// translate(-50%, -50%) trick. Each entry in `lines` carries its OWN style
+// (font/bold/italic/color/size) — unlike the old single-style title, this
+// draws every line with its own `ctx.font`/fillStyle rather than one shared
+// style for the whole block. The box constants (background, border,
+// padding, radius) still come from ON_MAP_TITLE_BOX and stay uniform across
+// lines so the backdrop reads as one pill. Every dimension scales by
+// `coeff` so a 1080² preset gets a slightly smaller pill than a 1920×1080
+// one — same proportional-sizing contract the pin labels follow.
+//
+// A single-line title is a 1-element `lines` array, so this collapses back
+// to exactly the old single-style box math.
+function drawOnMapTitle(ctx, { x, y, lines, coeff }) {
   const padX = ON_MAP_TITLE_BOX.paddingX * coeff;
   const padY = ON_MAP_TITLE_BOX.paddingY * coeff;
   const radius = ON_MAP_TITLE_BOX.borderRadius * coeff;
   const borderWidth = ON_MAP_TITLE_BOX.borderWidth * coeff;
 
   ctx.save();
-
-  // ctx.font shorthand: "italic 700 32px Georgia, serif". Order matters:
-  // style → weight → size → family. Skipping italic when off keeps the
-  // string short; weight=400 is the implicit normal default.
-  const weight = style.bold ? "700" : "400";
-  const styleToken = style.italic ? "italic " : "";
-  ctx.font = `${styleToken}${weight} ${fontSize}px ${style.font}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // Multi-line support (mirrors the live overlay's `white-space: pre-line`,
-  // which renders "\n" as a break): split on "\n" and stack lines using the
-  // same lineHeightMultiplier the live CSS uses. A single-line title is a
-  // 1-element array, so lineHeight/textBlockHeight collapse back to the
-  // original textHeight/boxHeight math exactly.
-  const lines = text.split("\n");
-  const lineHeight = fontSize * ON_MAP_TITLE_BOX.lineHeightMultiplier;
-  const textWidth = lines.reduce(
-    (max, line) => Math.max(max, ctx.measureText(line).width),
-    0
-  );
-  const textBlockHeight = lineHeight * lines.length;
-  const boxWidth = textWidth + padX * 2;
-  const boxHeight = textBlockHeight + padY * 2;
+  // First pass: measure every line at its OWN font/size (ctx.font must be
+  // set before measureText reflects it), building parallel arrays of
+  // { fontString, lineHeight } and the running maxWidth/totalHeight the box
+  // needs. A second pass (below) re-sets ctx.font per line when actually
+  // drawing — cheap, and avoids caching font strings across two loops.
+  let maxWidth = 0;
+  let totalHeight = 0;
+  const lineHeights = lines.map((line) => {
+    const fontSize = line.style.size * coeff;
+    const weight = line.style.bold ? "700" : "400";
+    const styleToken = line.style.italic ? "italic " : "";
+    ctx.font = `${styleToken}${weight} ${fontSize}px ${line.style.font}`;
+    maxWidth = Math.max(maxWidth, ctx.measureText(line.text).width);
+    const lineHeight = fontSize * ON_MAP_TITLE_BOX.lineHeightMultiplier;
+    totalHeight += lineHeight;
+    return lineHeight;
+  });
+
+  const boxWidth = maxWidth + padX * 2;
+  const boxHeight = totalHeight + padY * 2;
   const boxX = x - boxWidth / 2;
   const boxY = y - boxHeight / 2;
 
@@ -671,10 +812,18 @@ function drawOnMapTitle(ctx, { x, y, style, text, coeff }) {
     ctx.stroke();
   }
 
-  ctx.fillStyle = style.color;
+  // Stack lines top → bottom, each drawn with its own font + fill color.
+  let runningTop = y - totalHeight / 2;
   lines.forEach((line, i) => {
-    const lineY = y - textBlockHeight / 2 + lineHeight * (i + 0.5);
-    ctx.fillText(line, x, lineY);
+    const lineHeight = lineHeights[i];
+    const fontSize = line.style.size * coeff;
+    const weight = line.style.bold ? "700" : "400";
+    const styleToken = line.style.italic ? "italic " : "";
+    ctx.font = `${styleToken}${weight} ${fontSize}px ${line.style.font}`;
+    ctx.fillStyle = line.style.color;
+    const centerY = runningTop + lineHeight / 2;
+    ctx.fillText(line.text, x, centerY);
+    runningTop += lineHeight;
   });
 
   ctx.restore();

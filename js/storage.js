@@ -83,18 +83,23 @@ const ON_MAP_TITLE_SIZE_MIN = 10;
 const ON_MAP_TITLE_SIZE_MAX = 80;
 const DEFAULT_ON_MAP_TITLE_SIZE = 20;
 const DEFAULT_ON_MAP_TITLE_COLOR = "#1f2937";
+// PER-LINE title model (this milestone): the title is now a BLOCK anchored
+// at (nx, ny) — same frame-relative-fraction meaning as before — containing
+// an ORDERED list of independently-styled lines rendered top-to-bottom.
+// Replaces the old single text/font/bold/italic/color/size-at-top-level
+// shape (PO-008/009). `lines: []` (renderable == false) is the "no title"
+// state; the overlay hides whenever every line's text is empty. See
+// normalizeOnMapTitle / normalizeTitleLine / defaultTitleLine below.
+//
+// NOT exported (mirrors DEFAULT_EXPORT_FRAME / DEFAULT_BOTTOM_FADE, which
+// also stay module-private) — callers get a fresh copy via loadOnMapTitle()
+// or normalizeOnMapTitle(), never this singleton directly. `lines` here is
+// only ever read through normalizeOnMapTitle's `.map()`, which always
+// returns a brand-new array, so nothing can mutate this shared reference.
 const EMPTY_ON_MAP_TITLE = Object.freeze({
-  text: "",
-  // Normalized frame-relative anchor: fraction of the map container /
-  // export-crop dimensions, NOT map geography. Bottom-center default pairs
-  // with the bottom-fade caption zone. See normalizeOnMapTitle below.
   nx: 0.5,
   ny: 0.85,
-  font: DEFAULT_ON_MAP_TITLE_FONT,
-  bold: true,
-  italic: false,
-  color: DEFAULT_ON_MAP_TITLE_COLOR,
-  size: DEFAULT_ON_MAP_TITLE_SIZE,
+  lines: [],
 });
 
 // PO-007 (+ two-frames extension, this milestone): a single-key object
@@ -104,15 +109,18 @@ const EMPTY_ON_MAP_TITLE = Object.freeze({
 // see the live overlay module for the shared geometry contract (margin →
 // thickness → padding → map, outside in).
 //
-// The persisted shape is a FRAME SET: `{ frames: [frameElement, frameElement] }`,
-// always exactly two elements ("Frame 1" at index 0, "Frame 2" at index 1),
-// each the same 7-field shape a single frame always had. Two independently
-// nested bands (different margins) produce the double-frame look. Frame 1's
-// defaults are unchanged from the original single-frame feature; Frame 2
-// defaults to a thin black band nested just inside Frame 1 so enabling it
-// immediately shows a sensible result. A legacy pre-two-frames value (a bare
-// single frame object, no `frames` array) is migrated into Frame 1 on load,
-// with Frame 2 seeded from its own defaults — see loadExportFrame.
+// The persisted shape is a FRAME SET: `{ frames: [frameElement, frameElement],
+// outside }`, `frames` always exactly two elements ("Frame 1" at index 0,
+// "Frame 2" at index 1), each the same 7-field shape a single frame always
+// had. Two independently nested bands (different margins) produce the
+// double-frame look. Frame 1's defaults are unchanged from the original
+// single-frame feature; Frame 2 defaults to a thin black band nested just
+// inside Frame 1 so enabling it immediately shows a sensible result. A
+// legacy pre-two-frames value (a bare single frame object, no `frames`
+// array) is migrated into Frame 1 on load, with Frame 2 seeded from its own
+// defaults — see loadExportFrame. `outside` (this milestone) controls what
+// fills the region beyond the outermost ENABLED frame's outer edge — see
+// DEFAULT_FRAME_OUTSIDE / normalizeFrameOutside below.
 const DEFAULT_EXPORT_FRAME = Object.freeze({
   enabled: false,
   thickness: 60,
@@ -157,13 +165,33 @@ const FRAME_MARGIN_MAX = 200;
 const FRAME_RADIUS_MIN = 0;
 const FRAME_RADIUS_MAX = 200;
 
+// OUTSIDE-frame treatment: what fills the region beyond the outer edge of
+// the OUTERMOST ENABLED frame element — i.e. the margin band between the
+// canvas edge and that frame's outer rounded-rect. "none" leaves it as the
+// bare map (today's behavior); "white" fills it with `color`; "blur" renders
+// that region blurred. If NO frame element is enabled there is no boundary
+// to paint against, so the feature is a documented no-op regardless of mode
+// — the consumer (export.js / map-frame.js) is expected to check "is any
+// frame enabled" before applying this.
+const DEFAULT_FRAME_OUTSIDE = Object.freeze({
+  mode: "none",
+  color: "#ffffff",
+  blur: 8,
+});
+const FRAME_OUTSIDE_MODES = Object.freeze(["none", "white", "blur"]);
+const FRAME_OUTSIDE_BLUR_MIN = 0;
+const FRAME_OUTSIDE_BLUR_MAX = 50;
+
 // Fresh (unfrozen, independently mutable) frame-set defaults. Never return
-// DEFAULT_EXPORT_FRAME/DEFAULT_EXPORT_FRAME_2 directly here — those are
-// frozen module-level singletons; a caller mutating the returned object
-// (e.g. app.js's readFrame-style DOM hydration) must never reach back and
-// corrupt the shared default.
+// DEFAULT_EXPORT_FRAME/DEFAULT_EXPORT_FRAME_2/DEFAULT_FRAME_OUTSIDE
+// directly here — those are frozen module-level singletons; a caller
+// mutating the returned object (e.g. app.js's readFrame-style DOM
+// hydration) must never reach back and corrupt the shared default.
 function freshDefaultFrameSet() {
-  return { frames: [{ ...DEFAULT_EXPORT_FRAME }, { ...DEFAULT_EXPORT_FRAME_2 }] };
+  return {
+    frames: [{ ...DEFAULT_EXPORT_FRAME }, { ...DEFAULT_EXPORT_FRAME_2 }],
+    outside: { ...DEFAULT_FRAME_OUTSIDE },
+  };
 }
 
 // Bottom fade: `height` is a PERCENTAGE of the map/canvas height (0-100),
@@ -459,6 +487,13 @@ function normalizeLoadedPins(rawPins) {
       pin.originalLat = originalLat;
       pin.originalLon = originalLon;
     }
+    // labelDx/labelDy (per-pin label drag offset, screen px): optional,
+    // like originalLat/originalLon — only carried over when finite, else
+    // omitted entirely so a consumer's `pin.labelDx ?? 0` fallback applies.
+    const labelDx = toFiniteNumber(raw.labelDx);
+    if (labelDx !== null) pin.labelDx = labelDx;
+    const labelDy = toFiniteNumber(raw.labelDy);
+    if (labelDy !== null) pin.labelDy = labelDy;
     items.push(pin);
   }
   return { items, dropped };
@@ -709,7 +744,10 @@ export function loadExportFrame() {
       Object.prototype.hasOwnProperty.call(parsed, key)
     );
     if (looksLikeLegacyFrame) {
-      return { frames: [normalizeFrame(parsed), { ...DEFAULT_EXPORT_FRAME_2 }] };
+      return {
+        frames: [normalizeFrame(parsed), { ...DEFAULT_EXPORT_FRAME_2 }],
+        outside: { ...DEFAULT_FRAME_OUTSIDE },
+      };
     }
     throw new Error("saved frame settings is neither a frame set nor a recognizable legacy frame");
   } catch (err) {
@@ -771,14 +809,17 @@ export function normalizeFrame(value) {
   };
 }
 
-// Normalizes a FRAME SET — `{ frames: [frameElement, frameElement] }` —
-// element-by-element through normalizeFrame above. Always returns exactly
-// two elements: a missing/non-array `frames`, or a missing element within
+// Normalizes a FRAME SET — `{ frames: [frameElement, frameElement], outside
+// }` — element-by-element through normalizeFrame above, plus the outside-
+// frame treatment through normalizeFrameOutside. Always returns exactly two
+// frame elements: a missing/non-array `frames`, or a missing element within
 // it, falls back to that slot's own default (DEFAULT_EXPORT_FRAME for index
 // 0, DEFAULT_EXPORT_FRAME_2 for index 1); any elements beyond index 1 are
-// dropped defensively. Exported (mirrors normalizeFrame's FBL-013 export) so
-// app.js can normalize a LIVE two-frame DOM read into the exact same shape
-// loadExportFrame() returns before handing it to the export pipeline.
+// dropped defensively. A missing/malformed `outside` falls back to
+// DEFAULT_FRAME_OUTSIDE the same way. Exported (mirrors normalizeFrame's
+// FBL-013 export) so app.js can normalize a LIVE DOM read into the exact
+// same shape loadExportFrame() returns before handing it to the export
+// pipeline.
 export function normalizeFrameSet(value) {
   const frames = Array.isArray(value?.frames) ? value.frames : [];
   return {
@@ -786,7 +827,25 @@ export function normalizeFrameSet(value) {
       normalizeFrame(frames[0] ?? DEFAULT_EXPORT_FRAME),
       normalizeFrame(frames[1] ?? DEFAULT_EXPORT_FRAME_2),
     ],
+    outside: normalizeFrameOutside(value?.outside),
   };
+}
+
+// Field-by-field clamp/coerce for the outside-frame treatment, mirroring
+// normalizeFrame's contract. Exported for the same live-DOM-normalization
+// reason as normalizeFrame/normalizeFrameSet.
+export function normalizeFrameOutside(value) {
+  const v = value || {};
+  const mode = FRAME_OUTSIDE_MODES.includes(v.mode) ? v.mode : DEFAULT_FRAME_OUTSIDE.mode;
+  const color =
+    typeof v.color === "string" && HEX_COLOR_RE.test(v.color)
+      ? v.color
+      : DEFAULT_FRAME_OUTSIDE.color;
+  const blurNum = Number(v.blur);
+  const blur = Number.isFinite(blurNum)
+    ? Math.max(FRAME_OUTSIDE_BLUR_MIN, Math.min(FRAME_OUTSIDE_BLUR_MAX, Math.round(blurNum)))
+    : DEFAULT_FRAME_OUTSIDE.blur;
+  return { mode, color, blur };
 }
 
 // Bottom fade (poster-style caption zone dissolving the map into a solid
@@ -858,6 +917,110 @@ export function normalizeBottomFade(value) {
   };
 }
 
+// Global pin style — size of the pin icon plus the shared label typography
+// (labelSize/labelColor/labelBold/labelFont). Own standalone key, same
+// defensive load/clamp/save shape as loadBottomFade/saveBottomFade/
+// normalizeBottomFade: missing key → defaults, corrupt key → defaults +
+// banner, unknown/partial fields clamp or fall back field-by-field.
+//
+// Defaults below REPRODUCE js/map.js's current hardcoded rendering exactly,
+// so a fresh user (or an existing user migrating onto this key for the
+// first time) sees NO visual change until they touch the new controls:
+//   - size: 32 — pin icon sprites are 128×128 source SVGs registered via
+//     `addImage(..., { pixelRatio: 4 })` with the fill layer's
+//     `icon-size: 1.0` (see the addImage calls in map.js), which displays
+//     at 128 / 4 = 32 CSS px today.
+//   - labelSize: 13 — map.js's exported `BASE_PIN_LABEL_SIZE`, the
+//     pins-labels symbol layer's initial `text-size`.
+//   - labelColor: "#1f2937" — the pins-labels layer's fixed `text-color`
+//     paint value.
+//   - labelBold: false — the layer's `text-font` is `["Noto Sans Regular"]`,
+//     the non-bold glyph.
+//   - labelFont: "" — empty string means "no override; use the basemap's
+//     own glyph default". MapLibre `text-font` can only reference fonts the
+//     basemap's glyph endpoint actually serves, so an arbitrary family
+//     picker is best-effort at most (see BATCH-SPEC.md contract B) — the
+//     empty-string default keeps every basemap's labels rendering exactly
+//     as they do today until a consumer wires up a font choice.
+const PIN_STYLE_KEY = "city-pin-map.pin-style.v1";
+const DEFAULT_PIN_STYLE = Object.freeze({
+  size: 32,
+  labelSize: 13,
+  labelColor: "#1f2937",
+  labelBold: false,
+  labelFont: "",
+});
+const PIN_STYLE_SIZE_MIN = 8;
+const PIN_STYLE_SIZE_MAX = 96;
+const PIN_STYLE_LABEL_SIZE_MIN = 8;
+const PIN_STYLE_LABEL_SIZE_MAX = 48;
+
+export function loadPinStyle() {
+  let raw;
+  try {
+    raw = localStorage.getItem(PIN_STYLE_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved pin style could not be read; using defaults.");
+    return { ...DEFAULT_PIN_STYLE };
+  }
+  if (raw === null) return { ...DEFAULT_PIN_STYLE };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("saved pin style is not an object");
+    }
+    return normalizePinStyle(parsed);
+  } catch (err) {
+    console.error("saved pin style corrupt; ignoring:", err);
+    showError("Saved pin style was corrupted and has been ignored.");
+    return { ...DEFAULT_PIN_STYLE };
+  }
+}
+
+export function savePinStyle(value) {
+  try {
+    localStorage.setItem(PIN_STYLE_KEY, JSON.stringify(normalizePinStyle(value)));
+  } catch (err) {
+    console.error("failed to save pin style:", err);
+    showError(
+      "Could not save pin style (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Field-by-field clamp/coerce, mirroring normalizeBottomFade's contract — a
+// caller can pass a partial object (e.g. `{ labelBold: true }` from a
+// single toggle event) and get a complete, well-formed value back. Unknown
+// keys dropped. Exported so a consumer can normalize a live DOM read into
+// the exact same shape loadPinStyle() returns (same FBL-013 rationale the
+// other normalize* exports document).
+export function normalizePinStyle(value) {
+  const v = value || {};
+  const sizeNum = Number(v.size);
+  const size = Number.isFinite(sizeNum)
+    ? Math.max(PIN_STYLE_SIZE_MIN, Math.min(PIN_STYLE_SIZE_MAX, Math.round(sizeNum)))
+    : DEFAULT_PIN_STYLE.size;
+  const labelSizeNum = Number(v.labelSize);
+  const labelSize = Number.isFinite(labelSizeNum)
+    ? Math.max(
+        PIN_STYLE_LABEL_SIZE_MIN,
+        Math.min(PIN_STYLE_LABEL_SIZE_MAX, Math.round(labelSizeNum))
+      )
+    : DEFAULT_PIN_STYLE.labelSize;
+  const labelColor =
+    typeof v.labelColor === "string" && HEX_COLOR_RE.test(v.labelColor)
+      ? v.labelColor
+      : DEFAULT_PIN_STYLE.labelColor;
+  return {
+    size,
+    labelSize,
+    labelColor,
+    labelBold: Boolean(v.labelBold),
+    labelFont: typeof v.labelFont === "string" ? v.labelFont : DEFAULT_PIN_STYLE.labelFont,
+  };
+}
+
 // Hide-labels preference (PO-001). Same bare-string "true" / "false"
 // convention as loadRouteVisible — anything other than "true" (including
 // null on first load) is treated as `false` so the first-time experience
@@ -882,12 +1045,20 @@ export function saveHideLabels(value) {
   }
 }
 
-// On-map title (PO-008/009). Single-key object — see EMPTY_ON_MAP_TITLE
-// above. Same defensive load shape as loadExportFrame: missing key →
-// defaults, corrupt key → defaults + banner. Each field individually
-// validated through normalizeOnMapTitle so a partial / hand-edited
-// object can never poison the export pipeline (e.g. non-finite nx/ny, an
-// unknown font string, a bad color hex).
+// On-map title (PO-008/009, per-line model this milestone). Single-key
+// object — see EMPTY_ON_MAP_TITLE above. Same defensive load shape as
+// loadExportFrame: missing key → defaults, corrupt key → defaults + banner.
+// nx/ny and every line individually validated through normalizeOnMapTitle /
+// normalizeTitleLine so a partial / hand-edited object can never poison the
+// export pipeline (e.g. non-finite nx/ny, an unknown font string, a bad
+// color hex, a non-array `lines`).
+//
+// The three "give me an empty title" branches below call
+// normalizeOnMapTitle(EMPTY_ON_MAP_TITLE) rather than spreading
+// EMPTY_ON_MAP_TITLE directly — normalizeOnMapTitle always rebuilds `lines`
+// via `.map()`, so every caller gets its own fresh array instead of a
+// reference into the frozen singleton (mirrors why freshDefaultFrameSet()
+// exists for the frame set below).
 export function loadOnMapTitle() {
   let raw;
   try {
@@ -895,9 +1066,9 @@ export function loadOnMapTitle() {
   } catch (err) {
     console.error("localStorage unavailable on read:", err);
     showError("Saved on-map title could not be read; starting empty.");
-    return { ...EMPTY_ON_MAP_TITLE };
+    return normalizeOnMapTitle(EMPTY_ON_MAP_TITLE);
   }
-  if (raw === null) return { ...EMPTY_ON_MAP_TITLE };
+  if (raw === null) return normalizeOnMapTitle(EMPTY_ON_MAP_TITLE);
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") {
@@ -907,7 +1078,7 @@ export function loadOnMapTitle() {
   } catch (err) {
     console.error("saved on-map title corrupt; ignoring:", err);
     showError("Saved on-map title was corrupted and has been ignored.");
-    return { ...EMPTY_ON_MAP_TITLE };
+    return normalizeOnMapTitle(EMPTY_ON_MAP_TITLE);
   }
 }
 
@@ -925,19 +1096,29 @@ export function saveOnMapTitle(value) {
   }
 }
 
-// Field-by-field clamp/coerce so callers can pass partial objects (e.g.
-// `{ bold: true }` from a single toggle event) and get a complete
-// well-formed value back. Unknown keys are dropped on the floor; an
-// unknown font fontstack falls back to the default rather than
-// silently rendering with whatever the browser maps it to.
-//
-// nx/ny are normalized frame-relative fractions (0..1) of the title's
-// CENTER against the map-container / export-crop dimensions — NOT map
-// geography, so the title stays put across pan/zoom. A saved value from
-// before this change (bare lon/lat, no nx/ny) has no meaningful fraction
-// to recover, so it falls to the bottom-center default — a one-time,
-// acceptable reset.
-function normalizeOnMapTitle(value) {
+// A fresh, independently-mutable line for the title UI's "add line" button.
+// bold:true/italic:false mirror the old single-title shape's defaults so a
+// freshly-added line looks like PO-009's original title did.
+export function defaultTitleLine() {
+  return {
+    text: "",
+    font: DEFAULT_ON_MAP_TITLE_FONT,
+    bold: true,
+    italic: false,
+    color: DEFAULT_ON_MAP_TITLE_COLOR,
+    size: DEFAULT_ON_MAP_TITLE_SIZE,
+  };
+}
+
+// Field-by-field clamp/coerce for ONE title line so callers can pass a
+// partial object (e.g. `{ bold: true }` from a single toggle event) and get
+// a complete well-formed line back. Unknown keys are dropped on the floor;
+// an unknown font fontstack falls back to the default rather than silently
+// rendering with whatever the browser maps it to. Exported so a consumer
+// (e.g. the per-line editor UI) can normalize a single live-edited line
+// without reimplementing these clamps, mirroring normalizeFrame's export
+// rationale (FBL-013).
+export function normalizeTitleLine(value) {
   const v = value || {};
   const sizeNum = Number(v.size);
   const size = Number.isFinite(sizeNum)
@@ -947,29 +1128,80 @@ function normalizeOnMapTitle(value) {
       )
     : DEFAULT_ON_MAP_TITLE_SIZE;
   const color =
-    typeof v.color === "string" && /^#[0-9a-fA-F]{6}$/.test(v.color)
+    typeof v.color === "string" && HEX_COLOR_RE.test(v.color)
       ? v.color
       : DEFAULT_ON_MAP_TITLE_COLOR;
   const font =
     typeof v.font === "string" && ON_MAP_TITLE_FONTS.includes(v.font)
       ? v.font
       : DEFAULT_ON_MAP_TITLE_FONT;
-  const nx = Number.isFinite(Number(v.nx))
-    ? Math.min(1, Math.max(0, Number(v.nx)))
-    : 0.5;
-  const ny = Number.isFinite(Number(v.ny))
-    ? Math.min(1, Math.max(0, Number(v.ny)))
-    : 0.85;
   return {
     text: typeof v.text === "string" ? v.text : "",
-    nx,
-    ny,
     font,
     bold: Boolean(v.bold),
     italic: Boolean(v.italic),
     color,
     size,
   };
+}
+
+// Field-by-field clamp/coerce for the whole title BLOCK: nx/ny plus the
+// ordered `lines` array (each line run through normalizeTitleLine above).
+// Unknown keys dropped on the floor.
+//
+// nx/ny are normalized frame-relative fractions (0..1) of the title BLOCK's
+// CENTER against the map-container / export-crop dimensions — NOT map
+// geography, so the title stays put across pan/zoom.
+//
+// Migration: a saved value from before the per-line model (PO-008/009) has
+// no `lines` array — just top-level text/font/bold/italic/color/size
+// siblings. A non-empty legacy `text` becomes exactly ONE line built from
+// those siblings, preserving the user's existing title intact; a blank/
+// absent legacy `text` (or any other non-array `lines`, including a value
+// that's simply missing the field) degrades to `lines: []` rather than
+// inventing a blank line. Exported (mirrors normalizeFrame/
+// normalizeFrameSet/normalizeBottomFade) so a consumer can normalize a live
+// DOM read into the exact same shape loadOnMapTitle() returns.
+export function normalizeOnMapTitle(value) {
+  const v = value || {};
+  const nx = Number.isFinite(Number(v.nx))
+    ? Math.min(1, Math.max(0, Number(v.nx)))
+    : EMPTY_ON_MAP_TITLE.nx;
+  const ny = Number.isFinite(Number(v.ny))
+    ? Math.min(1, Math.max(0, Number(v.ny)))
+    : EMPTY_ON_MAP_TITLE.ny;
+
+  let rawLines = v.lines;
+  if (!Array.isArray(rawLines)) {
+    if (typeof v.text === "string" && v.text.length > 0) {
+      // Legacy (pre-PO-008/009) titles stored multi-line text as a single
+      // string with embedded "\n" breaks. Splitting on that here — rather
+      // than wrapping the whole legacy string into one line object — means
+      // the overlay (white-space:pre), the per-line <input> editor (which
+      // can't hold a literal line break), and canvas fillText (which bakes
+      // an embedded \n as tofu) all render the SAME multi-line title
+      // instead of three inconsistent ones. Every segment shares the
+      // legacy top-level font/bold/italic/color/size. A legacy text with no
+      // \n still yields exactly one line; trailing empty segments (from a
+      // trailing \n) are dropped, but intentional interior blank lines are
+      // preserved.
+      const segments = v.text.split(/\r?\n/);
+      while (segments.length > 1 && segments[segments.length - 1] === "") {
+        segments.pop();
+      }
+      rawLines = segments.map((segment) => ({
+        text: segment,
+        font: v.font,
+        bold: v.bold,
+        italic: v.italic,
+        color: v.color,
+        size: v.size,
+      }));
+    } else {
+      rawLines = [];
+    }
+  }
+  return { nx, ny, lines: rawLines.map(normalizeTitleLine) };
 }
 
 // Hydrate first, subscribe second — see CORE-004 notes. Reversing this order
