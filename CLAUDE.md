@@ -71,7 +71,7 @@ city-pin-map/
 │   ├── settings.js     # Per-provider API key store (mirrors pins.js pub/sub shape) — Stadia, MapTiler, Thunderforest
 │   ├── settings-panel.js # Settings modal renderer: open/close, blur-to-save, status pills, reveal toggle
 │   ├── style-picker.js # Searchable popover picker for basemaps (replaces native <select>); locked rows deep-link to settings
-│   ├── storage.js      # All localStorage keys + the showError() banner helper — incl. attachUserIconStorage (PIL-001); also owns exported normalizeFrame (FBL-013), boot-time element normalizers for pins/groups/user icons (FBL-014), corrupt-value stash under `<key>.corrupt` (FBL-015), prewriteImportPayloads import pre-verify (FBL-016), and active side-tab persistence via loadActiveSideTab/saveActiveSideTab (key `city-pin-map.side-tab.v1`)
+│   ├── storage.js      # All localStorage keys + the showError() banner helper — incl. attachUserIconStorage (PIL-001); also owns exported normalizeFrame (FBL-013), boot-time element normalizers for pins/groups/user icons (FBL-014), corrupt-value stash under `<key>.corrupt` (FBL-015), prewriteImportPayloads import pre-verify (FBL-016), and active side-tab persistence via loadActiveSideTab/saveActiveSideTab (key `city-pin-map.side-tab.v1`); also owns the on-map title's PER-LINE shape (`{nx, ny, lines[]}` — normalizeOnMapTitle/normalizeTitleLine/defaultTitleLine), the global pin-style key `city-pin-map.pin-style.v1` (loadPinStyle/savePinStyle/normalizePinStyle), and the export-frame set's `outside` treatment (normalizeFrameOutside, key unchanged: `city-pin-map.export-frame.v1`)
 │   ├── backup.js       # JSON export/import for pins + groups + userIcons (v2; v1 still importable, leaves user icons untouched)
 │   ├── export.js       # Canvas-merge PNG: getCanvas() → drawImage + on-map title + wrapFrame (margin/band/mat/radius) via ctx, dimension presets, off-screen resize trick
 │   ├── map-title.js    # Draggable on-map title overlay (PO-008/009): pointer-capture drag, lon/lat re-projection, formatting toolbar state
@@ -115,6 +115,9 @@ Every pin must conform to:
   group: string | null,  // group id from the group store, or null
   icon: string | null,   // icon id from the registry (PIL-001); null falls back to DEFAULT_ICON_ID at render time
   createdAt: number,     // Date.now()
+  movable: boolean,      // pin-lock toggle: drag-repositionable only when true; defaults false on every add path (locked)
+  labelDx?: number,      // per-pin label pixel offset from its anchor (screen px), set by dragging the label; optional — absent means 0, never defaulted on add
+  labelDy?: number,      // paired with labelDx; same optional/defensive-on-absence contract
   originalLat?: number,  // geocoded origin captured once at creation (FBL-008); powers the pin-list "reset position" affordance for Alt-dragged pins
   originalLon?: number   // paired with originalLat; both optional — absent on pre-FBL-008 pins, never crash on absence (mirrors the stale-group contract)
 }
