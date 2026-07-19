@@ -33,6 +33,9 @@ import {
   loadBottomFade,
   saveBottomFade,
   normalizeBottomFade,
+  loadInset,
+  saveInset,
+  normalizeInset,
   loadHideLabels,
   saveHideLabels,
   loadOnMapTitle,
@@ -57,6 +60,7 @@ import * as mapTitle from "./map-title.js";
 import * as mapFrame from "./map-frame.js";
 import * as mapFade from "./map-fade.js";
 import * as mapViewport from "./map-viewport.js";
+import * as mapInset from "./map-inset.js";
 
 function init() {
   // Settings store hydrates first so any consumer that reads keys during
@@ -238,6 +242,8 @@ function init() {
   const exportFrameHandle = initExportFrameOptions();
   const bottomFadeHandle = initBottomFadeOptions();
   const onMapTitleHandle = initOnMapTitle();
+  const insetHandle = initInset();
+  initInsetOptions(insetHandle);
   initExportButton({
     getFrame: exportFrameHandle?.getLiveFrame,
     getOnMapTitle: onMapTitleHandle?.getLivePosition,
@@ -533,6 +539,136 @@ function initBottomFadeOptions() {
   // same normalizeBottomFade() that loadBottomFade() applies — instead of
   // re-reading (possibly stale) localStorage at click time.
   return { getLiveFade: () => normalizeBottomFade(readFade()) };
+}
+
+// Corner inset map (atlas-style magnifier). Inits the overlay module and
+// pushes the persisted config once at boot, so a user who previously
+// enabled the inset sees it restored on load (default config is disabled,
+// so the common boot is a no-op). Guarded for a missing map (initMap
+// failed) so a headless boot doesn't throw — returns undefined in that
+// case, which initInsetOptions treats as "no handle, skip UI wiring".
+//
+// Returns the mapInset handle ({ update, getInsetMap, getPlacement,
+// getBoundsInUse }) so initInsetOptions (Design-tab UI, below) can push
+// every control change straight through without re-deriving it.
+function initInset() {
+  const map = getMap();
+  if (!map) return undefined;
+  const insetApi = mapInset.init(map);
+  insetApi.update(loadInset());
+  return insetApi;
+}
+
+// Design-tab "Inset map" group: hydrates the toggle/group/corner/size/
+// locator controls from localStorage, persists every change, and pushes the
+// normalized config through the live inset overlay via `insetHandle.update`.
+// Sibling of initBottomFadeOptions/initExportFrameOptions in shape (hydrate
+// → wire → persist-and-apply), but with an extra wrinkle: the group <select>
+// must stay in sync with the LIVE group store (create/rename/delete), not
+// just be populated once at boot, and its selection must fall back to the
+// placeholder ("") whenever the currently-selected group id no longer
+// exists in the store — the stale id itself stays intact in the persisted
+// cfg (per the stale-group-reference contract; js/map-inset.js is what
+// actually hides the inset for an unresolvable id), only the UI reflects
+// "".
+//
+// Defensive: if any control is missing from the DOM, or the inset handle
+// itself is undefined (initInset bailed on a missing map), skip wiring
+// entirely rather than partially wiring against a broken cluster — same
+// bail contract as wireFrameControls/initBottomFadeOptions.
+function initInsetOptions(insetHandle) {
+  const enabled = document.getElementById("inset-enabled");
+  const groupSelect = document.getElementById("inset-group");
+  const cornerSelect = document.getElementById("inset-corner");
+  const sizeInput = document.getElementById("inset-size");
+  const sizeValue = document.getElementById("inset-size-value");
+  const locator = document.getElementById("inset-locator");
+  const controls = document.getElementById("inset-controls");
+  const groupHint = document.getElementById("inset-group-hint");
+  if (
+    !enabled ||
+    !groupSelect ||
+    !cornerSelect ||
+    !sizeInput ||
+    !locator ||
+    !controls
+  ) {
+    return;
+  }
+
+  const saved = loadInset();
+
+  // Rebuilds the group <select>'s options from the live group store,
+  // preserving whichever group id is currently selected when it still
+  // exists; falls back to the placeholder ("") otherwise. Called once at
+  // boot (seeded with the persisted groupId) and again on every group-store
+  // change, mirroring initGroupPanel's own live-render contract.
+  function renderGroupOptions(preserveId) {
+    const groups = groupStore.listGroups();
+    const stillExists = groups.some((g) => g.id === preserveId);
+    groupSelect.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "(choose a group)";
+    groupSelect.appendChild(placeholder);
+    for (const g of groups) {
+      const opt = document.createElement("option");
+      opt.value = g.id;
+      opt.textContent = g.name;
+      groupSelect.appendChild(opt);
+    }
+    groupSelect.value = stillExists ? preserveId : "";
+    if (groupHint) groupHint.hidden = groups.length > 0;
+  }
+
+  renderGroupOptions(saved.groupId);
+  cornerSelect.value = saved.corner;
+  sizeInput.value = String(saved.sizePct);
+  if (sizeValue) sizeValue.textContent = `${saved.sizePct}%`;
+  locator.checked = saved.showLocator;
+  enabled.checked = saved.enabled;
+  controls.dataset.insetEnabled = saved.enabled ? "true" : "false";
+
+  // Single read path both persist() and the live-overlay update share, so
+  // they can never disagree about what's currently on screen. An empty
+  // group-select value always means "no group" (groupId: null) — the
+  // select can never show a stale id (renderGroupOptions resets it to ""
+  // the moment the id stops existing), so this is the one place the
+  // stale-id-becomes-null translation happens for the UI layer.
+  const readInset = () => ({
+    enabled: enabled.checked,
+    corner: cornerSelect.value,
+    sizePct: sizeInput.valueAsNumber,
+    groupId: groupSelect.value || null,
+    showLocator: locator.checked,
+  });
+
+  const persist = () => {
+    const next = normalizeInset(readInset());
+    saveInset(next);
+    if (insetHandle) insetHandle.update(next);
+  };
+
+  enabled.addEventListener("change", () => {
+    controls.dataset.insetEnabled = enabled.checked ? "true" : "false";
+    persist();
+  });
+  groupSelect.addEventListener("change", persist);
+  cornerSelect.addEventListener("change", persist);
+  // `input` for the live-drag slider (mirrors the frame/fade number
+  // fields' `input` wiring) so the readout + live overlay track the drag in
+  // real time, not just on release.
+  sizeInput.addEventListener("input", () => {
+    if (sizeValue) sizeValue.textContent = `${sizeInput.value}%`;
+    persist();
+  });
+  locator.addEventListener("change", persist);
+
+  // Keep the group <select> honest across the group store's entire
+  // lifecycle (create/rename/recolor/delete) — not just at boot. Reads the
+  // CURRENT select value (not `saved.groupId`) as the id to preserve, so a
+  // rename after boot doesn't get reverted back to the original selection.
+  groupStore.subscribe(() => renderGroupOptions(groupSelect.value));
 }
 
 // Global pin style (Design tab "Pin style" group, this batch's item 4).

@@ -348,6 +348,16 @@ const PINS_LABELS_LAYER_ID = "city-pin-map.pins-labels";
 const ROUTE_SOURCE_ID = "city-pin-map.route";
 const ROUTE_LAYER_ID = "city-pin-map.route-line";
 
+// Inset-map locator rectangle. A thin outline drawn on the MAIN map marking
+// the bounds the corner inset (js/map-inset.js) is fitted to. Lives under the
+// same "city-pin-map." namespace as the pins/route layers so a basemap swap's
+// getStyle() snapshot (which the inset seeds its own style from) strips it by
+// prefix, and so the styledata re-add path here re-creates it. The rectangle
+// data is owned by map-inset via the exported renderLocator() setter below;
+// addPinAndRouteLayers restores the last data after a swap.
+const LOCATOR_SOURCE_ID = "city-pin-map.inset-locator";
+const LOCATOR_LAYER_ID = "city-pin-map.inset-locator-line";
+
 // Live default for the pins-labels symbol layer's text-size, in screen
 // pixels at the live map zoom. Hoisted so setPinLabelSize(null) and the
 // layer's initial `text-size` stay in sync — and so js/export.js can
@@ -446,6 +456,12 @@ let mapInstance = null;
 // the previous style away.
 let lastPinsSnapshot = [];
 let lastRouteVisible = false;
+
+// Last locator-rectangle GeoJSON pushed via renderLocator(). Kept so the
+// styledata re-add path (addPinAndRouteLayers) can restore the outline after
+// a basemap swap blows the layer away, exactly like lastPinsSnapshot does for
+// the pins. Empty FC = no rectangle (inset disabled/unresolvable).
+let lastLocatorData = { type: "FeatureCollection", features: [] };
 
 // Drag state for an in-progress LABEL drag (pins themselves are never
 // draggable). Set when a mousedown on a pin's label starts a drag; cleared
@@ -784,44 +800,48 @@ export function setPinStyle(pinStyle) {
 }
 
 // Pushes currentPinStyle onto whatever pin/label/ring layers currently
-// exist. No-ops per-layer (not per-call) so a mid-styledata call where only
-// some layers have been re-added yet doesn't throw — addPinAndRouteLayers
-// also calls this once at the end of layer setup as a defensive re-apply,
-// which is a harmless no-op when the layers were just created FROM
-// currentPinStyle in the first place.
-function applyPinStyleToLayers() {
-  if (!mapInstance) return;
+// exist on `targetMap`. No-ops per-layer (not per-call) so a mid-styledata
+// call where only some layers have been re-added yet doesn't throw —
+// addPinAndRouteLayers also calls this once at the end of layer setup as a
+// defensive re-apply, which is a harmless no-op when the layers were just
+// created FROM currentPinStyle in the first place.
+//
+// `targetMap` defaults to the singleton so the main-map callers (setPinStyle)
+// stay byte-for-byte unchanged; addPinAndRouteLayers passes its own target so
+// the SECOND map (the corner inset) picks up the same global pin style.
+function applyPinStyleToLayers(targetMap = mapInstance) {
+  if (!targetMap) return;
   const iconScale = currentPinStyle.size / BASE_PIN_ICON_SIZE;
 
-  if (mapInstance.getLayer(PINS_LAYER_ID)) {
-    mapInstance.setLayoutProperty(PINS_LAYER_ID, "icon-size", iconScale);
+  if (targetMap.getLayer(PINS_LAYER_ID)) {
+    targetMap.setLayoutProperty(PINS_LAYER_ID, "icon-size", iconScale);
   }
-  if (mapInstance.getLayer(PINS_COLOR_RING_LAYER_ID)) {
-    mapInstance.setPaintProperty(
+  if (targetMap.getLayer(PINS_COLOR_RING_LAYER_ID)) {
+    targetMap.setPaintProperty(
       PINS_COLOR_RING_LAYER_ID,
       "circle-radius",
       PINS_COLOR_RING_BASE_RADIUS * iconScale
     );
-    mapInstance.setPaintProperty(PINS_COLOR_RING_LAYER_ID, "circle-translate", [
+    targetMap.setPaintProperty(PINS_COLOR_RING_LAYER_ID, "circle-translate", [
       0,
       PINS_COLOR_RING_BASE_TRANSLATE_Y * iconScale,
     ]);
-    mapInstance.setPaintProperty(
+    targetMap.setPaintProperty(
       PINS_COLOR_RING_LAYER_ID,
       "circle-stroke-width",
       PINS_COLOR_RING_BASE_STROKE_WIDTH * iconScale
     );
   }
-  if (mapInstance.getLayer(PINS_LABELS_LAYER_ID)) {
-    mapInstance.setLayoutProperty(
+  if (targetMap.getLayer(PINS_LABELS_LAYER_ID)) {
+    targetMap.setLayoutProperty(
       PINS_LABELS_LAYER_ID,
       "text-size",
       currentPinStyle.labelSize
     );
-    mapInstance.setLayoutProperty(PINS_LABELS_LAYER_ID, "text-font", [
+    targetMap.setLayoutProperty(PINS_LABELS_LAYER_ID, "text-font", [
       currentPinStyle.labelBold ? "Noto Sans Bold" : "Noto Sans Regular",
     ]);
-    mapInstance.setPaintProperty(
+    targetMap.setPaintProperty(
       PINS_LABELS_LAYER_ID,
       "text-color",
       currentPinStyle.labelColor
@@ -832,7 +852,7 @@ function applyPinStyleToLayers() {
     // is only correct for the labelSize it was built against — rebuild the
     // source data so dragged labels keep their PIXEL offset instead of
     // drifting when the user changes the global label size.
-    const source = mapInstance.getSource(PINS_SOURCE_ID);
+    const source = targetMap.getSource(PINS_SOURCE_ID);
     if (source) source.setData(pinsToFeatureCollection(lastPinsSnapshot));
   }
 }
@@ -1194,8 +1214,20 @@ export function getMap() {
  */
 export function renderPins(pins) {
   lastPinsSnapshot = pins.slice();
-  if (!mapInstance) return;
-  const source = mapInstance.getSource(PINS_SOURCE_ID);
+  renderPinsTo(mapInstance, pins);
+}
+
+/**
+ * Render `pins` into a SPECIFIC map's pins source — the multi-map primitive
+ * behind renderPins (main map) and js/map-inset.js (the corner inset's own
+ * MapLibre map). Deliberately does NOT touch the module-scoped
+ * lastPinsSnapshot: that snapshot is the MAIN map's re-add state, and the
+ * inset must never overwrite it. No-op until the target's style has the pins
+ * source (the inset's styledata handler calls this once the source exists).
+ */
+export function renderPinsTo(targetMap, pins) {
+  if (!targetMap) return;
+  const source = targetMap.getSource(PINS_SOURCE_ID);
   if (!source) return;
   source.setData(pinsToFeatureCollection(pins));
 }
@@ -1209,8 +1241,19 @@ export function renderPins(pins) {
  */
 export function renderRoute(pins, { visible }) {
   lastRouteVisible = visible;
-  if (!mapInstance) return;
-  const source = mapInstance.getSource(ROUTE_SOURCE_ID);
+  renderRouteTo(mapInstance, pins, { visible });
+}
+
+/**
+ * Render the connecting-route line into a SPECIFIC map's route source — the
+ * multi-map primitive behind renderRoute (main map) and js/map-inset.js.
+ * Same sort-by-createdAt / min-2-pins logic as renderRoute, but deliberately
+ * does NOT touch the module-scoped lastRouteVisible (the MAIN map's re-add
+ * state). No-op until the target's style has the route source.
+ */
+export function renderRouteTo(targetMap, pins, { visible }) {
+  if (!targetMap) return;
+  const source = targetMap.getSource(ROUTE_SOURCE_ID);
   if (!source) return;
 
   if (!visible || pins.length < 2) {
@@ -1232,6 +1275,59 @@ export function renderRoute(pins, { visible }) {
       },
     ],
   });
+}
+
+/**
+ * Set (or clear) the inset locator rectangle on the MAIN map. `bounds` is a
+ * maplibregl.LngLatBounds (the extent the corner inset is fitted to) or null
+ * to hide the outline. Owned by js/map-inset.js, which calls this whenever
+ * the inset's bounds change or the inset is disabled/unresolvable.
+ *
+ * The data is cached in lastLocatorData so a basemap swap's styledata re-add
+ * (addPinAndRouteLayers) restores the outline — mirrors lastPinsSnapshot.
+ * Safe to call before the layer exists (the re-add path backfills it).
+ */
+export function renderLocator(bounds) {
+  lastLocatorData = boundsToLineFeatureCollection(bounds);
+  if (!mapInstance) return;
+  const source = mapInstance.getSource(LOCATOR_SOURCE_ID);
+  if (source) source.setData(lastLocatorData);
+}
+
+// Convert a maplibregl.LngLatBounds into a closed-ring LineString FC tracing
+// the rectangle's outline. A null/degenerate bounds yields an empty FC (no
+// outline drawn). Defensive against a non-LngLatBounds argument so a caller
+// that ever passes a plain object can't throw here.
+function boundsToLineFeatureCollection(bounds) {
+  if (!bounds || typeof bounds.getWest !== "function") {
+    return emptyLineFeatureCollection();
+  }
+  const w = bounds.getWest();
+  const e = bounds.getEast();
+  const s = bounds.getSouth();
+  const n = bounds.getNorth();
+  if (![w, e, s, n].every((v) => Number.isFinite(v))) {
+    return emptyLineFeatureCollection();
+  }
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [w, s],
+            [e, s],
+            [e, n],
+            [w, n],
+            [w, s],
+          ],
+        },
+        properties: {},
+      },
+    ],
+  };
 }
 
 /**
@@ -1423,8 +1519,25 @@ function fetchImage(href) {
   });
 }
 
-async function addPinAndRouteLayers() {
-  if (!mapInstance) return;
+/**
+ * Add the pins/route (and, for the main map, the inset-locator) sources and
+ * layers to `targetMap`, registering the pin sprite images on it. Idempotent
+ * per source/layer/image (each guarded by an existence check), so it's safe
+ * on every styledata cycle.
+ *
+ * `targetMap` defaults to the singleton so the existing main-map callers stay
+ * byte-for-byte unchanged. js/map-inset.js passes its OWN MapLibre map plus:
+ *   - `locator: false` — the locator rectangle belongs on the MAIN map only,
+ *     never inside the magnifier itself.
+ *   - `reportFailures: false` — the shared icon-image cache means the main
+ *     map already surfaced any load failure; the inset must not re-spam the
+ *     banner (or reset the failed-set debounce) for the same icons.
+ */
+export async function addPinAndRouteLayers(
+  targetMap = mapInstance,
+  { locator = true, reportFailures = true } = {}
+) {
+  if (!targetMap) return;
 
   // Pin sprites must be in the registry before the symbol layer can
   // reference them by id. The loader caches per-icon, so subsequent
@@ -1435,8 +1548,8 @@ async function addPinAndRouteLayers() {
   // blank out all pins, labels, and the route.
   const failedIds = await loadPinIconImages(icons);
   // Defensive against a teardown that snuck in during the await.
-  if (!mapInstance) return;
-  reportFailedIcons(failedIds);
+  if (!targetMap) return;
+  if (reportFailures) reportFailedIcons(failedIds);
 
   // Re-register every pin icon on every styledata cycle. setStyle() wipes
   // the image registry; the hasImage() check short-circuits the rare path
@@ -1458,8 +1571,8 @@ async function addPinAndRouteLayers() {
     // pinsToFeatureCollection().
     if (!pinIconImages.has(icon.id)) continue;
     const imageId = PIN_ICON_IMAGE_PREFIX + icon.id;
-    if (!mapInstance.hasImage(imageId)) {
-      mapInstance.addImage(imageId, pinIconImages.get(icon.id), {
+    if (!targetMap.hasImage(imageId)) {
+      targetMap.addImage(imageId, pinIconImages.get(icon.id), {
         sdf: icon.tintable,
         // pixelRatio:4 with 128×128 source SVGs → on-screen display at
         // 32 CSS px (matches PO-003's drop-pin footprint). The 4× source
@@ -1470,16 +1583,43 @@ async function addPinAndRouteLayers() {
     }
   }
 
+  // Inset-locator rectangle (MAIN map only — see the `locator` flag). Added
+  // before the route/pins so it z-stacks beneath them: the outline sits on
+  // the basemap while pins and the route draw on top. Its data is restored
+  // from lastLocatorData so a basemap swap re-paints the current rectangle.
+  if (locator) {
+    if (!targetMap.getSource(LOCATOR_SOURCE_ID)) {
+      targetMap.addSource(LOCATOR_SOURCE_ID, {
+        type: "geojson",
+        data: lastLocatorData,
+      });
+    }
+    if (!targetMap.getLayer(LOCATOR_LAYER_ID)) {
+      targetMap.addLayer({
+        id: LOCATOR_LAYER_ID,
+        type: "line",
+        source: LOCATOR_SOURCE_ID,
+        paint: {
+          // Thin, dark, slightly translucent — reads as an atlas locator
+          // frame without competing with the pins/labels on top.
+          "line-color": "#1f2937",
+          "line-width": 1.5,
+          "line-opacity": 0.7,
+        },
+      });
+    }
+  }
+
   // Route source + layer first, so it draws underneath the pins (MapLibre
   // z-orders by add-order within a layer type).
-  if (!mapInstance.getSource(ROUTE_SOURCE_ID)) {
-    mapInstance.addSource(ROUTE_SOURCE_ID, {
+  if (!targetMap.getSource(ROUTE_SOURCE_ID)) {
+    targetMap.addSource(ROUTE_SOURCE_ID, {
       type: "geojson",
       data: emptyLineFeatureCollection(),
     });
   }
-  if (!mapInstance.getLayer(ROUTE_LAYER_ID)) {
-    mapInstance.addLayer({
+  if (!targetMap.getLayer(ROUTE_LAYER_ID)) {
+    targetMap.addLayer({
       id: ROUTE_LAYER_ID,
       type: "line",
       source: ROUTE_SOURCE_ID,
@@ -1491,8 +1631,8 @@ async function addPinAndRouteLayers() {
     });
   }
 
-  if (!mapInstance.getSource(PINS_SOURCE_ID)) {
-    mapInstance.addSource(PINS_SOURCE_ID, {
+  if (!targetMap.getSource(PINS_SOURCE_ID)) {
+    targetMap.addSource(PINS_SOURCE_ID, {
       type: "geojson",
       data: pinsToFeatureCollection(lastPinsSnapshot),
     });
@@ -1507,7 +1647,7 @@ async function addPinAndRouteLayers() {
   // Filtered to features with tintable=false; tintable pins draw their
   // color via icon-color and don't need the ring. Added BEFORE the fill
   // layer so it z-stacks underneath.
-  if (!mapInstance.getLayer(PINS_COLOR_RING_LAYER_ID)) {
+  if (!targetMap.getLayer(PINS_COLOR_RING_LAYER_ID)) {
     // Radius/translate/stroke seed from currentPinStyle so a styledata
     // re-add after a basemap swap paints the ring at whatever size was last
     // configured, not the pre-Pin-style-feature baseline — the defensive
@@ -1515,7 +1655,7 @@ async function addPinAndRouteLayers() {
     // reconciles it (harmless no-op the first time since the values already
     // match).
     const iconScale = currentPinStyle.size / BASE_PIN_ICON_SIZE;
-    mapInstance.addLayer({
+    targetMap.addLayer({
       id: PINS_COLOR_RING_LAYER_ID,
       type: "circle",
       source: PINS_SOURCE_ID,
@@ -1540,8 +1680,8 @@ async function addPinAndRouteLayers() {
   // Halo width gives the inner-contour cue against any basemap; halo
   // blur gives a soft glow that reads as a shadow without committing to
   // a lighting direction.
-  if (!mapInstance.getLayer(PINS_LAYER_ID)) {
-    mapInstance.addLayer({
+  if (!targetMap.getLayer(PINS_LAYER_ID)) {
+    targetMap.addLayer({
       id: PINS_LAYER_ID,
       type: "symbol",
       source: PINS_SOURCE_ID,
@@ -1577,8 +1717,8 @@ async function addPinAndRouteLayers() {
   // Added LAST so MapLibre's add-order z-stacking paints labels above
   // pins. text-color is fixed (not bound to the pin's color) so labels
   // stay readable regardless of marker tint, per PO-002.
-  if (!mapInstance.getLayer(PINS_LABELS_LAYER_ID)) {
-    mapInstance.addLayer({
+  if (!targetMap.getLayer(PINS_LABELS_LAYER_ID)) {
+    targetMap.addLayer({
       id: PINS_LABELS_LAYER_ID,
       type: "symbol",
       source: PINS_SOURCE_ID,
@@ -1629,7 +1769,7 @@ async function addPinAndRouteLayers() {
   // in sync after setPinStyle() runs before a styledata cycle finishes
   // re-adding layers. No-op (identical values) in the common case where
   // every layer was just created fresh above.
-  applyPinStyleToLayers();
+  applyPinStyleToLayers(targetMap);
 }
 
 // Hover + drag wiring on the LABEL layer only. The pin itself is never

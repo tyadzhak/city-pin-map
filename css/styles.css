@@ -573,7 +573,8 @@ body {
 }
 
 .export-frame-controls[data-frame-enabled="false"],
-.bottom-fade-controls[data-fade-enabled="false"] {
+.bottom-fade-controls[data-fade-enabled="false"],
+.bottom-fade-controls[data-inset-enabled="false"] {
   display: none;
 }
 
@@ -860,10 +861,12 @@ body.dragging-pin * {
   position: absolute;
   top: 0;
   left: 0;
-  /* Above tiles + markers + the maplibregl-control-container. The
-     hide-labels notice / error banner sit at higher z-indices so they
-     still cover the overlay when needed. */
-  z-index: 5;
+  /* Top of the deliberate overlay stack (fade 3, inset 4, frame 5, title 6)
+     so the on-map title always reads above the fade, the corner inset, and
+     the decorative frame. Above tiles + markers + the
+     maplibregl-control-container. The hide-labels notice / error banner sit
+     at higher z-indices so they still cover the overlay when needed. */
+  z-index: 6;
 
   /* Per-line model: this element is just the draggable pill/backdrop now.
      Typography lives on each .export-on-map-title__line child (its own
@@ -911,18 +914,47 @@ body.dragging-on-map-title * {
   cursor: grabbing !important;
 }
 
+/* Live WYSIWYG corner-inset preview (atlas magnifier, js/map-inset.js). A
+   framed square box docked in a corner of the map, hosting a second MapLibre
+   map fitted to one group's pins at higher zoom. z-index 4 sits ABOVE the
+   bottom fade (3) but BELOW the decorative frame (5) and the on-map title
+   (6), so a frame drawn around the whole poster still reads outermost and the
+   title still reads on top. Corner (top/right/bottom/left), width (a
+   percentage of the map container) are set inline by the module; the box is
+   kept square via aspect-ratio and its margin from the edge is a fixed 16px
+   (js/map-inset.js's MARGIN_PX). pointer-events:none — decorative-only, and
+   the inner MapLibre map is created interactive:false regardless. */
+.map-inset-overlay {
+  position: absolute;
+  z-index: 4;
+  aspect-ratio: 1 / 1;
+  border: 2px solid #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  pointer-events: none;
+  /* Reads as a canvas mat while the inset map's first tiles paint in. */
+  background: #dbe2ea;
+}
+
+.map-inset-overlay__map {
+  width: 100%;
+  height: 100%;
+}
+
 /* Live WYSIWYG export-frame preview (PO-007 extension, js/map-frame.js).
    Sits inside the MapLibre container like .export-on-map-title, but below
-   it in stacking order (z-index 4 vs 5) so the title overlay always reads
-   on top of the frame. pointer-events:none on both the wrapper and its
-   rings — the frame is decorative-only, never a hit target. Each ring is a
-   plain box with only its `border` painted (background stays transparent)
-   so the true map canvas shows through the untouched center — see the
-   module header comment for why that needs no clip-path/z-index tricks. */
+   it in stacking order (z-index 5 vs 6) so the title overlay always reads
+   on top of the frame; above the corner inset (4) and the fade (3).
+   pointer-events:none on both the wrapper and its rings — the frame is
+   decorative-only, never a hit target. Each ring is a plain box with only
+   its `border` painted (background stays transparent) so the true map canvas
+   shows through the untouched center — see the module header comment for why
+   that needs no clip-path/z-index tricks. */
 .map-frame-overlay {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 5;
   pointer-events: none;
 }
 
@@ -980,8 +1012,9 @@ body.dragging-on-map-title * {
 }
 
 /* Live WYSIWYG bottom-fade preview (js/map-fade.js). Bottom-anchored,
-   full-width band; z-index 3 sits BELOW the frame overlay (4) and the title
-   overlay (5) so a frame still paints outermost and the title still reads
+   full-width band; z-index 3 sits at the BOTTOM of the overlay stack —
+   below the corner inset (4), the frame overlay (5), and the title overlay
+   (6) — so a frame still paints outermost and the title still reads
    on top of the fade — same order js/export.js's composite pipeline uses.
    height/background are set inline by the module (percentage + gradient
    both depend on the live fade value); only stacking/positioning lives
@@ -2377,8 +2410,41 @@ body.dragging-on-map-title * {
    compact 64px (.export-frame-controls__thickness etc., declared above) —
    that width is what makes the wrap fit six controls across ~320px. */
 .side-panel--design .export-frame-controls,
-.side-panel--design .frame-outside-controls {
+.side-panel--design .frame-outside-controls,
+.side-panel--design #inset-controls {
   flex-wrap: wrap;
+}
+
+/* Inset-map size slider (#inset-size): the one range input in the Design
+   tab — every other numeric control here is a plain number field that
+   shows its own value in the box, so a slider needs a paired live
+   percentage readout instead. Chrome (accent color, gap, font) matches
+   the rest of the tab's control family despite the different input type. */
+.inset-size-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inset-size-field__range {
+  width: 110px;
+  accent-color: #4c6ef5;
+  cursor: pointer;
+}
+
+.inset-size-field__value {
+  min-width: 30px;
+  font-size: 12px;
+  color: #4b5563;
+  text-align: right;
+}
+
+/* Muted hint shown under #inset-group when no groups exist yet — same
+   quiet, non-actionable tone as .icon-picker-modal__hint. */
+.inset-group-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #888;
 }
 
 .design-actions {

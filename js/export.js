@@ -1,9 +1,14 @@
 // PNG export via native HTML5 Canvas. Composites the MapLibre WebGL canvas
 // into an off-screen 2D canvas, paints the bottom fade (poster-style
-// caption zone), then the on-map title overlay (PO-008) at its projected
-// position — composite order is map → bottom fade → title, so the title
-// always reads on top of the fade — then optionally wraps the result in a
-// decorative frame (PO-007, outermost of all), then toDataURL.
+// caption zone), then the corner inset box (js/map-inset.js's live overlay,
+// drawn from its second MapLibre map's canvas), then the on-map title overlay
+// (PO-008) at its projected position — composite order is map → bottom fade →
+// inset → title, so the title always reads on top of both the fade and the
+// inset — then optionally wraps the result in a decorative frame (PO-007,
+// outermost of all), then toDataURL. The inset box geometry (16px margin,
+// sizePct% width, 2px white border, 6px radius, drop shadow) mirrors
+// .map-inset-overlay in css/styles.css and js/map-inset.js 1:1 so the live
+// preview and the exported PNG agree.
 //
 // Markers and the route line are layers inside the WebGL canvas (see
 // js/map.js — Option B GeoJSONSource + circle/line layers), so they are
@@ -42,6 +47,7 @@ import {
   loadBottomFade,
 } from "./storage.js";
 import { getPinLabelSize, setPinLabelSize } from "./map.js";
+import { getInsetMap, getPlacement } from "./map-inset.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
 // Same budgets the previous Leaflet impl used; MapLibre's `idle` event
@@ -174,9 +180,11 @@ export async function exportMapAsPng(mapInstance, options = {}) {
     // regardless of which capture path ran.
     let innerCanvas;
     let innerScale;
-    if (!preset && !onMapTitle && !fadeDrawable) {
-      // Fast path: live map, no resize, no overlay text, no fade, no extra
-      // canvas. Capture the framebuffer as-is (device resolution).
+    if (!preset && !onMapTitle && !fadeDrawable && getInsetMap() === null) {
+      // Fast path: live map, no resize, no overlay text, no fade, no inset,
+      // no extra canvas. Capture the framebuffer as-is (device resolution).
+      // An active corner inset forces the composite path just like the fade
+      // does, since getCanvas() alone can't carry the second map's box.
       // triggerRepaint + once('render') ensures it reflects the current
       // state before we read it. The frame wrap only allocates a canvas if a
       // frame is enabled.
@@ -274,6 +282,28 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     mapInstance.triggerRepaint();
     await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
 
+    // Corner inset (js/map-inset.js). Its overlay box is sized as a % of the
+    // #map container, so it just resized ALONGSIDE the main map above — its
+    // second MapLibre map now needs to re-measure and re-settle at the export
+    // resolution before we read its canvas. Mirrors the main map's
+    // resize → idle → repaint → render sequence exactly, on the inset map.
+    //
+    // Failure honesty (CLAUDE.md: never silently swallow): waitForIdle
+    // resolves false on timeout. For the MAIN map a stale-but-valid frame is
+    // acceptable, but a half-loaded inset would export a blank/torn box — so a
+    // timeout here THROWS, routing to exportMapAsPng's showError() catch and
+    // the finally-block restore, rather than shipping a broken inset.
+    const insetMap = getInsetMap();
+    if (insetMap) {
+      insetMap.resize();
+      const settled = await waitForIdle(insetMap, TILE_WAIT_TIMEOUT_MS_PRESET);
+      if (!settled) {
+        throw new Error("inset map did not settle before export");
+      }
+      insetMap.triggerRepaint();
+      await waitForRender(insetMap, RENDER_WAIT_TIMEOUT_MS);
+    }
+
     // FBL-005 pixel-space contract:
     //   • Preset → output is EXACTLY the contractual CSS-pixel dims; the
     //     device-pixel map canvas downscales into it. scale = 1.
@@ -300,6 +330,14 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
       };
     }
 
+    // Inset canvas + geometry, read AFTER its settle above. getInsetMap()
+    // could in principle flip to null between the settle and here (a pin/group
+    // change firing the live subscription mid-export); re-read once and gate
+    // the composite paint on it so we never drawImage a hidden box.
+    const activeInset = getInsetMap();
+    const insetCanvas = activeInset ? activeInset.getCanvas() : null;
+    const insetPlacement = activeInset ? getPlacement() : null;
+
     return {
       canvas: composite({
         mapCanvas,
@@ -309,6 +347,8 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
         coeff,
         chipScale: scale,
         bottomFade,
+        insetCanvas,
+        insetPlacement,
       }),
       scale,
     };
@@ -330,6 +370,12 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     mapEl.style.width = savedInline.width;
     mapEl.style.height = savedInline.height;
     mapInstance.resize();
+    // The inset overlay travels inside #map, so it just resized back with the
+    // container above — re-measure its map so the live corner box returns to
+    // its on-screen size (mirrors the main map's restore resize). Re-read the
+    // handle: it may have been thrown-past or cleared during this capture.
+    const insetOnRestore = getInsetMap();
+    if (insetOnRestore) insetOnRestore.resize();
     wrapper.remove();
   }
 }
@@ -359,6 +405,8 @@ function composite({
   coeff,
   chipScale,
   bottomFade,
+  insetCanvas,
+  insetPlacement,
 }) {
   const out = document.createElement("canvas");
   out.width = outputWidth;
@@ -393,6 +441,15 @@ function composite({
   // after this whole composite, so the frame stays outermost of all.
   paintBottomFade(ctx, bottomFade, outputWidth, outputHeight);
 
+  // Corner inset — painted AFTER the fade but BEFORE the on-map title, so the
+  // composite order is map → fade → inset → title (the title always reads on
+  // top of the box, and wrapFrame still runs last in the caller so the frame
+  // stays outermost). The CSS-px box chrome (margin/border/radius/shadow)
+  // scales by `chipScale` — the same CSS→output-pixel factor the frame band
+  // uses — NOT the typography coeff, because the box is a fixed-CSS-px
+  // decoration like the frame, not readability-scaled text.
+  paintInset(ctx, insetCanvas, insetPlacement, outputWidth, outputHeight, chipScale);
+
   // PO-008/009 — draw the on-map title chip AFTER the map pixels (so it
   // floats on top of tiles + markers) and BEFORE wrapFrame (which runs in
   // the caller, so the decorative frame never paints over the title). The
@@ -411,6 +468,78 @@ function composite({
   }
 
   return out;
+}
+
+// Corner inset box (js/map-inset.js). Draws the inset map's own canvas into a
+// framed square docked in one corner, mirroring the live .map-inset-overlay
+// 1:1 so the preview and the exported PNG agree. Geometry:
+//   • box is SQUARE, its outer (border-box) width = sizePct% of the output
+//     canvas width — a percentage, so it auto-scales with the preset and needs
+//     no CSS→px factor of its own;
+//   • the box's outer edge sits `marginPx * coeff` from the two edges of the
+//     configured corner (16px in CSS, scaled to output px);
+//   • a 2px white border, 6px outer radius, and the .map-inset-overlay drop
+//     shadow (0 2px 10px rgba(0,0,0,.25)) — all CSS-px values scaled by
+//     `coeff` (= the frame's chipScale: CSS→output-pixel scale, 1 for a
+//     preset, dpr for current view).
+// The inset map's backing-store pixel size differs from its CSS box size
+// (× dpr), so drawImage scale-draws the WHOLE canvas into the clipped inner
+// square. No-op when there's no active inset (getInsetMap() was null).
+function paintInset(ctx, insetCanvas, placement, width, height, coeff) {
+  if (!insetCanvas || !placement) return;
+
+  const margin = (placement.marginPx || 0) * coeff;
+  const sizePct = Math.max(0, Math.min(100, Number(placement.sizePct) || 0));
+  const boxSize = (sizePct / 100) * width;
+  if (boxSize <= 0) return;
+
+  const border = 2 * coeff;
+  const radius = 6 * coeff;
+  const corner = placement.corner || "top-right";
+
+  // Top-left origin of the outer (border-box) square from the corner + margin.
+  const x = corner.endsWith("left") ? margin : width - margin - boxSize;
+  const y = corner.startsWith("top") ? margin : height - margin - boxSize;
+
+  ctx.save();
+
+  // 1) White rounded-rect box carrying the drop shadow. This IS the 2px white
+  //    border — the inset map is drawn clipped INSIDE it, leaving the white
+  //    ring showing, exactly like the CSS border + overflow:hidden.
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+  ctx.shadowBlur = 10 * coeff;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2 * coeff;
+  ctx.fillStyle = "#ffffff";
+  drawRoundedRect(ctx, x, y, boxSize, boxSize, radius);
+  ctx.fill();
+  ctx.restore();
+
+  // 2) Inset map, clipped to the inner rounded square (inset by the border).
+  const innerX = x + border;
+  const innerY = y + border;
+  const innerSize = boxSize - 2 * border;
+  if (innerSize > 0) {
+    const innerRadius = Math.max(0, radius - border);
+    ctx.save();
+    drawRoundedRect(ctx, innerX, innerY, innerSize, innerSize, innerRadius);
+    ctx.clip();
+    ctx.drawImage(
+      insetCanvas,
+      0,
+      0,
+      insetCanvas.width,
+      insetCanvas.height,
+      innerX,
+      innerY,
+      innerSize,
+      innerSize
+    );
+    ctx.restore();
+  }
+
+  ctx.restore();
 }
 
 // Bottom fade (poster-style caption zone). Paints a solid-at-the-bottom,
@@ -859,19 +988,23 @@ function addRoundedRectSubpath(ctx, x, y, w, h, r) {
 
 // Resolves when MapLibre fires `idle` (all tiles loaded + nothing pending
 // to render) or after the timeout, whichever comes first. If the map is
-// already idle, `once('idle')` resolves on the next tick.
+// already idle, `once('idle')` resolves on the next tick. Resolves `true`
+// when `idle` won the race and `false` on timeout — the main-map callers
+// ignore the value (a stale-but-valid frame is acceptable there), but the
+// inset capture path treats a `false` as a hard failure (see captureFramed).
 function waitForIdle(mapInstance, timeoutMs) {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = () => {
+    const finish = (viaIdle) => {
       if (settled) return;
       settled = true;
-      mapInstance.off("idle", finish);
+      mapInstance.off("idle", onIdle);
       clearTimeout(timer);
-      resolve();
+      resolve(viaIdle);
     };
-    mapInstance.once("idle", finish);
-    const timer = setTimeout(finish, timeoutMs);
+    const onIdle = () => finish(true);
+    mapInstance.once("idle", onIdle);
+    const timer = setTimeout(() => finish(false), timeoutMs);
   });
 }
 
