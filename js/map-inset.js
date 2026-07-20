@@ -1,7 +1,9 @@
 // Live WYSIWYG corner inset — an atlas-style magnifier. A small framed square
 // box docked in a corner of the MAIN map, hosting a SECOND MapLibre map fitted
 // to the pins of one chosen group at higher zoom, plus a thin "locator
-// rectangle" drawn on the main map marking the inset's bounds. Solves the
+// rectangle" drawn on the main map marking the inset's actual visible viewport
+// (its real getBounds() after the fit — NOT the group's raw pin extent, which
+// the contain-fit expands to fill a non-square box). Solves the
 // "10 pins clustered in one region + 3 far-flung ones, unreadable at
 // continental zoom" problem by showing the cluster region zoomed-in alongside
 // the wide view.
@@ -155,6 +157,15 @@ export function init(map) {
         // truth until pointerup commits.
         if (!boxDragging) applyPlacement(lastCfg);
         insetMap.resize();
+        // A container resize (window/panel toggle, box drag-resize, export-
+        // preset letterbox) changes the inset's viewport, so the camera must
+        // be refit and the locator re-derived from the new visible bounds —
+        // otherwise the outline drifts from what the inset shows. Same drag
+        // guard as the placement above.
+        if (!boxDragging && boundsInUse) {
+          fitInset(boundsInUse);
+          refreshLocator();
+        }
       }
     });
     resizeObserver.observe(overlay);
@@ -250,7 +261,24 @@ function update(cfg) {
   insetMap.resize();
   renderInsetData(resolved.pins);
   fitInset(resolved.bounds);
-  renderLocator(c.showLocator ? resolved.bounds : null);
+  refreshLocator();
+}
+
+// Draw the main-map locator rectangle from the inset's ACTUAL viewport
+// (insetMap.getBounds()) rather than the group's pin extent. fitInset()
+// contain-fits the pin extent into the (possibly non-square) box, expanding
+// the visible area on one axis to match the box aspect — plus the 40px padding
+// and the maxZoom guard — so the real viewport diverges from the pin extent,
+// badly for a free rectangle. fitBounds({ animate:false }) applies the camera
+// synchronously (a jumpTo under the hood), so getBounds() right after fitInset()
+// captures exactly what the inset shows. Clears the outline when the inset is
+// hidden or the locator toggle is off. Must be called AFTER fitInset().
+function refreshLocator() {
+  if (!insetMap || !lastCfg || !lastCfg.showLocator || !boundsInUse) {
+    renderLocator(null);
+    return;
+  }
+  renderLocator(insetMap.getBounds());
 }
 
 /** The second MapLibre map, or null when disabled/unresolvable. */
@@ -281,7 +309,8 @@ export function getBoundsInUse() {
 // ---- Internals --------------------------------------------------------
 
 // Resolve the chosen group's pin bounds. Returns `{ bounds, pins }` where
-// `bounds` is the group's pin extent (for fitting + the locator) and `pins`
+// `bounds` is the group's pin extent (the camera FIT target — the locator is
+// then derived from the resulting viewport, not this raw extent) and `pins`
 // is EVERY pin (the inset renders the whole map like a magnifier — the group
 // only drives the fit). Returns null when unresolvable: no group chosen, a
 // stale/deleted group id (its pins were cascade-cleared to null, so the
@@ -405,7 +434,13 @@ async function onInsetStyleData() {
   // colors may have changed while a swap was in flight — re-render it here so
   // the inset's labels match the freshly re-added pins.
   if (insetLabels) insetLabels.refresh();
-  if (boundsInUse) fitInset(boundsInUse);
+  if (boundsInUse) {
+    fitInset(boundsInUse);
+    // The MAIN map's own styledata re-add restored the locator layer with the
+    // LAST-pushed (possibly stale) data; re-derive it from the refit viewport
+    // so a basemap swap leaves the outline matching what the inset now shows.
+    refreshLocator();
+  }
 }
 
 // Push the current pins + route into the inset's own sources. Route is
