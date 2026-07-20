@@ -632,8 +632,8 @@
                   <option value="bottom-right">Bottom right</option>
                 </select>
                 <span class="inset-size-field">
-                  <label for="inset-size" class="visually-hidden"
-                    >Inset size (percent of map width)</label
+                  <label for="inset-size" class="inset-size-field__label"
+                    >Width</label
                   >
                   <input
                     id="inset-size"
@@ -642,11 +642,31 @@
                     max="50"
                     step="1"
                     class="inset-size-field__range"
-                    aria-label="Inset size (percent of map width)"
-                    title="Inset size (% of map width)"
+                    aria-label="Inset width (percent of map width)"
+                    title="Inset width (% of map width)"
                   />
                   <span
                     id="inset-size-value"
+                    class="inset-size-field__value"
+                    aria-hidden="true"
+                  ></span>
+                </span>
+                <span class="inset-size-field">
+                  <label for="inset-height" class="inset-size-field__label"
+                    >Height</label
+                  >
+                  <input
+                    id="inset-height"
+                    type="range"
+                    min="15"
+                    max="50"
+                    step="1"
+                    class="inset-size-field__range"
+                    aria-label="Inset height (percent of map width)"
+                    title="Inset height (% of map width)"
+                  />
+                  <span
+                    id="inset-height-value"
                     class="inset-size-field__value"
                     aria-hidden="true"
                   ></span>
