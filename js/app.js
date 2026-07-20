@@ -218,6 +218,13 @@ function init() {
       applyLabelVisibility(next);
       pickerHandle.setHideLabels(next);
       refreshHideLabelsNotice();
+      // The inset seeds its basemap from the main map's style, which carries
+      // the layer visibility applyLabelVisibility just flipped. Re-seed it so a
+      // currently-visible inset re-syncs immediately; a hidden inset just gets
+      // marked stale and picks the change up on its next enable. insetHandle is
+      // assigned later in init() but this closure only runs on user interaction,
+      // by which point it's set.
+      if (insetHandle) insetHandle.refreshStyle();
     },
   });
 
