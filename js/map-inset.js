@@ -38,8 +38,8 @@
 //                               update the main-map locator rectangle.
 //   handle.getInsetMap()      — the second maplibregl.Map, or null when
 //                               disabled/unresolvable (export drawImage's it).
-//   handle.getPlacement()     — { corner, sizePct, marginPx } in effect (the
-//                               export mirrors this geometry on its canvas).
+//   handle.getPlacement()     — { corner, sizePct, heightPct, marginPx } in
+//                               effect (the export mirrors this geometry).
 //   handle.getBoundsInUse()   — the LngLatBounds currently fitted, or null.
 
 import {
@@ -262,11 +262,13 @@ export function getInsetMap() {
   return insetMap;
 }
 
-/** The docking geometry currently in effect (marginPx is the fixed 16px). */
+/** The docking geometry currently in effect (marginPx is the fixed 16px).
+ *  heightPct falls back to sizePct so a pre-heightPct config reads as square. */
 export function getPlacement() {
   return {
     corner: lastCfg?.corner || "top-right",
     sizePct: lastCfg?.sizePct || 32,
+    heightPct: lastCfg?.heightPct || lastCfg?.sizePct || 32,
     marginPx: MARGIN_PX,
   };
 }
@@ -436,23 +438,23 @@ function fitInset(bounds) {
 // dock share ONE geometry path — the exact px getResolvedPlacement() reports.
 function applyPlacement(cfg) {
   if (!overlay) return;
-  const { x, y, size } = resolvePlacement(cfg);
+  const { x, y, width, height } = resolvePlacement(cfg);
   overlay.style.display = "block";
   overlay.style.left = `${x}px`;
   overlay.style.top = `${y}px`;
   overlay.style.right = "";
   overlay.style.bottom = "";
-  overlay.style.width = `${size}px`;
-  overlay.style.height = `${size}px`;
+  overlay.style.width = `${width}px`;
+  overlay.style.height = `${height}px`;
 }
 
 /**
- * The inset box's ACTUAL top-left + outer (border-box) size in CSS px for the
- * CURRENT container size, in whatever mode (docked or free). Recomputed live on
- * every call, so it stays correct after the ResizeObserver fires AND after
- * js/export.js resizes the container to a preset's dims at capture time (the
- * export follow-up multiplies this by its CSS→output scale). Returns zeros
- * defensively when there's no map/config yet.
+ * The inset box's ACTUAL top-left (x, y) + outer (border-box) width/height in
+ * CSS px for the CURRENT container size, in whatever mode (docked or free).
+ * Recomputed live on every call, so it stays correct after the ResizeObserver
+ * fires AND after js/export.js resizes the container to a preset's dims at
+ * capture time (the export follow-up multiplies this by its CSS→output scale).
+ * Returns zeros defensively when there's no map/config yet.
  */
 export function getResolvedPlacement() {
   return resolvePlacement(lastCfg);
@@ -472,15 +474,17 @@ export function refreshPlacement() {
   if (insetMap) insetMap.resize();
 }
 
-// Resolve the box's outer top-left (x, y) + square outer size, all CSS px, for
-// the live container size. Free mode positions the box at (nx·W, ny·H) clamped
-// into the allowed inner rect; docked mode pins it to `corner` with the
-// frame-aware offset. The allowed rect is inset from the container edges by
-// `offset` = 16px + the deepest enabled frame band (margin+thickness+padding),
-// so a docked box sits INSIDE the innermost frame and a free box can never
-// overlap it. If the box is LARGER than that inner rect (a big sizePct under a
-// deep frame), the clamp gracefully falls back to the container bounds instead
-// of producing a negative/NaN range.
+// Resolve the box's outer top-left (x, y) + outer width/height, all CSS px, for
+// the live container size. Width comes from sizePct, height from heightPct —
+// BOTH percentages of the container WIDTH (so heightPct === sizePct is square).
+// Free mode positions the box at (nx·W, ny·H) clamped into the allowed inner
+// rect; docked mode pins it to `corner` with the frame-aware offset. The
+// allowed rect is inset from the container edges by `offset` = 16px + the
+// deepest enabled frame band (margin+thickness+padding), so a docked box sits
+// INSIDE the innermost frame and a free box can never overlap it. If the box is
+// LARGER than that inner rect on an axis (a big size under a deep frame), that
+// axis's clamp gracefully falls back to the container bounds instead of
+// producing a negative/NaN range.
 function resolvePlacement(cfg) {
   const c = cfg || {};
   const container =
@@ -491,23 +495,29 @@ function resolvePlacement(cfg) {
   const H = container ? container.clientHeight : 0;
 
   const sizePct = clampSizePct(c.sizePct);
-  const size = (sizePct / 100) * W;
+  // heightPct shares sizePct's unit — a percentage of the container WIDTH — so
+  // heightPct === sizePct is a perfect square. Falls back to sizePct when
+  // absent (a pre-heightPct config renders square, unchanged).
+  const heightPct = clampSizePct(c.heightPct, sizePct);
+  const width = (sizePct / 100) * W;
+  const height = (heightPct / 100) * W;
   const offset = MARGIN_PX + maxFrameInset();
 
   // Allowed range for the box's outer top-left corner (box fully inside the
-  // inner rect). When the box overflows the inner rect, fall back to clamping
+  // inner rect), computed per-axis against the box's own width/height. When the
+  // box overflows the inner rect on an axis, fall back to clamping that axis
   // against the container so the value is always a finite, non-negative px.
   let xMin = offset;
-  let xMax = W - offset - size;
+  let xMax = W - offset - width;
   if (xMax < xMin) {
     xMin = 0;
-    xMax = Math.max(0, W - size);
+    xMax = Math.max(0, W - width);
   }
   let yMin = offset;
-  let yMax = H - offset - size;
+  let yMax = H - offset - height;
   if (yMax < yMin) {
     yMin = 0;
-    yMax = Math.max(0, H - size);
+    yMax = Math.max(0, H - height);
   }
 
   const free = normalizeFreePos(c.freePos);
@@ -522,7 +532,7 @@ function resolvePlacement(cfg) {
     x = corner.endsWith("left") ? xMin : xMax;
     y = corner.startsWith("top") ? yMin : yMax;
   }
-  return { x, y, size };
+  return { x, y, width, height };
 }
 
 // The deepest enabled frame band, in CSS px: max over ENABLED frame elements of
@@ -547,9 +557,9 @@ function clampFrameLen(value) {
   return Math.max(FRAME_LENGTH_MIN, Math.min(FRAME_LENGTH_MAX, Math.round(n)));
 }
 
-function clampSizePct(value) {
+function clampSizePct(value, fallback = 32) {
   const n = Number(value);
-  if (!Number.isFinite(n)) return 32;
+  if (!Number.isFinite(n)) return fallback;
   return Math.max(0, Math.min(100, n));
 }
 
@@ -618,11 +628,11 @@ function onBoxPointerMove(ev) {
     ...(lastCfg || {}),
     freePos: { nx: W > 0 ? desiredX / W : 0, ny: H > 0 ? desiredY / H : 0 },
   };
-  const { x, y, size } = resolvePlacement(tentative);
+  const { x, y, width, height } = resolvePlacement(tentative);
   overlay.style.left = `${x}px`;
   overlay.style.top = `${y}px`;
-  overlay.style.width = `${size}px`;
-  overlay.style.height = `${size}px`;
+  overlay.style.width = `${width}px`;
+  overlay.style.height = `${height}px`;
   boxDragLast = { x, y, W, H };
 }
 

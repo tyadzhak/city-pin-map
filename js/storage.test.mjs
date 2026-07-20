@@ -847,6 +847,7 @@ test("normalizeInset: defaults for empty input", () => {
     enabled: false,
     corner: "top-right",
     sizePct: 32,
+    heightPct: 32,
     groupId: null,
     showLocator: true,
     freePos: null,
@@ -864,6 +865,31 @@ test("normalizeInset: clamps sizePct to [15,50] and rounds", () => {
   assert.equal(normalizeInset({ sizePct: 33.7 }).sizePct, 34);
   // Non-finite → default.
   assert.equal(normalizeInset({ sizePct: "nope" }).sizePct, 32);
+});
+
+test("normalizeInset: heightPct missing defaults to clamped sizePct (square)", () => {
+  // Absent heightPct → the already-clamped sizePct, so an old config renders
+  // pixel-identical (a square).
+  assert.equal(normalizeInset({ sizePct: 40 }).heightPct, 40);
+  // sizePct clamps first, then heightPct mirrors the clamped value.
+  assert.equal(normalizeInset({ sizePct: 500 }).heightPct, 50);
+  assert.equal(normalizeInset({ sizePct: 2 }).heightPct, 15);
+  // Both absent → default sizePct (32) → heightPct 32.
+  assert.equal(normalizeInset({}).heightPct, 32);
+});
+
+test("normalizeInset: clamps heightPct to [15,50], rounds, invalid falls back to sizePct", () => {
+  assert.equal(normalizeInset({ sizePct: 30, heightPct: 500 }).heightPct, 50);
+  assert.equal(normalizeInset({ sizePct: 30, heightPct: 2 }).heightPct, 15);
+  assert.equal(normalizeInset({ sizePct: 30, heightPct: 33.7 }).heightPct, 34);
+  // Invalid heightPct → falls back to the clamped sizePct, not the raw default.
+  assert.equal(normalizeInset({ sizePct: 45, heightPct: "nope" }).heightPct, 45);
+});
+
+test("normalizeInset: valid heightPct is independent of sizePct (rectangle)", () => {
+  const n = normalizeInset({ sizePct: 20, heightPct: 40 });
+  assert.equal(n.sizePct, 20);
+  assert.equal(n.heightPct, 40);
 });
 
 test("normalizeInset: groupId keeps non-empty string, else null", () => {
@@ -916,6 +942,7 @@ test("loadInset: missing key returns defaults", () => {
     enabled: false,
     corner: "top-right",
     sizePct: 32,
+    heightPct: 32,
     groupId: null,
     showLocator: true,
     freePos: null,
@@ -927,6 +954,7 @@ test("loadInset/saveInset: round trip", () => {
     enabled: true,
     corner: "bottom-right",
     sizePct: 40,
+    heightPct: 25,
     groupId: "grp-1",
     showLocator: false,
   });
@@ -934,6 +962,7 @@ test("loadInset/saveInset: round trip", () => {
     enabled: true,
     corner: "bottom-right",
     sizePct: 40,
+    heightPct: 25,
     groupId: "grp-1",
     showLocator: false,
     freePos: null,
@@ -960,12 +989,23 @@ test("loadInset: legacy saved value without showLocator backfills to true", () =
   assert.equal(loadInset().showLocator, true);
 });
 
+test("loadInset: legacy saved value without heightPct backfills to sizePct", () => {
+  globalThis.localStorage.setItem(
+    "city-pin-map.inset.v1",
+    JSON.stringify({ enabled: true, corner: "top-left", sizePct: 20, groupId: null })
+  );
+  const inset = loadInset();
+  assert.equal(inset.sizePct, 20);
+  assert.equal(inset.heightPct, 20);
+});
+
 test("loadInset: corrupt/non-object value falls back to defaults + banner", () => {
   globalThis.localStorage.setItem("city-pin-map.inset.v1", "42");
   assert.deepEqual(loadInset(), {
     enabled: false,
     corner: "top-right",
     sizePct: 32,
+    heightPct: 32,
     groupId: null,
     showLocator: true,
     freePos: null,
@@ -977,6 +1017,7 @@ test("loadInset: corrupt/non-object value falls back to defaults + banner", () =
     enabled: false,
     corner: "top-right",
     sizePct: 32,
+    heightPct: 32,
     groupId: null,
     showLocator: true,
     freePos: null,

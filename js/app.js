@@ -612,6 +612,8 @@ function initInsetOptions(insetHandle) {
   const cornerSelect = document.getElementById("inset-corner");
   const sizeInput = document.getElementById("inset-size");
   const sizeValue = document.getElementById("inset-size-value");
+  const heightInput = document.getElementById("inset-height");
+  const heightValue = document.getElementById("inset-height-value");
   const locator = document.getElementById("inset-locator");
   const controls = document.getElementById("inset-controls");
   const groupHint = document.getElementById("inset-group-hint");
@@ -620,6 +622,7 @@ function initInsetOptions(insetHandle) {
     !groupSelect ||
     !cornerSelect ||
     !sizeInput ||
+    !heightInput ||
     !locator ||
     !controls
   ) {
@@ -655,6 +658,8 @@ function initInsetOptions(insetHandle) {
   cornerSelect.value = saved.corner;
   sizeInput.value = String(saved.sizePct);
   if (sizeValue) sizeValue.textContent = `${saved.sizePct}%`;
+  heightInput.value = String(saved.heightPct);
+  if (heightValue) heightValue.textContent = `${saved.heightPct}%`;
   locator.checked = saved.showLocator;
   enabled.checked = saved.enabled;
   controls.dataset.insetEnabled = saved.enabled ? "true" : "false";
@@ -676,6 +681,7 @@ function initInsetOptions(insetHandle) {
     enabled: enabled.checked,
     corner: cornerSelect.value,
     sizePct: sizeInput.valueAsNumber,
+    heightPct: heightInput.valueAsNumber,
     groupId: groupSelect.value || null,
     showLocator: locator.checked,
     freePos: clearFree ? null : loadInset().freePos,
@@ -699,6 +705,10 @@ function initInsetOptions(insetHandle) {
   // real time, not just on release.
   sizeInput.addEventListener("input", () => {
     if (sizeValue) sizeValue.textContent = `${sizeInput.value}%`;
+    persist();
+  });
+  heightInput.addEventListener("input", () => {
+    if (heightValue) heightValue.textContent = `${heightInput.value}%`;
     persist();
   });
   locator.addEventListener("change", () => persist());

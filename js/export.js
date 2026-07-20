@@ -518,10 +518,10 @@ function composite({
 }
 
 // Corner inset box (js/map-inset.js). Draws the inset map's own canvas into a
-// framed square at its resolved placement, mirroring the live
+// framed rectangle at its resolved placement, mirroring the live
 // .map-inset-overlay 1:1 so the preview and the exported PNG agree. Geometry:
 //   • `placement` is js/map-inset.js's getResolvedPlacement() result — the
-//     box's ACTUAL outer top-left (x, y) + square outer size, all in CSS px,
+//     box's ACTUAL outer top-left (x, y) + outer width/height, all in CSS px,
 //     already resolved for the export's (resized) container: freePos
 //     fractions and the frame-aware dock offset are both baked in, so this
 //     function does no corner/margin math of its own — it just scales the
@@ -541,8 +541,9 @@ function composite({
 function paintInset(ctx, insetCanvas, placement, coeff, insetLabelSpecs) {
   if (!insetCanvas || !placement) return;
 
-  const boxSize = Math.max(0, Number(placement.size) || 0) * coeff;
-  if (boxSize <= 0) return;
+  const boxW = Math.max(0, Number(placement.width) || 0) * coeff;
+  const boxH = Math.max(0, Number(placement.height) || 0) * coeff;
+  if (boxW <= 0 || boxH <= 0) return;
 
   const border = 2 * coeff;
   const radius = 6 * coeff;
@@ -563,18 +564,19 @@ function paintInset(ctx, insetCanvas, placement, coeff, insetLabelSpecs) {
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 2 * coeff;
   ctx.fillStyle = "#ffffff";
-  drawRoundedRect(ctx, x, y, boxSize, boxSize, radius);
+  drawRoundedRect(ctx, x, y, boxW, boxH, radius);
   ctx.fill();
   ctx.restore();
 
-  // 2) Inset map, clipped to the inner rounded square (inset by the border).
+  // 2) Inset map, clipped to the inner rounded rect (inset by the border).
   const innerX = x + border;
   const innerY = y + border;
-  const innerSize = boxSize - 2 * border;
-  if (innerSize > 0) {
+  const innerW = boxW - 2 * border;
+  const innerH = boxH - 2 * border;
+  if (innerW > 0 && innerH > 0) {
     const innerRadius = Math.max(0, radius - border);
     ctx.save();
-    drawRoundedRect(ctx, innerX, innerY, innerSize, innerSize, innerRadius);
+    drawRoundedRect(ctx, innerX, innerY, innerW, innerH, innerRadius);
     ctx.clip();
     ctx.drawImage(
       insetCanvas,
@@ -584,16 +586,16 @@ function paintInset(ctx, insetCanvas, placement, coeff, insetLabelSpecs) {
       insetCanvas.height,
       innerX,
       innerY,
-      innerSize,
-      innerSize
+      innerW,
+      innerH
     );
 
     // Inset pin labels (js/map-labels.js display-only overlay — NOT in the
     // inset canvas). Painted INSIDE the same rounded-rect clip so labels are
     // trimmed at the box edge exactly like the live overlay's overflow:hidden.
     // computeLabelSpecs returned positions in the inset map's own CSS px; the
-    // inner map area (innerSize output px) equals insetCssWidth × coeff — the
-    // SAME chipScale factor — so a label at CSS (lx, ly) lands at
+    // inner map area (innerW × innerH output px) equals the inset's CSS size ×
+    // coeff — the SAME chipScale factor — so a label at CSS (lx, ly) lands at
     // (innerX + lx*coeff, innerY + ly*coeff).
     paintPinLabels(ctx, insetLabelSpecs, coeff, innerX, innerY);
     ctx.restore();

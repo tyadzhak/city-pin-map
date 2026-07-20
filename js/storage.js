@@ -925,10 +925,16 @@ export function normalizeBottomFade(value) {
 //
 //   - corner ∈ INSET_CORNERS; an invalid/absent value falls back to
 //     "top-right" (the default docking corner).
-//   - sizePct is the inset box's width as a PERCENTAGE of the MAP CONTAINER
-//     width (the box is square), clamped 15–50. A percentage — not a pixel
-//     count — so the box keeps the same proportion of the view regardless of
-//     the live window size or an export preset's dimensions.
+//   - sizePct is the inset box's WIDTH as a PERCENTAGE of the MAP CONTAINER
+//     width, clamped 15–50. A percentage — not a pixel count — so the box
+//     keeps the same proportion of the view regardless of the live window
+//     size or an export preset's dimensions.
+//   - heightPct is the inset box's HEIGHT, ALSO expressed as a percentage of
+//     the container WIDTH (same unit as sizePct — so heightPct === sizePct is
+//     a perfect square, and export scaling stays a single factor), clamped to
+//     the same 15–50 range. When absent/invalid it defaults to the (clamped)
+//     sizePct, so an old config saved before this field existed renders
+//     pixel-identical to before (a square).
 //   - groupId is an id from the groups store, or null. A stale/deleted id
 //     (or an empty group) is NOT repaired here — it stays as-is and the
 //     inset simply hides itself while the id is unresolvable (js/map-inset.js
@@ -946,6 +952,7 @@ const DEFAULT_INSET = Object.freeze({
   enabled: false,
   corner: "top-right",
   sizePct: 32,
+  heightPct: 32,
   groupId: null,
   showLocator: true,
   freePos: null,
@@ -1006,12 +1013,20 @@ export function normalizeInset(value) {
   const sizePct = Number.isFinite(sizeNum)
     ? Math.max(INSET_SIZE_MIN, Math.min(INSET_SIZE_MAX, Math.round(sizeNum)))
     : DEFAULT_INSET.sizePct;
+  // heightPct shares sizePct's unit + clamp range; when missing/invalid it
+  // defaults to the already-clamped sizePct so a pre-heightPct config stays a
+  // square, pixel-identical to before.
+  const heightNum = Number(v.heightPct);
+  const heightPct = Number.isFinite(heightNum)
+    ? Math.max(INSET_SIZE_MIN, Math.min(INSET_SIZE_MAX, Math.round(heightNum)))
+    : sizePct;
   const groupId =
     typeof v.groupId === "string" && v.groupId ? v.groupId : null;
   return {
     enabled: Boolean(v.enabled),
     corner,
     sizePct,
+    heightPct,
     groupId,
     showLocator:
       v.showLocator === undefined
