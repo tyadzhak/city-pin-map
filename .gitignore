@@ -18,6 +18,7 @@
 # Local git worktrees (subagent-driven development sessions)
 .worktrees/
 /pin-1-svgrepo-com.svg
+/tmp/
 
 # Test coverage tooling (dev-only, see package.json)
 node_modules/
