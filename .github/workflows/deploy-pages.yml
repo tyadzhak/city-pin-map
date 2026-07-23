@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Stage only the web-app files. The repo also contains design docs
       # (jira/, docs/, spikes/, *.md) that don't need to be served at the
