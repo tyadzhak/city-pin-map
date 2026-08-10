@@ -26,6 +26,7 @@ import assert from "node:assert/strict";
 import { mockFetch, jsonResponse, resetStorage } from "./test-helpers.mjs";
 import { initSearch, __internals } from "./search.js";
 import * as pinStore from "./pins.js";
+import { saveDefaultPin } from "./storage.js";
 
 // ── DOM setup helpers ─────────────────────────────────────────────────────
 
@@ -379,6 +380,36 @@ test("addPin-on-select via list click (delegated click, not just Enter)", async 
   const [pin] = pinStore.listPins();
   assert.equal(pin.name, "ClickCity");
   assert.equal(pin.color, "#e63946"); // DEFAULT_PIN_COLOR
+  assert.equal(pin.icon, null); // no default-pin config saved -> falls back to null
+});
+
+// ── default-pin appearance (icon + color) applied on add ─────────────────
+
+test("selectResult: a saved default-pin appearance (icon + color) is applied to the new pin", async (t) => {
+  const { input, list } = setupDom();
+  saveDefaultPin({ icon: "sunburst", color: "#00ff00" });
+  initSearch();
+
+  await selectFirstResultViaEnter(t, input, list, "defaultpinq", [
+    nominatimResult({ displayName: "Defaultville, Country", lat: 21, lon: 22, address: { city: "Defaultville" } }),
+  ]);
+
+  const pin = pinStore.listPins().at(-1);
+  assert.equal(pin.color, "#00ff00");
+  assert.equal(pin.icon, "sunburst");
+});
+
+test("selectResult: no saved default-pin config falls back to DEFAULT_PIN_COLOR and a null icon", async (t) => {
+  const { input, list } = setupDom();
+  initSearch();
+
+  await selectFirstResultViaEnter(t, input, list, "nodefaultq", [
+    nominatimResult({ displayName: "Plainville, Country", lat: 23, lon: 24, address: { city: "Plainville" } }),
+  ]);
+
+  const pin = pinStore.listPins().at(-1);
+  assert.equal(pin.color, __internals.DEFAULT_PIN_COLOR);
+  assert.equal(pin.icon, null);
 });
 
 test("a click that doesn't land on a .search__row is ignored", async (t) => {

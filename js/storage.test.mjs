@@ -42,6 +42,9 @@ import {
   loadPinStyle,
   savePinStyle,
   normalizePinStyle,
+  loadDefaultPin,
+  saveDefaultPin,
+  normalizeDefaultPin,
   loadHideLabels,
   saveHideLabels,
   loadOnMapTitle,
@@ -1134,6 +1137,92 @@ test("loadPinStyle: getItem throw returns defaults with a banner", () => {
 test("savePinStyle: setItem throw shows a banner", () => {
   withThrowingSetItem(() => savePinStyle({}));
   assert.match(banner().textContent, /Could not save pin style/);
+});
+
+// ── normalizeDefaultPin / loadDefaultPin / saveDefaultPin ────────────────
+
+test("normalizeDefaultPin: defaults for empty input", () => {
+  assert.deepEqual(normalizeDefaultPin(undefined), {
+    icon: null,
+    color: DEFAULT_PIN_COLOR,
+  });
+  assert.deepEqual(normalizeDefaultPin(null), {
+    icon: null,
+    color: DEFAULT_PIN_COLOR,
+  });
+  assert.deepEqual(normalizeDefaultPin({}), {
+    icon: null,
+    color: DEFAULT_PIN_COLOR,
+  });
+});
+
+test("normalizeDefaultPin: garbage input (non-object) falls back to defaults", () => {
+  assert.deepEqual(normalizeDefaultPin("nope"), {
+    icon: null,
+    color: DEFAULT_PIN_COLOR,
+  });
+  assert.deepEqual(normalizeDefaultPin(42), {
+    icon: null,
+    color: DEFAULT_PIN_COLOR,
+  });
+  assert.deepEqual(normalizeDefaultPin(true), {
+    icon: null,
+    color: DEFAULT_PIN_COLOR,
+  });
+});
+
+test("normalizeDefaultPin: invalid color falls back, valid hex preserved", () => {
+  assert.equal(normalizeDefaultPin({ color: "nope" }).color, DEFAULT_PIN_COLOR);
+  assert.equal(normalizeDefaultPin({ color: "" }).color, DEFAULT_PIN_COLOR);
+  assert.equal(normalizeDefaultPin({ color: 42 }).color, DEFAULT_PIN_COLOR);
+  assert.equal(normalizeDefaultPin({ color: "#00ff00" }).color, "#00ff00");
+});
+
+test("normalizeDefaultPin: icon accepts a non-empty string, null/absent/non-string fall back to null", () => {
+  assert.equal(normalizeDefaultPin({ icon: "circle" }).icon, "circle");
+  assert.equal(normalizeDefaultPin({ icon: null }).icon, null);
+  assert.equal(normalizeDefaultPin({ icon: "" }).icon, null);
+  assert.equal(normalizeDefaultPin({ icon: 5 }).icon, null);
+  assert.equal(normalizeDefaultPin({}).icon, null);
+});
+
+test("normalizeDefaultPin: a stale/unknown icon id is preserved verbatim (type-level sanity only)", () => {
+  // storage.js never imports icons.js — an id that no longer exists in the
+  // icon registry is NOT this normalizer's job to clamp. effectiveIcon()
+  // (js/icons.js) does that at render time, same contract as pin.icon.
+  assert.equal(normalizeDefaultPin({ icon: "deleted-user-icon-id" }).icon, "deleted-user-icon-id");
+});
+
+test("loadDefaultPin: missing key returns defaults", () => {
+  assert.deepEqual(loadDefaultPin(), { icon: null, color: DEFAULT_PIN_COLOR });
+});
+
+test("loadDefaultPin/saveDefaultPin: round trip", () => {
+  const value = { icon: "circle", color: "#123456" };
+  saveDefaultPin(value);
+  assert.deepEqual(loadDefaultPin(), value);
+});
+
+test("loadDefaultPin: corrupt value falls back to defaults + banner", () => {
+  globalThis.localStorage.setItem("city-pin-map.default-pin.v1", "nope{{");
+  assert.deepEqual(loadDefaultPin(), { icon: null, color: DEFAULT_PIN_COLOR });
+  assert.match(banner().textContent, /corrupted/);
+});
+
+test("loadDefaultPin: non-object JSON value is treated as corrupt", () => {
+  globalThis.localStorage.setItem("city-pin-map.default-pin.v1", "true");
+  assert.deepEqual(loadDefaultPin(), { icon: null, color: DEFAULT_PIN_COLOR });
+});
+
+test("loadDefaultPin: getItem throw returns defaults with a banner", () => {
+  const value = withThrowingGetItem(() => loadDefaultPin());
+  assert.deepEqual(value, { icon: null, color: DEFAULT_PIN_COLOR });
+  assert.match(banner().textContent, /could not be read/);
+});
+
+test("saveDefaultPin: setItem throw shows a banner", () => {
+  withThrowingSetItem(() => saveDefaultPin({}));
+  assert.match(banner().textContent, /Could not save default pin/);
 });
 
 // ── loadHideLabels / saveHideLabels ─────────────────────────────────────

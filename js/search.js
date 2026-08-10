@@ -13,7 +13,7 @@
 
 import { searchCities } from "./geocode.js";
 import { addPin, DEFAULT_PIN_COLOR } from "./pins.js";
-import { showError } from "./storage.js";
+import { showError, loadDefaultPin } from "./storage.js";
 
 const DEBOUNCE_MS = 350;
 const MIN_QUERY_LEN = 2;
@@ -157,11 +157,17 @@ function shortName(result) {
 }
 
 function selectResult(result) {
+  // Read fresh at add time (not cached at module scope) so a Design-tab
+  // edit to the default pin appearance takes effect on the very next
+  // search-add, with no store/subscription needed for a value that's only
+  // ever read once per pin creation.
+  const defaultPin = loadDefaultPin();
   addPin({
     name: shortName(result),
     lat: result.lat,
     lon: result.lon,
-    color: DEFAULT_PIN_COLOR,
+    color: defaultPin.color,
+    icon: defaultPin.icon,
     // Capture the geocoded origin once at creation (FBL-008). The pin
     // itself is fixed in place and can never be dragged off it, so no UI
     // currently reads this — kept for compatibility with already-persisted

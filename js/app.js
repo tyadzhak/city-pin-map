@@ -45,6 +45,8 @@ import {
   loadPinStyle,
   savePinStyle,
   normalizePinStyle,
+  loadDefaultPin,
+  saveDefaultPin,
   showError,
 } from "./storage.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
@@ -56,6 +58,8 @@ import { initGroupPanel } from "./group-panel.js";
 import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
 import { initStylePicker } from "./style-picker.js";
 import { initSideTabs } from "./side-tabs.js";
+import { openIconPickerFor } from "./icon-picker.js";
+import { effectiveIcon, getIcon, subscribe as subscribeIcons } from "./icons.js";
 import * as mapTitle from "./map-title.js";
 import * as mapFrame from "./map-frame.js";
 import * as mapFade from "./map-fade.js";
@@ -246,6 +250,11 @@ function init() {
   // so the very first paint already reflects any previously-saved custom
   // style — no flash of default-sized pins.
   initPinStyleOptions();
+
+  // Default pin appearance (icon + color) for newly-added pins, plus the
+  // Design tab's "Apply to all pins" affordance. No map/render dependency —
+  // runs independently of pin-style, just grouped near it in the Design tab.
+  initDefaultPinOptions();
 
   // Pin-label DOM overlay (js/map-labels.js). Inited AFTER initPinStyleOptions
   // (so the global pin style is already applied — the overlay's first render
@@ -803,6 +812,92 @@ function initPinStyleOptions() {
   if (labelFontSelect) {
     labelFontSelect.addEventListener("change", persist);
   }
+}
+
+// Design-tab "Default pin" group: the icon + color a newly-added pin gets
+// (js/search.js and js/import-foreign.js both read loadDefaultPin() fresh at
+// add time), plus an "Apply to all pins" batch affordance. Sibling of
+// initPinStyleOptions in shape (hydrate → wire → persist), but the icon tile
+// opens the SAME modal the per-pin appearance tile does (js/icon-picker.js's
+// openIconPickerFor — the generalized entry point added alongside this
+// feature) rather than duplicating any grid/add-icon UI.
+//
+// Defensive: bails if any control is missing from the DOM, mirroring every
+// other initXxxOptions() in this file.
+function initDefaultPinOptions() {
+  const tile = document.getElementById("default-pin-tile");
+  const tileIcon = document.getElementById("default-pin-tile-icon");
+  const colorInput = document.getElementById("default-pin-color");
+  const applyAllBtn = document.getElementById("default-pin-apply-all");
+  if (!tile || !tileIcon || !colorInput || !applyAllBtn) return;
+
+  // Single read path the tile render, the picker target, and the "apply to
+  // all" handler all share — resolves a stale/unknown icon id (a deleted
+  // user icon) to the same fallback effectiveIcon() gives every pin, so the
+  // tile never tries to render a missing image.
+  const readState = () => {
+    const saved = loadDefaultPin();
+    return { color: saved.color, icon: effectiveIcon({ icon: saved.icon }) };
+  };
+
+  const refreshTile = () => {
+    const state = readState();
+    const iconEntry = getIcon(state.icon);
+    tile.style.color = state.color;
+    tileIcon.alt = iconEntry?.label || state.icon;
+    tileIcon.src = iconEntry?.svg
+      ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(iconEntry.svg)
+      : iconEntry?.src || "";
+    colorInput.value = state.color;
+  };
+  refreshTile();
+
+  // Icon registry changes (a referenced user icon deleted — including via
+  // this same picker's own trash-button cascade, which clears the stored
+  // default icon id back to null — or renamed) must refresh the tile even
+  // while the picker isn't open, mirroring pin-list.js's own
+  // subscribe-and-re-render contract for the per-pin tile.
+  subscribeIcons(refreshTile);
+
+  tile.addEventListener("click", () => {
+    openIconPickerFor({
+      key: "default-pin",
+      getState: readState,
+      onSelect(iconId) {
+        const saved = loadDefaultPin();
+        saveDefaultPin({ ...saved, icon: iconId });
+        refreshTile();
+      },
+    });
+  });
+
+  colorInput.addEventListener("change", () => {
+    const saved = loadDefaultPin();
+    saveDefaultPin({ ...saved, color: colorInput.value });
+    refreshTile();
+  });
+
+  applyAllBtn.addEventListener("click", () => {
+    const pins = pinStore.listPins();
+    const count = pins.length;
+    if (
+      !confirm(
+        `Apply the default pin appearance to all ${count} pin${count === 1 ? "" : "s"}?`
+      )
+    ) {
+      return;
+    }
+    const saved = loadDefaultPin();
+    // Single-notify batch (replaceAll pushes the given array verbatim, no
+    // per-field processing — see js/pins.js) rather than N updatePin calls,
+    // so applying to a large pin set doesn't fire N separate re-renders.
+    // Every other field (group, labelDx/labelDy, createdAt, …) is preserved
+    // via the spread — group assignment is untouched, so a grouped pin's
+    // visible color still comes from the group override, unchanged contract.
+    pinStore.replaceAll(
+      pins.map((p) => ({ ...p, icon: saved.icon, color: saved.color }))
+    );
+  });
 }
 
 // Reflects the persisted preference on the checkbox at boot and forwards

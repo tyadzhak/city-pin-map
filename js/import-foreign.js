@@ -14,10 +14,10 @@
 // snapshot of app state the way a city-pin-map backup is. See PO-004's
 // Notes section for the rationale.
 
-import { addPin, DEFAULT_PIN_COLOR } from "./pins.js";
+import { addPin } from "./pins.js";
 import { searchCities } from "./geocode.js";
 import { importFromJson } from "./backup.js";
-import { showError } from "./storage.js";
+import { showError, loadDefaultPin } from "./storage.js";
 
 const NAME_KEYS = ["name", "city", "title"];
 const LAT_KEYS = ["lat", "latitude"];
@@ -268,6 +268,11 @@ function parseCsvImport(rawText) {
 // ---- Apply: immediate pins + sequential geocode loop --------------------
 
 async function applyRows(rows, skippedBlank = 0) {
+  // Read once per import batch (not per row) — a Design-tab edit to the
+  // default pin appearance mid-import is an edge case not worth chasing;
+  // every pin in ONE import should share one appearance, same as the
+  // search-add path reads it fresh per individual add.
+  const defaultPin = loadDefaultPin();
   const immediate = rows.filter((r) => r.lat !== null && r.lon !== null);
   const needsGeocode = rows.filter((r) => r.lat === null || r.lon === null);
 
@@ -278,7 +283,8 @@ async function applyRows(rows, skippedBlank = 0) {
       name: row.name,
       lat: row.lat,
       lon: row.lon,
-      color: DEFAULT_PIN_COLOR,
+      color: defaultPin.color,
+      icon: defaultPin.icon,
       group: null,
       originalLat: row.lat,
       originalLon: row.lon,
@@ -333,7 +339,8 @@ async function applyRows(rows, skippedBlank = 0) {
         name: row.name,
         lat: top.lat,
         lon: top.lon,
-        color: DEFAULT_PIN_COLOR,
+        color: defaultPin.color,
+        icon: defaultPin.icon,
         group: null,
         originalLat: top.lat,
         originalLon: top.lon,

@@ -3,12 +3,24 @@
 // sub-flow (Task 13), (c) per-user-icon delete + attribution display.
 //
 // API:
-//   openIconPicker(pinId) → mounts the modal, scoped to the given pin.
-//                           Closes on ESC, click-outside, or icon-pick.
-//   closeIconPicker()    → idempotent.
+//   openIconPicker(pinId)  → mounts the modal, scoped to the given pin.
+//                            Closes on ESC, click-outside, or icon-pick.
+//   openIconPickerFor(target) → generalized entry point (default-pin
+//                            feature): mounts the modal for an arbitrary
+//                            TARGET descriptor instead of a pin id. A target
+//                            is `{ key, getState(): {color, icon}|null,
+//                            onSelect(iconId) }` — getState() supplies the
+//                            live color/icon to render (return null to mean
+//                            "target no longer exists", which closes the
+//                            modal, mirroring a deleted pin); onSelect(id)
+//                            fires when the user picks an icon in the grid.
+//                            openIconPicker(pinId) is just this function
+//                            fed a pin-backed target (see pinTarget below) —
+//                            the per-pin flow is unchanged byte-for-byte.
+//   closeIconPicker()     → idempotent.
 //
 // State is module-singleton (only one open at a time); reopening for a
-// different pin closes the prior instance first.
+// different target closes the prior instance first.
 
 import { listPins, updatePin } from "./pins.js";
 import {
@@ -18,6 +30,7 @@ import {
 } from "./icons.js";
 import * as userIconStore from "./user-icons.js";
 import { ingestSvg } from "./svg-ingest.js";
+import { loadDefaultPin, saveDefaultPin } from "./storage.js";
 
 const CATEGORY_ORDER = ["default", "pins", "travel", "places", "transport", "markers", "user"];
 const CATEGORY_LABEL = {
@@ -32,7 +45,35 @@ const CATEGORY_LABEL = {
 
 let activeState = null;
 
+// Builds the pin-scoped TARGET descriptor openIconPicker(pinId) has always
+// used internally — extracted so both the legacy pin entry point and the
+// generalized one below share exactly one implementation.
+function pinTarget(pinId) {
+  return {
+    key: pinId,
+    getState() {
+      const livePin = listPins().find((p) => p.id === pinId);
+      if (!livePin) return null;
+      return { color: livePin.color, icon: effectiveIcon(livePin) };
+    },
+    onSelect(iconId) {
+      updatePin(pinId, { icon: iconId });
+    },
+  };
+}
+
 export function openIconPicker(pinId) {
+  openIconPickerForTarget(pinTarget(pinId));
+}
+
+// See the file header for the target descriptor shape. Used by the
+// Design-tab default-pin appearance control (js/app.js) to open the exact
+// same modal/grid/add-icon flow the per-pin picker uses.
+export function openIconPickerFor(target) {
+  openIconPickerForTarget(target);
+}
+
+function openIconPickerForTarget(target) {
   closeIconPicker();
 
   const overlay = document.createElement("div");
@@ -46,12 +87,12 @@ export function openIconPicker(pinId) {
   document.body.appendChild(overlay);
 
   const renderGrid = () => {
-    const livePin = listPins().find((p) => p.id === pinId);
-    if (!livePin) {
+    const state = target.getState();
+    if (!state) {
       closeIconPicker();
       return;
     }
-    modal.replaceChildren(...buildGridView(livePin, modal));
+    modal.replaceChildren(...buildGridView(target, state, modal));
   };
   renderGrid();
 
@@ -68,7 +109,7 @@ export function openIconPicker(pinId) {
   document.addEventListener("keydown", onKey);
 
   activeState = {
-    pinId,
+    target,
     overlay,
     modal,
     teardown: () => {
@@ -86,16 +127,16 @@ export function closeIconPicker() {
 }
 
 // Helper called from the sub-view's Back / Cancel to return to the grid.
-export function showGridView(modal, pinId) {
-  const livePin = listPins().find((p) => p.id === pinId);
-  if (!livePin) {
+export function showGridView(modal, target) {
+  const state = target.getState();
+  if (!state) {
     closeIconPicker();
     return;
   }
-  modal.replaceChildren(...buildGridView(livePin, modal));
+  modal.replaceChildren(...buildGridView(target, state, modal));
 }
 
-function buildGridView(pin, modal) {
+function buildGridView(target, state, modal) {
   const nodes = [];
 
   const header = document.createElement("div");
@@ -144,7 +185,7 @@ function buildGridView(pin, modal) {
       // when the user has no icons yet); other categories collapse when
       // search filters them out.
       if (items.length === 0 && cat !== "user") continue;
-      body.appendChild(buildCategorySection(pin, cat, items, modal));
+      body.appendChild(buildCategorySection(target, state, cat, items, modal));
     }
   };
 
@@ -160,7 +201,7 @@ function buildGridView(pin, modal) {
   return nodes;
 }
 
-function buildCategorySection(pin, category, icons, modal) {
+function buildCategorySection(target, state, category, icons, modal) {
   const section = document.createElement("div");
   section.className = "icon-picker-modal__category";
 
@@ -176,7 +217,7 @@ function buildCategorySection(pin, category, icons, modal) {
     addBtn.textContent = "+ Add";
     addBtn.style.cssText =
       "background: none; border: 0; cursor: pointer; color: #1d3557; font-weight: 600;";
-    addBtn.addEventListener("click", () => showAddSubView(pin, modal));
+    addBtn.addEventListener("click", () => showAddSubView(target, state, modal));
     titleRow.appendChild(addBtn);
   }
   section.appendChild(titleRow);
@@ -184,27 +225,27 @@ function buildCategorySection(pin, category, icons, modal) {
   const grid = document.createElement("div");
   grid.className = "icon-picker-modal__grid";
   for (const icon of icons) {
-    grid.appendChild(buildTile(pin, icon));
+    grid.appendChild(buildTile(target, state, icon));
   }
   if (category === "user") {
-    grid.appendChild(buildAddTile(pin, modal));
+    grid.appendChild(buildAddTile(target, state, modal));
   }
   section.appendChild(grid);
   return section;
 }
 
-function buildTile(pin, icon) {
+function buildTile(target, state, icon) {
   const tile = document.createElement("button");
   tile.type = "button";
   tile.className = "icon-picker-modal__tile";
-  tile.style.color = pin.color;
+  tile.style.color = state.color;
 
   const iconEl = document.createElement("span");
   iconEl.className = "icon-picker-modal__tile-icon";
   iconEl.appendChild(buildIconNode(icon));
   tile.appendChild(iconEl);
 
-  const isSelected = effectiveIcon(pin) === icon.id;
+  const isSelected = state.icon === icon.id;
   if (isSelected) {
     tile.classList.add("icon-picker-modal__tile--selected");
   }
@@ -230,6 +271,15 @@ function buildTile(pin, icon) {
       for (const p of listPins()) {
         if (p.icon === icon.id) updatePin(p.id, { icon: null });
       }
+      // Default-pin cascade (default-pin feature): the Design-tab default
+      // icon can also reference a user icon; clear it the same way a pin's
+      // own icon reference is cleared above, so a deleted icon never
+      // lingers as a dangling default that effectiveIcon() would otherwise
+      // silently paper over.
+      const defaultPin = loadDefaultPin();
+      if (defaultPin.icon === icon.id) {
+        saveDefaultPin({ ...defaultPin, icon: null });
+      }
       userIconStore.remove(icon.id);
     });
     tile.appendChild(trash);
@@ -238,18 +288,18 @@ function buildTile(pin, icon) {
   }
 
   tile.addEventListener("click", () => {
-    if (!isSelected) updatePin(pin.id, { icon: icon.id });
+    if (!isSelected) target.onSelect(icon.id);
     closeIconPicker();
   });
   return tile;
 }
 
-function buildAddTile(pin, modal) {
+function buildAddTile(target, state, modal) {
   const tile = document.createElement("button");
   tile.type = "button";
   tile.className = "icon-picker-modal__add-tile";
   tile.textContent = "+ Add";
-  tile.addEventListener("click", () => showAddSubView(pin, modal));
+  tile.addEventListener("click", () => showAddSubView(target, state, modal));
   return tile;
 }
 
@@ -277,7 +327,7 @@ function buildIconNode(icon) {
 // Reset whenever the SVG input clears or the sub-view re-opens.
 let pendingIngest = null;
 
-export function showAddSubView(pin, modal) {
+export function showAddSubView(target, state, modal) {
   pendingIngest = null;
 
   const sub = document.createElement("div");
@@ -291,7 +341,7 @@ export function showAddSubView(pin, modal) {
   back.type = "button";
   back.className = "icon-picker-modal__close";
   back.textContent = "← Back";
-  back.addEventListener("click", () => showGridView(modal, pin.id));
+  back.addEventListener("click", () => showGridView(modal, target));
   header.appendChild(back);
 
   const titleSpan = document.createElement("span");
@@ -361,7 +411,7 @@ export function showAddSubView(pin, modal) {
   // tintable=false expects anyway).
   const previewRow = document.createElement("div");
   previewRow.className = "icon-picker-modal__preview-row";
-  const tintedCol = makePreviewColumn("Tinted", pin.color);
+  const tintedCol = makePreviewColumn("Tinted", state.color);
   const asIsCol = makePreviewColumn("As-is", null);
   previewRow.appendChild(tintedCol.wrap);
   previewRow.appendChild(asIsCol.wrap);
@@ -384,7 +434,7 @@ export function showAddSubView(pin, modal) {
   const cancelBtn = document.createElement("button");
   cancelBtn.type = "button";
   cancelBtn.textContent = "Cancel";
-  cancelBtn.addEventListener("click", () => showGridView(modal, pin.id));
+  cancelBtn.addEventListener("click", () => showGridView(modal, target));
   actions.appendChild(cancelBtn);
 
   const addBtn = document.createElement("button");
@@ -405,7 +455,7 @@ export function showAddSubView(pin, modal) {
         sourceUrl || artistName ? { sourceUrl, artistName } : null,
     });
     pendingIngest = null;
-    showGridView(modal, pin.id);
+    showGridView(modal, target);
   });
   actions.appendChild(addBtn);
 
