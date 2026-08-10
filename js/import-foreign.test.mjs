@@ -14,7 +14,8 @@ import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { resetStorage, mockFetch, jsonResponse } from "./test-helpers.mjs";
 import { importFromFile } from "./import-foreign.js";
-import { listPins, replaceAll as replaceAllPins } from "./pins.js";
+import { listPins, replaceAll as replaceAllPins, DEFAULT_PIN_COLOR } from "./pins.js";
+import { saveDefaultPin } from "./storage.js";
 
 function makeFile(name, content) {
   return { name, text: async () => content };
@@ -330,4 +331,31 @@ test("geocode loop: origin lat/lon is captured for both immediate and geocoded p
   assert.equal(rome.originalLon, 12.4964);
   assert.equal(oslo.originalLat, 59.91);
   assert.equal(oslo.originalLon, 10.75);
+});
+
+// ── default-pin appearance (icon + color) applied on import ──────────────
+
+test("importFromFile: no saved default-pin config falls back to DEFAULT_PIN_COLOR and a null icon", async () => {
+  const csv = "name,lat,lon\nDublin,53.3498,-6.2603\n";
+  await importFromFile(makeFile("cities.csv", csv));
+  const [pin] = listPins();
+  assert.equal(pin.color, DEFAULT_PIN_COLOR);
+  assert.equal(pin.icon, null);
+});
+
+test("importFromFile: a saved default-pin appearance is applied to both immediate and geocoded pins", async (t) => {
+  saveDefaultPin({ icon: "sunburst", color: "#00ff00" });
+  const restore = mockFetch(() =>
+    jsonResponse([{ display_name: "Oslo, Norway", lat: "59.91", lon: "10.75" }])
+  );
+  restoreFetch = restore;
+  const csv = "name,lat,lon\nRome,41.9028,12.4964\nOslo,,\n";
+  await runWithFakeGate(t, () => importFromFile(makeFile("cities.csv", csv)));
+  const pins = listPins();
+  const rome = pins.find((p) => p.name === "Rome");
+  const oslo = pins.find((p) => p.name === "Oslo");
+  assert.equal(rome.color, "#00ff00");
+  assert.equal(rome.icon, "sunburst");
+  assert.equal(oslo.color, "#00ff00");
+  assert.equal(oslo.icon, "sunburst");
 });

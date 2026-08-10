@@ -296,6 +296,50 @@
             </div>
 
             <div class="design-group">
+              <h2 class="design-group__heading">Default pin</h2>
+              <!-- Default pin appearance (icon + color) applied to every
+                   newly-added pin (search-add and CSV/JSON import), plus a
+                   one-click "Apply to all pins" affordance. Persisted at
+                   city-pin-map.default-pin.v1 (js/storage.js). The icon tile
+                   + color swatch reuse pin-list.js's per-row appearance
+                   composition (.pin-list__tile / .pin-list__color-swatch)
+                   and open the SAME icon-picker modal via icon-picker.js's
+                   generalized openIconPickerFor() — one modal implementation
+                   for both the per-pin and the default flow. Wired in
+                   js/app.js's initDefaultPinOptions(). -->
+              <div class="design-row">
+                <span class="pin-list__appearance">
+                  <button
+                    id="default-pin-tile"
+                    type="button"
+                    class="pin-list__tile"
+                    aria-haspopup="dialog"
+                    aria-label="Change default pin icon"
+                  >
+                    <img
+                      id="default-pin-tile-icon"
+                      alt=""
+                      style="width: 18px; height: 18px; display: block"
+                    />
+                  </button>
+                  <input
+                    id="default-pin-color"
+                    type="color"
+                    class="pin-list__color-swatch"
+                    aria-label="Default pin color"
+                  />
+                </span>
+                <button
+                  id="default-pin-apply-all"
+                  type="button"
+                  class="group-panel__add"
+                >
+                  Apply to all pins
+                </button>
+              </div>
+            </div>
+
+            <div class="design-group">
               <h2 class="design-group__heading">Export size</h2>
               <label for="export-format" class="visually-hidden"
                 >Export format</label

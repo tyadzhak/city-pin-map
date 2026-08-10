@@ -1,7 +1,9 @@
 // DEFAULT_PIN_COLOR is the single source of truth for a new pin's shade
 // (pins.js). Imported here so the boot-time pin normalizer (FBL-014) can
 // repair a saved pin with a missing/blank color to the same default the
-// backup-import path uses. pins.js imports nothing, so this is cycle-free.
+// backup-import path uses, and so the default-pin feature's own default
+// color (see normalizeDefaultPin below) never drifts from it. pins.js
+// imports nothing, so this is cycle-free.
 import { DEFAULT_PIN_COLOR } from "./pins.js";
 
 const STORAGE_KEY = "city-pin-map.pins.v1";
@@ -1155,6 +1157,81 @@ export function normalizePinStyle(value) {
     labelBold: Boolean(v.labelBold),
     labelFont: typeof v.labelFont === "string" ? v.labelFont : DEFAULT_PIN_STYLE.labelFont,
     labelItalic: Boolean(v.labelItalic),
+  };
+}
+
+// Default pin appearance (icon + color) applied to newly-added pins by both
+// add paths (js/search.js, js/import-foreign.js), plus a one-click "Apply to
+// all pins" affordance in the Design tab. Own standalone key, same defensive
+// load/clamp/save shape as loadPinStyle/savePinStyle/normalizePinStyle:
+// missing key → defaults, corrupt key → defaults + banner, unknown/partial
+// fields fall back field-by-field. This is a UI preference (mirrors
+// pin-style, frame, fade, inset) and is intentionally EXCLUDED from the JSON
+// backup format — see js/backup.js's scope.
+//
+//   - icon: null means "use the built-in fallback icon" — whatever
+//     effectiveIcon() (js/icons.js) falls back to today (DEFAULT_ICON_ID).
+//     A stale/unknown icon id (a deleted user icon, hand-edited storage) is
+//     NOT resolved here — storage.js doesn't import icons.js, so this
+//     normalizer only does TYPE-level sanity (string-or-null). Render-time
+//     effectiveIcon() already clamps an unknown id to the fallback, the same
+//     contract pin.icon itself has.
+//   - color defaults to DEFAULT_PIN_COLOR (js/pins.js, imported at the top
+//     of this file already) — the same shade every add path already fell
+//     back to before this feature existed, so a first-time user sees no
+//     visual change.
+const DEFAULT_PIN_KEY = "city-pin-map.default-pin.v1";
+const DEFAULT_DEFAULT_PIN = Object.freeze({ icon: null, color: DEFAULT_PIN_COLOR });
+
+export function loadDefaultPin() {
+  let raw;
+  try {
+    raw = localStorage.getItem(DEFAULT_PIN_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved default pin appearance could not be read; using defaults.");
+    return { ...DEFAULT_DEFAULT_PIN };
+  }
+  if (raw === null) return { ...DEFAULT_DEFAULT_PIN };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("saved default pin is not an object");
+    }
+    return normalizeDefaultPin(parsed);
+  } catch (err) {
+    console.error("saved default pin corrupt; ignoring:", err);
+    showError("Saved default pin appearance was corrupted and has been ignored.");
+    return { ...DEFAULT_DEFAULT_PIN };
+  }
+}
+
+export function saveDefaultPin(value) {
+  try {
+    localStorage.setItem(DEFAULT_PIN_KEY, JSON.stringify(normalizeDefaultPin(value)));
+  } catch (err) {
+    console.error("failed to save default pin appearance:", err);
+    showError(
+      "Could not save default pin appearance (storage may be full). Changes are kept in memory only."
+    );
+  }
+}
+
+// Field-by-field clamp/coerce, mirroring normalizePinStyle's contract — a
+// caller can pass a partial object (e.g. `{ color: "#123456" }` from a
+// single change event) and get a complete, well-formed value back. Unknown
+// keys dropped. Exported so a consumer (the Design-tab default-pin UI, the
+// generalized icon-picker target) can normalize a live read into the exact
+// same shape loadDefaultPin() returns (same FBL-013 rationale the other
+// normalize* exports document).
+export function normalizeDefaultPin(value) {
+  const v = value || {};
+  return {
+    icon: typeof v.icon === "string" && v.icon ? v.icon : null,
+    color:
+      typeof v.color === "string" && HEX_COLOR_RE.test(v.color)
+        ? v.color
+        : DEFAULT_DEFAULT_PIN.color,
   };
 }
 

@@ -1,6 +1,10 @@
-// Default color for a newly-created pin — used by every add path (manual
-// search-and-select in search.js, foreign-file import in import-foreign.js)
-// so there is one place to change the shade the app ships with.
+// Default color for a newly-created pin. The add paths (search.js,
+// import-foreign.js) no longer read this directly — they consume the
+// user-configurable default via storage.js's loadDefaultPin(), whose
+// normalizeDefaultPin falls back to this value. Still the ultimate
+// fallback for a missing/blank color on JSON-backup import (backup.js)
+// and the boot-time pin normalizer (storage.js) — one place to change the
+// shade the app ships with.
 export const DEFAULT_PIN_COLOR = "#e63946";
 
 const pins = [];

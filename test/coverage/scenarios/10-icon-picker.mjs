@@ -22,6 +22,7 @@
 const PINS_KEY = "city-pin-map.pins.v1";
 const GROUPS_KEY = "city-pin-map.groups.v1";
 const SIDE_TAB_KEY = "city-pin-map.side-tab.v1";
+const DEFAULT_PIN_KEY = "city-pin-map.default-pin.v1";
 
 const PIN_ID = "coverage-icon-pin";
 
@@ -287,5 +288,64 @@ export async function run(page) {
     await page.waitForSelector(".icon-picker-modal", { timeout: 5000 });
     await page.keyboard.press("Escape");
     await page.waitForSelector(".icon-picker-modal", { state: "detached", timeout: 5000 });
+  });
+
+  // ── 19. Default-pin appearance (js/app.js's initDefaultPinOptions +
+  //     icon-picker.js's generalized openIconPickerFor): set the default
+  //     icon via #default-pin-tile in the Design tab, then delete that same
+  //     user icon via the picker's trash button — exercises the sibling
+  //     cascade-clear icon-picker.js added for the default-pin config,
+  //     parallel to step 15's per-pin cascade above. "Coverage Multicolor
+  //     Icon" (added in step 10) is still present at this point — step 15
+  //     only deleted "Coverage Tintable Icon". ──────────────────────────────
+  await step("switch to the Design tab", async () => {
+    await page.click("#side-tab-design");
+    await page.waitForSelector("#default-pin-tile", { state: "visible", timeout: 5000 });
+  });
+
+  await step("open the default-pin icon picker and select a user icon", async () => {
+    await page.click("#default-pin-tile");
+    await page.waitForSelector(".icon-picker-modal", { timeout: 5000 });
+    const target = page.locator('.icon-picker-modal__tile[title^="Coverage Multicolor Icon"]');
+    await target.click();
+    await page.waitForSelector(".icon-picker-modal", { state: "detached", timeout: 5000 });
+  });
+
+  await step("confirm the default-pin config now references that icon", async () => {
+    const icon = await page.evaluate((key) => {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw).icon : null;
+    }, DEFAULT_PIN_KEY);
+    if (!icon) {
+      throw new Error("expected default-pin icon to be a non-null id, got: " + icon);
+    }
+  });
+
+  await step(
+    "delete the referenced user icon via its trash button (default-pin cascade-clear)",
+    async () => {
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.click("#default-pin-tile");
+      await page.waitForSelector(".icon-picker-modal", { timeout: 5000 });
+      const target = page.locator('.icon-picker-modal__tile[title^="Coverage Multicolor Icon"]');
+      await target.hover();
+      const trash = page.locator(
+        '.icon-picker-modal__tile-trash[aria-label*="Coverage Multicolor Icon"]'
+      );
+      await trash.click();
+      await page.waitForTimeout(150);
+      await page.keyboard.press("Escape");
+      await page.waitForSelector(".icon-picker-modal", { state: "detached", timeout: 5000 });
+    }
+  );
+
+  await step("assert the default-pin config's icon was cleared to null", async () => {
+    const icon = await page.evaluate((key) => {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw).icon : undefined;
+    }, DEFAULT_PIN_KEY);
+    if (icon !== null) {
+      throw new Error("expected default-pin icon to be null after delete cascade, got: " + icon);
+    }
   });
 }
