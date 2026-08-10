@@ -8,7 +8,7 @@
 //   openIconPickerFor(target) → generalized entry point (default-pin
 //                            feature): mounts the modal for an arbitrary
 //                            TARGET descriptor instead of a pin id. A target
-//                            is `{ key, getState(): {color, icon}|null,
+//                            is `{ getState(): {color, icon}|null,
 //                            onSelect(iconId) }` — getState() supplies the
 //                            live color/icon to render (return null to mean
 //                            "target no longer exists", which closes the
@@ -16,7 +16,7 @@
 //                            fires when the user picks an icon in the grid.
 //                            openIconPicker(pinId) is just this function
 //                            fed a pin-backed target (see pinTarget below) —
-//                            the per-pin flow is unchanged byte-for-byte.
+//                            the per-pin flow is behaviorally unchanged.
 //   closeIconPicker()     → idempotent.
 //
 // State is module-singleton (only one open at a time); reopening for a
@@ -50,7 +50,6 @@ let activeState = null;
 // generalized one below share exactly one implementation.
 function pinTarget(pinId) {
   return {
-    key: pinId,
     getState() {
       const livePin = listPins().find((p) => p.id === pinId);
       if (!livePin) return null;

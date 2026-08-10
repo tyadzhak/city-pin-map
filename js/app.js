@@ -861,7 +861,6 @@ function initDefaultPinOptions() {
 
   tile.addEventListener("click", () => {
     openIconPickerFor({
-      key: "default-pin",
       getState: readState,
       onSelect(iconId) {
         const saved = loadDefaultPin();
@@ -880,14 +879,35 @@ function initDefaultPinOptions() {
   applyAllBtn.addEventListener("click", () => {
     const pins = pinStore.listPins();
     const count = pins.length;
-    if (
-      !confirm(
-        `Apply the default pin appearance to all ${count} pin${count === 1 ? "" : "s"}?`
-      )
-    ) {
+    if (count === 0) {
+      // Nothing to apply — skip the confirm dialog entirely rather than
+      // asking the user to confirm a no-op ("all 0 pins?").
+      showError("There are no pins to apply the default appearance to.");
       return;
     }
-    const saved = loadDefaultPin();
+
+    // A grouped pin's marker keeps rendering the GROUP's color regardless of
+    // what its own `pin.color` holds (effectiveColor's override contract is
+    // untouched by this feature) — so overwriting `pin.color` here is
+    // invisible on the map for a grouped pin. Only warn about pins whose
+    // group assignment actually RESOLVES to a live group (a stale/deleted
+    // group id doesn't override anything visually, so there's nothing to
+    // silently lose there — same distinction pin-list.js's own
+    // groupAssigned lookup makes).
+    const liveGroupIds = new Set(groupStore.listGroups().map((g) => g.id));
+    const hasGroupedPins = pins.some((p) => p.group && liveGroupIds.has(p.group));
+    let message = `Apply the default pin appearance to all ${count} pin${count === 1 ? "" : "s"}?`;
+    if (hasGroupedPins) {
+      message +=
+        " Grouped pins will keep showing their group color on the map, but their own saved color will be replaced by the default.";
+    }
+    if (!confirm(message)) return;
+
+    // Reuse readState() so the icon actually stamped onto every pin is the
+    // same effectiveIcon()-clamped id the tile preview shows — a dangling
+    // saved icon id (hand-edited storage, a deleted user icon between page
+    // loads) must never get stamped onto pins verbatim.
+    const state = readState();
     // Single-notify batch (replaceAll pushes the given array verbatim, no
     // per-field processing — see js/pins.js) rather than N updatePin calls,
     // so applying to a large pin set doesn't fire N separate re-renders.
@@ -895,7 +915,7 @@ function initDefaultPinOptions() {
     // via the spread — group assignment is untouched, so a grouped pin's
     // visible color still comes from the group override, unchanged contract.
     pinStore.replaceAll(
-      pins.map((p) => ({ ...p, icon: saved.icon, color: saved.color }))
+      pins.map((p) => ({ ...p, icon: state.icon, color: state.color }))
     );
   });
 }
