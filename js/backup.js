@@ -12,16 +12,36 @@
 // empty and the importing device's existing user-icon library is left
 // untouched (same treatment as API keys: backups touch only the keys
 // they include).
+//
+// The 2026-08-11 pin-color-precedence flip bumps v2 → v3. Same fields as
+// v2 — the bump exists purely to date the pin.color semantics: in v1/v2 a
+// pin always carried a concrete color and an untouched one carried exactly
+// DEFAULT_PIN_COLOR, so importing those applies the one-shot
+// DEFAULT_PIN_COLOR → null migration (js/storage.js's
+// normalizeLoadedPinColor). A v3 payload is post-flip — `null` means
+// "inherit" and any concrete color is a deliberate choice — so its colors
+// are taken verbatim and an export → import round-trip of a pin the user
+// coloured exactly DEFAULT_PIN_COLOR keeps that red. v1 and v2 stay
+// importable exactly as before.
 
 import * as pinStore from "./pins.js";
-import { DEFAULT_PIN_COLOR } from "./pins.js";
 import * as groupStore from "./groups.js";
 import * as userIconStore from "./user-icons.js";
 import { ingestSvg } from "./svg-ingest.js";
-import { showError, prewriteImportPayloads } from "./storage.js";
+import {
+  showError,
+  prewriteImportPayloads,
+  normalizeLoadedPinColor,
+} from "./storage.js";
 
-const BACKUP_VERSION = 2;
-const SUPPORTED_IMPORT_VERSIONS = new Set([1, 2]);
+const BACKUP_VERSION = 3;
+const SUPPORTED_IMPORT_VERSIONS = new Set([1, 2, 3]);
+// v2 introduced userIcons and v3 kept it — so "has a userIcons array" is a
+// >= 2 test, not an === 2 one.
+const FIRST_VERSION_WITH_USER_ICONS = 2;
+// v3 is the first post-pin-color-precedence-flip format; anything older
+// gets the one-shot DEFAULT_PIN_COLOR → null migration on import.
+const FIRST_VERSION_WITH_INHERITED_COLORS = 3;
 
 // Fallback for a group whose imported color isn't a 6-digit hex. Matches
 // the first shade group-panel.js ships new groups with, so a recovered
@@ -29,7 +49,7 @@ const SUPPORTED_IMPORT_VERSIONS = new Set([1, 2]);
 const DEFAULT_GROUP_COLOR = "#e63946";
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
-const CONFIRM_MESSAGE_V2 =
+const CONFIRM_MESSAGE_WITH_ICONS =
   "Replace your current pins, groups, and custom icons with the contents of this file? Existing data will be lost.";
 
 const CONFIRM_MESSAGE_V1 =
@@ -115,13 +135,15 @@ export async function importFromJson(file) {
     return;
   }
 
-  const isV2 = parsed.version === 2;
-  if (isV2 && !Array.isArray(parsed.userIcons)) {
+  // v2 introduced userIcons and v3 keeps it, so this is a >= test — an
+  // `=== 2` here would have silently skipped a v3 file's icon library.
+  const hasUserIcons = parsed.version >= FIRST_VERSION_WITH_USER_ICONS;
+  if (hasUserIcons && !Array.isArray(parsed.userIcons)) {
     showError("Backup file is missing the userIcons field.");
     return;
   }
 
-  const message = isV2 ? CONFIRM_MESSAGE_V2 : CONFIRM_MESSAGE_V1;
+  const message = hasUserIcons ? CONFIRM_MESSAGE_WITH_ICONS : CONFIRM_MESSAGE_V1;
   if (!confirm(message)) return;
 
   // Normalize every entry before it reaches a store. A backup file is
@@ -133,8 +155,12 @@ export async function importFromJson(file) {
   // silently swallowed (CLAUDE.md error-handling convention).
   const dropped = { pins: 0, groups: 0, userIcons: 0 };
   const groups = normalizeGroups(parsed.groups, dropped);
-  const pins = normalizePins(parsed.pins, dropped);
-  const userIcons = isV2 ? normalizeUserIcons(parsed.userIcons, dropped) : null;
+  // v1/v2 predate the pin-color-precedence flip, so their pins get the
+  // one-shot DEFAULT_PIN_COLOR → null migration; v3's colors are verbatim.
+  const pins = normalizePins(parsed.pins, dropped, {
+    migrateLegacyDefault: parsed.version < FIRST_VERSION_WITH_INHERITED_COLORS,
+  });
+  const userIcons = hasUserIcons ? normalizeUserIcons(parsed.userIcons, dropped) : null;
 
   // FBL-016: persist the whole import as a unit BEFORE mutating any store.
   // The three replaceAll cascades below each fire their own save subscriber;
@@ -145,11 +171,11 @@ export async function importFromJson(file) {
   // three keys up front (with rollback on any failure) turns that silent
   // partial loss into a clean, fully-aborted import. v1 imports pass
   // userIcons: null so the local library is left untouched, mirroring the
-  // isV2 gate on the replaceAll below.
+  // hasUserIcons gate on the replaceAll below.
   const persisted = prewriteImportPayloads({
     pins,
     groups,
-    userIcons: isV2 ? userIcons : null,
+    userIcons: hasUserIcons ? userIcons : null,
   });
   if (!persisted) {
     showError(
@@ -161,13 +187,13 @@ export async function importFromJson(file) {
   // Replace groups before pins. Either order is safe — the existing
   // stale-reference handling in effectiveColor() and the pin-list group
   // selector tolerates a transient mismatch — but loading the referenced
-  // entities first reads as the natural order. User icons last for v2;
+  // entities first reads as the natural order. User icons last for v2/v3;
   // a pin in the imported set whose `icon` references a user-icon id
   // not yet replaced would degrade to default-teardrop until userIcons
   // replaceAll fires, which is acceptable transient state.
   groupStore.replaceAll(groups);
   pinStore.replaceAll(pins);
-  if (isV2) {
+  if (hasUserIcons) {
     userIconStore.replaceAll(userIcons);
   }
   // v1: userIconStore is intentionally untouched. Pins that reference a
@@ -203,7 +229,7 @@ function pluralize(count, noun) {
 // unchanged) and strict only where a bad value would corrupt a store:
 // out-of-range coordinates, empty names, or un-sanitizable icon markup.
 
-function normalizePins(rawPins, dropped) {
+function normalizePins(rawPins, dropped, { migrateLegacyDefault = false } = {}) {
   const out = [];
   for (const raw of rawPins) {
     if (!raw || typeof raw !== "object") {
@@ -226,7 +252,14 @@ function normalizePins(rawPins, dropped) {
       name: raw.name,
       lat,
       lon,
-      color: typeof raw.color === "string" && raw.color ? raw.color : DEFAULT_PIN_COLOR,
+      // Same normalizer as the boot-time loader (storage.js's
+      // normalizeLoadedPins) — see normalizeLoadedPinColor's doc comment
+      // there. A missing/blank color always becomes null (inherit); the
+      // DEFAULT_PIN_COLOR → null heuristic applies ONLY to a pre-flip
+      // (v1/v2) payload, per migrateLegacyDefault above, so a v3 file's
+      // colors — including a deliberately-picked DEFAULT_PIN_COLOR —
+      // round-trip verbatim.
+      color: normalizeLoadedPinColor(raw.color, { migrateLegacyDefault }),
       group: typeof raw.group === "string" ? raw.group : null,
       icon: typeof raw.icon === "string" ? raw.icon : null,
       createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),

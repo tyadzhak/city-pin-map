@@ -24,6 +24,7 @@ import {
 import { effectiveColor } from "./map.js";
 import { effectiveIcon, getIcon } from "./icons.js";
 import { openIconPicker } from "./icon-picker.js";
+import { loadDefaultPin } from "./storage.js";
 
 /**
  * Wires the list to the pin store AND the group store. Call once during
@@ -64,6 +65,18 @@ function requestRender() {
   renderNow();
 }
 
+/**
+ * Re-render the list from live state — the SAME entry point the pin/group
+ * store subscriptions use (rename-safe deferral included), exposed for the
+ * one input that changes what a row displays without touching either store:
+ * the Design tab's default-pin COLOR, which is the final fallback of the
+ * pin-color precedence and therefore the swatch/tile color of every
+ * inherited row. No-op before initPinList().
+ */
+export function refreshPinList() {
+  requestRender();
+}
+
 export function initPinList() {
   const listEl = document.getElementById("pin-list");
   const emptyEl = document.getElementById("pin-list-empty");
@@ -96,6 +109,11 @@ function render(listEl, emptyEl, pins) {
   // and won't disturb other subscribers.
   const sorted = pins.slice().sort((a, b) => a.createdAt - b.createdAt);
   const groups = listGroups();
+  // ONE default-pin read per render, passed down to every row's
+  // effectiveColor() call — mirroring js/map.js's pinsToFeatureCollection
+  // hoist. Left to effectiveColor's own default it would be a localStorage
+  // read (and, with a corrupt key, a console.error + banner reset) per ROW.
+  const defaultColor = loadDefaultPin().color;
 
   // Full clear-and-rebuild is fine at Core scale (tens of pins). It replaces
   // every row, so it would wipe out a row that's in rename mode — callers
@@ -103,11 +121,13 @@ function render(listEl, emptyEl, pins) {
   // route through requestRender(), which defers the rebuild until finalize()
   // resolves the edit (see enterRenameMode); the rebuild that a committed
   // rename triggers runs only after renameActive has been cleared.
-  listEl.replaceChildren(...sorted.map((pin) => buildRow(pin, groups)));
+  listEl.replaceChildren(
+    ...sorted.map((pin) => buildRow(pin, groups, defaultColor))
+  );
   emptyEl.hidden = sorted.length > 0;
 }
 
-function buildRow(pin, groups) {
+function buildRow(pin, groups, defaultColor) {
   const row = document.createElement("li");
   row.className = "pin-list__row";
   row.dataset.pinId = pin.id;
@@ -118,10 +138,10 @@ function buildRow(pin, groups) {
   // group-panel.js. This branch protects against hand-edited storage and
   // any future race where a group is removed before this re-render runs.
   const groupAssigned = groups.find((g) => g.id === pin.group) ?? null;
-  const tileColor = effectiveColor(pin);
+  const tileColor = effectiveColor(pin, defaultColor);
   const tileIcon = effectiveIcon(pin);
 
-  row.appendChild(buildAppearanceTile(pin, tileIcon, tileColor, groupAssigned));
+  row.appendChild(buildAppearanceTile(pin, tileIcon, tileColor));
 
   const name = document.createElement("span");
   name.className = "pin-list__name";
@@ -160,9 +180,21 @@ function buildRow(pin, groups) {
 // affordances side-by-side, each does one thing — keeps the row narrow
 // while letting the modal own the richer icon-grid surface.
 //
-// For grouped pins the whole composition is passive (group owns
-// appearance), mirroring the pre-PI-001 read-only swatch.
-function buildAppearanceTile(pin, iconId, color, groupAssigned) {
+// 2026-08-11 pin-color-precedence flip: a grouped pin used to render this
+// tile as read-only ("group owns appearance") because the group's color
+// unconditionally overrode the pin's own. Now a pin's own CUSTOMIZED color
+// always wins over its group's, so a grouped pin gets the exact same live
+// icon tile + color swatch as an ungrouped one — this was the very action
+// (recoloring a grouped pin and expecting it to show) that motivated the
+// flip. `color` here is already the pin's RESOLVED effective color (see
+// buildRow's `effectiveColor(pin, defaultColor)` call), so the swatch shows what
+// the marker actually renders, whichever tier of the precedence supplied
+// it. Picking a new color always writes a CONCRETE value onto the pin
+// (a deliberate edit always counts as "customized") — there is no per-pin
+// "reset to inherit" affordance in v1; the Design tab's "Apply to all
+// pins" (default-pin group) is the documented bulk reset (see
+// js/app.js's initDefaultPinOptions).
+function buildAppearanceTile(pin, iconId, color) {
   const wrapper = document.createElement("span");
   wrapper.className = "pin-list__appearance";
 
@@ -180,33 +212,45 @@ function buildAppearanceTile(pin, iconId, color, groupAssigned) {
   iconImg.style.cssText = "width:18px;height:18px;display:block;";
   tile.appendChild(iconImg);
 
-  if (groupAssigned) {
-    tile.classList.add("pin-list__tile--readonly");
-    tile.disabled = true;
-    tile.setAttribute(
-      "aria-label",
-      `Appearance is controlled by group ${groupAssigned.name}`
-    );
-    wrapper.appendChild(tile);
-    return wrapper;
-  }
-
   tile.setAttribute("aria-label", `Change icon of pin ${pin.name}`);
   tile.setAttribute("aria-haspopup", "dialog");
   tile.addEventListener("click", () => openIconPicker(pin.id));
   wrapper.appendChild(tile);
 
   // Small native color swatch — sibling to the icon tile. Opens the
-  // browser's native color picker on click. `change` only fires when the
-  // user picks; cancelling is silent.
+  // browser's native color picker on click. Value seeded from the RESOLVED
+  // color (not the raw, possibly-null pin.color) so the swatch never shows a
+  // blank/undefined color for an inherited pin.
   const colorInput = document.createElement("input");
   colorInput.type = "color";
   colorInput.className = "pin-list__color-swatch";
-  colorInput.value = pin.color;
+  colorInput.value = color;
   colorInput.setAttribute("aria-label", `Change color of pin ${pin.name}`);
-  colorInput.addEventListener("change", () => {
+
+  // Inherited (pin.color === null) rows read differently from customized
+  // ones: the swatch shows a color the pin doesn't own, and picking one
+  // CHANGES that (it pins the shade permanently). A dotted border + tooltip
+  // is the whole cue — no extra control, no layout change.
+  const inherited = pin.color === null || pin.color === undefined;
+  if (inherited) {
+    colorInput.classList.add("pin-list__color-swatch--inherited");
+    colorInput.title = "Following group/default color — pick to customize";
+  }
+
+  // `input` AND `change`: `input` fires while the native picker is live, so
+  // a user who opens it on an INHERITED pin and re-commits the shade it's
+  // already showing still ends up with a concrete (customized) color rather
+  // than a silent no-op. The guard keeps that from becoming an updatePin
+  // storm — each write re-renders the whole list — by writing only when the
+  // value actually differs from the pin's STORED color. A null (inherited)
+  // color is always "different", which is exactly what makes the pin-it-at-
+  // its-current-shade case work.
+  const commitColor = () => {
+    if (pin.color === colorInput.value) return;
     updatePin(pin.id, { color: colorInput.value });
-  });
+  };
+  colorInput.addEventListener("input", commitColor);
+  colorInput.addEventListener("change", commitColor);
   wrapper.appendChild(colorInput);
 
   return wrapper;

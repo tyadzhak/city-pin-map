@@ -141,7 +141,9 @@ test("exportToJson: serializes a v2 payload with pins, groups, userIcons and tri
     assert.ok(capturedBlob, "Blob should have been created");
     const text = await capturedBlob.text();
     const payload = JSON.parse(text);
-    assert.equal(payload.version, 2);
+    // v3 since the 2026-08-11 pin-color-precedence flip (v1/v2 are pre-flip
+    // and get the one-shot DEFAULT_PIN_COLOR → null migration on import).
+    assert.equal(payload.version, 3);
     assert.equal(typeof payload.exportedAt, "string");
     assert.equal(payload.pins.length, 1);
     assert.equal(payload.pins[0].id, "pin-1");
@@ -281,10 +283,133 @@ test("importFromJson: pin defaults fill in for missing/invalid optional fields",
   const [pin] = pinStore.listPins();
   assert.equal(typeof pin.id, "string");
   assert.ok(pin.id.length > 0);
-  assert.equal(pin.color, "#e63946"); // pins.js DEFAULT_PIN_COLOR
+  // 2026-08-11 pin-color-precedence flip: a missing color migrates to null
+  // (inherit) — the same "never customized" heuristic as a stored
+  // DEFAULT_PIN_COLOR — rather than being stamped with a concrete shade.
+  // See normalizeLoadedPinColor (js/storage.js).
+  assert.equal(pin.color, null);
   assert.equal(pin.group, null);
   assert.equal(pin.icon, null);
   assert.equal(typeof pin.createdAt, "number");
+});
+
+// ── pin-color-precedence flip (2026-08-11): v1/v2 migration vs v3 verbatim ──
+
+test("importFromJson: a v2 (pre-flip) pin stored with exactly DEFAULT_PIN_COLOR migrates to null (inherit); other colors and an existing null pass through unchanged", async () => {
+  await importFromJson(
+    makeFile(
+      JSON.stringify({
+        version: 2,
+        pins: [
+          samplePin({ id: "was-default", color: "#e63946" }), // DEFAULT_PIN_COLOR
+          samplePin({ id: "customized", color: "#123456" }),
+          samplePin({ id: "already-null", color: null }),
+        ],
+        groups: [],
+        userIcons: [],
+      })
+    )
+  );
+  const byId = Object.fromEntries(pinStore.listPins().map((p) => [p.id, p]));
+  assert.equal(byId["was-default"].color, null);
+  assert.equal(byId["customized"].color, "#123456");
+  assert.equal(byId["already-null"].color, null);
+});
+
+test("importFromJson: a v1 (pre-flip, no userIcons) backup gets the same DEFAULT_PIN_COLOR migration", async () => {
+  await importFromJson(
+    makeFile(
+      JSON.stringify({
+        version: 1,
+        pins: [samplePin({ id: "was-default", color: "#e63946" })],
+        groups: [],
+      })
+    )
+  );
+  assert.equal(pinStore.listPins()[0].color, null);
+});
+
+test("importFromJson: a v3 (post-flip) backup takes colors VERBATIM — a deliberately-picked DEFAULT_PIN_COLOR survives", async () => {
+  await importFromJson(
+    makeFile(
+      JSON.stringify({
+        version: 3,
+        pins: [
+          samplePin({ id: "deliberate-red", color: "#e63946" }), // DEFAULT_PIN_COLOR
+          samplePin({ id: "inherited", color: null }),
+          samplePin({ id: "no-color-field", color: undefined }),
+        ],
+        groups: [],
+        userIcons: [],
+      })
+    )
+  );
+  const byId = Object.fromEntries(pinStore.listPins().map((p) => [p.id, p]));
+  assert.equal(byId["deliberate-red"].color, "#e63946");
+  assert.equal(byId["inherited"].color, null);
+  // A missing color is still "never customized" in every version.
+  assert.equal(byId["no-color-field"].color, null);
+});
+
+test("importFromJson: a v3 backup's userIcons are imported (the userIcons gate is >= v2, not === v2)", async () => {
+  userIconStore.replaceAll([]);
+  await importFromJson(
+    makeFile(
+      JSON.stringify({
+        version: 3,
+        pins: [],
+        groups: [],
+        userIcons: [
+          {
+            id: "icon-v3",
+            name: "star",
+            tintable: true,
+            fillSvg: CLEAN_SVG,
+            attribution: null,
+            createdAt: 1,
+          },
+        ],
+      })
+    )
+  );
+  assert.equal(userIconStore.list().length, 1);
+  assert.equal(userIconStore.list()[0].id, "icon-v3");
+});
+
+test("importFromJson: pin color round-trips through export -> import (v3), including both a null (inherited) color and a deliberate DEFAULT_PIN_COLOR", async () => {
+  pinStore.replaceAll([
+    samplePin({ id: "inherit-me", color: null }),
+    samplePin({ id: "keep-me", color: "#123456" }),
+    samplePin({ id: "deliberate-red", color: "#e63946" }),
+  ]);
+  groupStore.replaceAll([]);
+  userIconStore.replaceAll([]);
+
+  let capturedBlob = null;
+  const realCreateObjectURL = URL.createObjectURL;
+  const realRevokeObjectURL = URL.revokeObjectURL;
+  URL.createObjectURL = (blob) => {
+    capturedBlob = blob;
+    return "blob:test-url";
+  };
+  URL.revokeObjectURL = () => {};
+  try {
+    exportToJson();
+  } finally {
+    URL.createObjectURL = realCreateObjectURL;
+    URL.revokeObjectURL = realRevokeObjectURL;
+  }
+  const exportedText = await capturedBlob.text();
+
+  pinStore.replaceAll([]);
+  await importFromJson(makeFile(exportedText));
+
+  const byId = Object.fromEntries(pinStore.listPins().map((p) => [p.id, p]));
+  assert.equal(byId["inherit-me"].color, null);
+  assert.equal(byId["keep-me"].color, "#123456");
+  // The regression the v3 bump exists for: a v2-style import would have
+  // silently reverted this pin to "inherit".
+  assert.equal(byId["deliberate-red"].color, "#e63946");
 });
 
 test("importFromJson: originalLat/originalLon only carry over when BOTH are finite and in range", async () => {

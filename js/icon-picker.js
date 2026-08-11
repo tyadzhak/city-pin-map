@@ -28,6 +28,7 @@ import {
   subscribe as subscribeIcons,
   effectiveIcon,
 } from "./icons.js";
+import { effectiveColor } from "./map.js";
 import * as userIconStore from "./user-icons.js";
 import { ingestSvg } from "./svg-ingest.js";
 import { loadDefaultPin, saveDefaultPin } from "./storage.js";
@@ -53,7 +54,15 @@ function pinTarget(pinId) {
     getState() {
       const livePin = listPins().find((p) => p.id === pinId);
       if (!livePin) return null;
-      return { color: livePin.color, icon: effectiveIcon(livePin) };
+      // effectiveColor() (js/map.js), not raw livePin.color — since the
+      // 2026-08-11 pin-color-precedence flip, pin.color can be `null`
+      // (inherit), and assigning `null` to a CSS style.color property
+      // CLEARS it rather than showing anything, which would blank the
+      // tinted-preview swatch for every never-customized/grouped pin.
+      // effectiveColor resolves the same precedence the marker itself
+      // renders with (own color > live group color > default-pin color),
+      // so the picker's preview always matches the map.
+      return { color: effectiveColor(livePin), icon: effectiveIcon(livePin) };
     },
     onSelect(iconId) {
       updatePin(pinId, { icon: iconId });

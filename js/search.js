@@ -12,7 +12,7 @@
 // re-renders via the pin store's pub/sub (see app.js bootstrap).
 
 import { searchCities } from "./geocode.js";
-import { addPin, DEFAULT_PIN_COLOR } from "./pins.js";
+import { addPin } from "./pins.js";
 import { showError, loadDefaultPin } from "./storage.js";
 
 const DEBOUNCE_MS = 350;
@@ -166,7 +166,13 @@ function selectResult(result) {
     name: shortName(result),
     lat: result.lat,
     lon: result.lon,
-    color: defaultPin.color,
+    // color: null — INHERIT rather than stamp a snapshot of the current
+    // default (2026-08-11 pin-color-precedence flip). A new pin follows
+    // the default-pin config's color live (js/pins.js's resolvePinColor,
+    // via js/map.js's effectiveColor), so a later edit to the Design-tab
+    // default recolors every never-customized pin in one place instead of
+    // only pins added after the edit.
+    color: null,
     icon: defaultPin.icon,
     // Capture the geocoded origin once at creation (FBL-008). The pin
     // itself is fixed in place and can never be dragged off it, so no UI
@@ -199,4 +205,7 @@ function handleKeydown(event) {
 }
 
 // Exposed for the (future) test harness; not used in production code.
-export const __internals = { DEFAULT_PIN_COLOR, DEBOUNCE_MS, MIN_QUERY_LEN };
+// DEFAULT_PIN_COLOR was dropped from here in the 2026-08-11 pin-color-
+// precedence flip: this module no longer stamps a color at all (new pins
+// get `color: null`), and js/pins.test.mjs already covers the constant.
+export const __internals = { DEBOUNCE_MS, MIN_QUERY_LEN };

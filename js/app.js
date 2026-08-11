@@ -55,7 +55,7 @@ import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
 import { exportToJson, importFromJson } from "./backup.js";
 import { importFromFile } from "./import-foreign.js";
 import { initSearch } from "./search.js";
-import { initPinList } from "./pin-list.js";
+import { initPinList, refreshPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
 import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
 import { initStylePicker } from "./style-picker.js";
@@ -885,7 +885,30 @@ function initDefaultPinOptions() {
     const saved = loadDefaultPin();
     saveDefaultPin({ ...saved, color: colorInput.value });
     refreshTile();
+    // 2026-08-11 pin-color-precedence flip: this color is the FINAL fallback
+    // of the precedence (js/pins.js's resolvePinColor), so changing it
+    // re-colors every pin that never got its own color and isn't in a group.
+    // Nothing re-reads it on its own — every consumer MATERIALIZES the
+    // resolved color at render time (map features, pin-list rows) — and no
+    // store mutated, so no subscription fires. Push the same render entry
+    // points the pin/group subscriptions use:
+    renderPins(pinStore.listPins());
+    refreshPinList();
+    // The inset resolves colors through the very same feature build on its
+    // own map; update() (the entry point its own store subscriptions use,
+    // and the one initInset seeds it with at boot) re-renders it. No-op
+    // while the inset is disabled/hidden. insetHandle is assigned later in
+    // init() than this wiring, but this closure only runs on user
+    // interaction, by which point it's set — same contract as the
+    // hide-labels toggle above.
+    if (insetHandle) insetHandle.update(loadInset());
   });
+
+  // NOTE: only the COLOR half live-updates. The default ICON is stamped onto
+  // a pin at ADD time (js/search.js, js/import-foreign.js) and stored on the
+  // pin, so changing it here deliberately affects only future pins — the
+  // "Apply to all pins" button below is the way to push it onto existing
+  // ones. Nothing to re-render for it here beyond the tile itself.
 
   applyAllBtn.addEventListener("click", () => {
     const pins = pinStore.listPins();
@@ -897,21 +920,19 @@ function initDefaultPinOptions() {
       return;
     }
 
-    // A grouped pin's marker keeps rendering the GROUP's color regardless of
-    // what its own `pin.color` holds (effectiveColor's override contract is
-    // untouched by this feature) — so overwriting `pin.color` here is
-    // invisible on the map for a grouped pin. Only warn about pins whose
-    // group assignment actually RESOLVES to a live group (a stale/deleted
-    // group id doesn't override anything visually, so there's nothing to
-    // silently lose there — same distinction pin-list.js's own
-    // groupAssigned lookup makes).
-    const liveGroupIds = new Set(groupStore.listGroups().map((g) => g.id));
-    const hasGroupedPins = pins.some((p) => p.group && liveGroupIds.has(p.group));
-    let message = `Apply the default pin appearance to all ${count} pin${count === 1 ? "" : "s"}?`;
-    if (hasGroupedPins) {
-      message +=
-        " Grouped pins will keep showing their group color on the map, but their own saved color will be replaced by the default.";
-    }
+    // 2026-08-11 pin-color-precedence flip: a pin's own CUSTOMIZED color now
+    // always wins over its group's, so "apply the default appearance"
+    // no longer stamps a color snapshot onto every pin — it clears
+    // pin.color back to null (inherit), which doubles as the bulk
+    // "reset to inherit" escape hatch (there's no per-pin reset affordance
+    // in v1; see js/pin-list.js's buildAppearanceTile comment). A cleared
+    // pin then renders its live group's color when grouped, else the
+    // Design-tab default color — exactly what "the default appearance"
+    // means for an uncustomized pin. The confirm states BOTH consequences,
+    // since the batch below also overwrites every pin's ICON with the
+    // default one, and a per-pin icon is just as deliberate a choice as a
+    // per-pin color.
+    const message = `Apply the default pin appearance to all ${count} pin${count === 1 ? "" : "s"}? Every pin's icon will be set to the default icon, and custom pin colors will be cleared so pins follow their group (or the default) color again.`;
     if (!confirm(message)) return;
 
     // Reuse readState() so the icon actually stamped onto every pin is the
@@ -923,10 +944,9 @@ function initDefaultPinOptions() {
     // per-field processing — see js/pins.js) rather than N updatePin calls,
     // so applying to a large pin set doesn't fire N separate re-renders.
     // Every other field (group, labelDx/labelDy, createdAt, …) is preserved
-    // via the spread — group assignment is untouched, so a grouped pin's
-    // visible color still comes from the group override, unchanged contract.
+    // via the spread — group assignment is untouched.
     pinStore.replaceAll(
-      pins.map((p) => ({ ...p, icon: state.icon, color: state.color }))
+      pins.map((p) => ({ ...p, icon: state.icon, color: null }))
     );
   });
 }

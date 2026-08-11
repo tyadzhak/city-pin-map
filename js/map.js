@@ -5,7 +5,13 @@
 // the app never touches `maplibregl` directly — they go through getMap().
 
 import { listGroups } from "./groups.js";
-import { saveMapStyle, showError, loadHideLabels } from "./storage.js";
+import { resolvePinColor } from "./pins.js";
+import {
+  saveMapStyle,
+  showError,
+  loadHideLabels,
+  loadDefaultPin,
+} from "./storage.js";
 import { refreshAllLabelLayers } from "./map-labels.js";
 import * as settings from "./settings.js";
 import {
@@ -1306,15 +1312,31 @@ function boundsToLineFeatureCollection(bounds) {
 }
 
 /**
- * Resolve the color a pin should render as. Group color wins when the pin
- * is assigned to a still-existing group; otherwise the pin's own color.
- * A pin whose `group` references a deleted group is silently treated as
- * ungrouped — render must never crash on stale data.
+ * Resolve the color a pin should render as. 2026-08-11 pin-color-
+ * precedence flip: a pin's own CUSTOMIZED color (a concrete `pin.color`,
+ * never `null`) always wins now; group color is only a DEFAULT for a pin
+ * that was never given a custom color; the Design-tab default-pin color is
+ * the final fallback. A pin whose `group` references a deleted group is
+ * silently treated as ungrouped — render must never crash on stale data.
+ *
+ * Thin wrapper around js/pins.js's pure resolvePinColor(): this function
+ * supplies the two pieces of live state that function can't reach itself
+ * (the live group lookup, the default-pin config's color), so the
+ * precedence RULE stays node-testable without a DOM.
+ *
+ * @param {object} pin
+ * @param {string} [defaultColor] - The final-fallback color. Optional: it
+ *   defaults to a fresh loadDefaultPin() read, which is a localStorage hit
+ *   per call. A caller resolving MANY pins in one pass (js/pin-list.js's
+ *   per-render row loop) should hoist that read once and pass it in — the
+ *   same hoist pinsToFeatureCollection does below. Lazily evaluated, so a
+ *   single-pin caller pays nothing for the parameter existing.
  */
-export function effectiveColor(pin) {
-  if (!pin.group) return pin.color;
-  const group = listGroups().find((g) => g.id === pin.group);
-  return group?.color ?? pin.color;
+export function effectiveColor(pin, defaultColor = loadDefaultPin().color) {
+  const group = pin?.group
+    ? listGroups().find((g) => g.id === pin.group) ?? null
+    : null;
+  return resolvePinColor(pin, group, defaultColor);
 }
 
 /**
@@ -1361,6 +1383,14 @@ function rasterStyle({ tiles, maxzoom, attribution }) {
 }
 
 function pinsToFeatureCollection(pins) {
+  // Read the default-pin color and the group list ONCE per build, not once
+  // per pin (that's what effectiveColor() would do if called per-feature
+  // below — a localStorage read AND a fresh listGroups() copy per pin,
+  // unnecessary at this app's tens-of-pins scale but still wasteful for a
+  // full re-render). resolvePinColor is called directly here instead of
+  // going through effectiveColor().
+  const defaultColor = loadDefaultPin().color;
+  const groups = listGroups();
   return {
     type: "FeatureCollection",
     features: pins.map((pin) => {
@@ -1378,6 +1408,9 @@ function pinsToFeatureCollection(pins) {
       // still renders sensibly. The default-pin built-in is always
       // tintable, so this is the conservative fallback.
       const tintable = iconEntry?.tintable ?? true;
+      const group = pin.group
+        ? groups.find((g) => g.id === pin.group) ?? null
+        : null;
       return {
         type: "Feature",
         geometry: { type: "Point", coordinates: [pin.lon, pin.lat] },
@@ -1389,7 +1422,7 @@ function pinsToFeatureCollection(pins) {
         properties: {
           id: pin.id,
           name: pin.name,
-          color: effectiveColor(pin),
+          color: resolvePinColor(pin, group, defaultColor),
           icon: iconId,
           tintable,
         },

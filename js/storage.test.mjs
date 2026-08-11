@@ -14,6 +14,7 @@ import { DEFAULT_PIN_COLOR } from "./pins.js";
 import {
   loadPins,
   savePins,
+  normalizeLoadedPinColor,
   loadGroups,
   saveGroups,
   loadUserIcons,
@@ -66,6 +67,7 @@ import {
 // ── literal key names (mirrors the private constants in storage.js, needed
 // for precise byte-level assertions the public API alone can't express) ──
 const PINS_KEY = "city-pin-map.pins.v1";
+const PINS_COLOR_MIGRATED_KEY = "city-pin-map.pins.color-migrated.v1";
 const GROUPS_KEY = "city-pin-map.groups.v1";
 const USER_ICONS_KEY = "city-pin-map.user-icons.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
@@ -141,7 +143,7 @@ test("loadPins/savePins: valid pin round-trips", () => {
   assert.deepEqual(loaded[0], pin);
 });
 
-test("loadPins: fills in missing id/color/group/icon/createdAt", () => {
+test("loadPins: fills in missing id/group/icon/createdAt; a missing color normalizes to null (inherit)", () => {
   globalThis.localStorage.setItem(
     PINS_KEY,
     JSON.stringify([{ name: "Somewhere", lat: 1, lon: 2 }])
@@ -149,10 +151,129 @@ test("loadPins: fills in missing id/color/group/icon/createdAt", () => {
   const [pin] = loadPins();
   assert.equal(typeof pin.id, "string");
   assert.ok(pin.id.length > 0);
-  assert.equal(pin.color, DEFAULT_PIN_COLOR);
+  // 2026-08-11 pin-color-precedence flip: a missing color used to fall
+  // back to the concrete DEFAULT_PIN_COLOR; it now normalizes to null
+  // (inherit) via normalizeLoadedPinColor's "never customized" heuristic —
+  // see that function's doc comment.
+  assert.equal(pin.color, null);
   assert.equal(pin.group, null);
   assert.equal(pin.icon, null);
   assert.equal(typeof pin.createdAt, "number");
+});
+
+// ── normalizeLoadedPinColor + the ONE-SHOT DEFAULT_PIN_COLOR migration ────
+
+test("normalizeLoadedPinColor: exactly DEFAULT_PIN_COLOR migrates to null (inherit) ONLY while migrating", () => {
+  assert.equal(
+    normalizeLoadedPinColor(DEFAULT_PIN_COLOR, { migrateLegacyDefault: true }),
+    null
+  );
+  // Post-migration (the default): the same shade is a deliberate choice.
+  assert.equal(normalizeLoadedPinColor(DEFAULT_PIN_COLOR), DEFAULT_PIN_COLOR);
+  assert.equal(
+    normalizeLoadedPinColor(DEFAULT_PIN_COLOR, { migrateLegacyDefault: false }),
+    DEFAULT_PIN_COLOR
+  );
+});
+
+test("normalizeLoadedPinColor: any other concrete hex passes through unchanged, migrating or not", () => {
+  assert.equal(normalizeLoadedPinColor("#123456"), "#123456");
+  assert.equal(normalizeLoadedPinColor("#00ff00", { migrateLegacyDefault: true }), "#00ff00");
+});
+
+test("normalizeLoadedPinColor: an already-null value stays null", () => {
+  assert.equal(normalizeLoadedPinColor(null), null);
+  assert.equal(normalizeLoadedPinColor(null, { migrateLegacyDefault: true }), null);
+});
+
+test("normalizeLoadedPinColor: missing/blank/malformed values normalize to null (never customized), migrating or not", () => {
+  assert.equal(normalizeLoadedPinColor(undefined), null);
+  assert.equal(normalizeLoadedPinColor(""), null);
+  assert.equal(normalizeLoadedPinColor(42), null);
+  assert.equal(normalizeLoadedPinColor({}), null);
+  assert.equal(normalizeLoadedPinColor("", { migrateLegacyDefault: true }), null);
+});
+
+test("loadPins: the FIRST load of a pre-flip profile migrates a stored DEFAULT_PIN_COLOR to null; other colors pass through", () => {
+  globalThis.localStorage.setItem(
+    PINS_KEY,
+    JSON.stringify([
+      { id: "was-default", name: "A", lat: 1, lon: 1, color: DEFAULT_PIN_COLOR },
+      { id: "customized", name: "B", lat: 2, lon: 2, color: "#123456" },
+      { id: "already-null", name: "C", lat: 3, lon: 3, color: null },
+    ])
+  );
+  const pins = loadPins();
+  const byId = Object.fromEntries(pins.map((p) => [p.id, p]));
+  assert.equal(byId["was-default"].color, null);
+  assert.equal(byId["customized"].color, "#123456");
+  assert.equal(byId["already-null"].color, null);
+});
+
+test("loadPins: the migration is ONE-SHOT — it persists the migrated pins and marks itself done", () => {
+  globalThis.localStorage.setItem(
+    PINS_KEY,
+    JSON.stringify([
+      { id: "was-default", name: "A", lat: 1, lon: 1, color: DEFAULT_PIN_COLOR },
+    ])
+  );
+  loadPins();
+  // Migrated data is written back, so the pre-flip bytes are gone…
+  const stored = JSON.parse(globalThis.localStorage.getItem(PINS_KEY));
+  assert.equal(stored[0].color, null);
+  // …and the marker records that the heuristic already ran.
+  assert.equal(
+    globalThis.localStorage.getItem(PINS_COLOR_MIGRATED_KEY),
+    "true"
+  );
+});
+
+test("loadPins: after the migration, a pin the user deliberately colors DEFAULT_PIN_COLOR survives a save/load round-trip", () => {
+  // First load closes the migration window (this is the pre-flip profile's
+  // one migrating load — here it has no pins at all, the fresh-profile case).
+  loadPins();
+
+  // Now the user picks exactly the default red on a pin. It must NOT be
+  // reinterpreted as "never customized" on the next load — the regression
+  // the one-shot marker exists to prevent.
+  savePins([
+    { id: "p1", name: "Deliberate red", lat: 1, lon: 2, color: DEFAULT_PIN_COLOR, group: null, icon: null, createdAt: 1 },
+  ]);
+  const [pin] = loadPins();
+  assert.equal(pin.color, DEFAULT_PIN_COLOR);
+
+  // And again, to prove it's stable rather than merely deferred by one load.
+  savePins(loadPins());
+  assert.equal(loadPins()[0].color, DEFAULT_PIN_COLOR);
+});
+
+test("loadPins: a fresh profile (no pins key) still records the migration marker", () => {
+  assert.deepEqual(loadPins(), []);
+  assert.equal(
+    globalThis.localStorage.getItem(PINS_COLOR_MIGRATED_KEY),
+    "true"
+  );
+});
+
+test("loadPins: a failed write-back leaves the migration window OPEN for the next load", () => {
+  globalThis.localStorage.setItem(
+    PINS_KEY,
+    JSON.stringify([
+      { id: "was-default", name: "A", lat: 1, lon: 1, color: DEFAULT_PIN_COLOR },
+    ])
+  );
+  withThrowingSetItem(() => {
+    const [pin] = loadPins();
+    assert.equal(pin.color, null); // in-memory result is still migrated
+  });
+  // The marker never landed, so the stored (still pre-flip) bytes get
+  // another chance rather than being sealed behind a false "migrated".
+  assert.equal(
+    globalThis.localStorage.getItem(PINS_COLOR_MIGRATED_KEY),
+    null
+  );
+  const [pin] = loadPins();
+  assert.equal(pin.color, null);
 });
 
 test("loadPins: drops null/non-object elements", () => {
@@ -1207,8 +1328,35 @@ test("loadDefaultPin/saveDefaultPin: round trip", () => {
 });
 
 test("loadDefaultPin: corrupt value falls back to defaults + banner", () => {
+  // The warn-once latch is module state that beforeEach's resetStorage()
+  // can't clear; a readable load re-arms it (see warnDefaultPinOnce), and
+  // the key is missing right now, so this call does exactly that.
+  loadDefaultPin();
   globalThis.localStorage.setItem("city-pin-map.default-pin.v1", "nope{{");
   assert.deepEqual(loadDefaultPin(), { icon: null, color: DEFAULT_PIN_COLOR });
+  assert.match(banner().textContent, /corrupted/);
+});
+
+test("loadDefaultPin: a corrupt key banners ONCE, not once per call", () => {
+  loadDefaultPin(); // re-arm the latch (see above)
+  globalThis.localStorage.setItem("city-pin-map.default-pin.v1", "nope{{");
+  loadDefaultPin();
+  assert.match(banner().textContent, /corrupted/);
+
+  // loadDefaultPin() sits on render paths now (every pin-list render, every
+  // map feature build), so a per-call banner would reset the 6s timer
+  // forever and drown out every other message.
+  banner().textContent = "";
+  banner().hidden = true;
+  loadDefaultPin();
+  loadDefaultPin();
+  assert.equal(banner().textContent, "");
+
+  // …but the latch re-arms once the key is readable again, so a LATER
+  // corruption is still announced.
+  saveDefaultPin({ icon: null, color: "#123456" });
+  globalThis.localStorage.setItem("city-pin-map.default-pin.v1", "nope{{");
+  loadDefaultPin();
   assert.match(banner().textContent, /corrupted/);
 });
 
@@ -1218,6 +1366,7 @@ test("loadDefaultPin: non-object JSON value is treated as corrupt", () => {
 });
 
 test("loadDefaultPin: getItem throw returns defaults with a banner", () => {
+  loadDefaultPin(); // re-arm the warn-once latch (see above)
   const value = withThrowingGetItem(() => loadDefaultPin());
   assert.deepEqual(value, { icon: null, color: DEFAULT_PIN_COLOR });
   assert.match(banner().textContent, /could not be read/);
@@ -1509,11 +1658,46 @@ test("saveSnapshot/loadSnapshot: valid pins+groups round-trip", () => {
 test("saveSnapshot: persists the documented { version, savedAt, pins, groups } envelope", () => {
   saveSnapshot({ pins: [{ name: "A", lat: 1, lon: 1 }], groups: [] });
   const payload = JSON.parse(globalThis.localStorage.getItem(SNAPSHOT_KEY));
-  assert.equal(payload.version, 1);
+  // v2 since the 2026-08-11 pin-color-precedence flip (v1 = pre-flip; see
+  // SNAPSHOT_VERSION in storage.js).
+  assert.equal(payload.version, 2);
   assert.equal(typeof payload.savedAt, "string");
   assert.ok(!Number.isNaN(Date.parse(payload.savedAt)));
   assert.ok(Array.isArray(payload.pins));
   assert.ok(Array.isArray(payload.groups));
+});
+
+// ── snapshot pin.color semantics (2026-08-11 precedence flip) ────────────
+
+test("saveSnapshot/loadSnapshot: a v2 snapshot keeps a deliberately-picked DEFAULT_PIN_COLOR through a round-trip", () => {
+  saveSnapshot({
+    pins: [
+      { id: "p1", name: "Deliberate red", lat: 1, lon: 2, color: DEFAULT_PIN_COLOR, group: null, icon: null, createdAt: 1 },
+      { id: "p2", name: "Inherited", lat: 3, lon: 4, color: null, group: null, icon: null, createdAt: 2 },
+    ],
+    groups: [],
+  });
+  const byId = Object.fromEntries(loadSnapshot().pins.map((p) => [p.id, p]));
+  assert.equal(byId.p1.color, DEFAULT_PIN_COLOR);
+  assert.equal(byId.p2.color, null);
+});
+
+test("loadSnapshot: a version-1 (pre-flip) snapshot still migrates DEFAULT_PIN_COLOR to null", () => {
+  globalThis.localStorage.setItem(
+    SNAPSHOT_KEY,
+    JSON.stringify({
+      version: 1,
+      savedAt: new Date().toISOString(),
+      pins: [
+        { id: "p1", name: "Untouched", lat: 1, lon: 2, color: DEFAULT_PIN_COLOR, createdAt: 1 },
+        { id: "p2", name: "Customized", lat: 3, lon: 4, color: "#123456", createdAt: 2 },
+      ],
+      groups: [],
+    })
+  );
+  const byId = Object.fromEntries(loadSnapshot().pins.map((p) => [p.id, p]));
+  assert.equal(byId.p1.color, null);
+  assert.equal(byId.p2.color, "#123456");
 });
 
 test("saveSnapshot: overwrites any previous snapshot (single slot)", () => {
