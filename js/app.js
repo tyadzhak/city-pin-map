@@ -68,6 +68,7 @@ import * as mapFade from "./map-fade.js";
 import * as mapViewport from "./map-viewport.js";
 import * as mapInset from "./map-inset.js";
 import * as mapLabels from "./map-labels.js";
+import * as mapSelect from "./map-select.js";
 
 // The live inset handle, exposed at module scope so the frame-control wiring
 // (initExportFrameOptions) can trigger a re-dock/re-clamp of the inset whenever
@@ -266,6 +267,13 @@ function init() {
   // must see hydrated pins/groups. No UI controls here — the pin-style group
   // and (later) the labelFont/labelItalic controls own those.
   mapLabels.init(getMap());
+
+  // Shift+drag box-select → bulk group assign (this milestone). No storage
+  // dependency of its own — it reads pins/groups live at interaction time —
+  // so it just needs the map to exist. See js/map-select.js for the boxZoom
+  // trade-off this disables.
+  const mapForSelect = getMap();
+  if (mapForSelect) mapSelect.init(mapForSelect);
 
   initExportFormatSelector();
   // Capture the live-state accessors so the export button consumes the same

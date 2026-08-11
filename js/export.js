@@ -60,7 +60,7 @@ import {
   loadBottomFade,
 } from "./storage.js";
 import { computeLabelSpecs } from "./map-labels.js";
-import { getInsetMap, getResolvedPlacement } from "./map-inset.js";
+import { getInsetMap, getResolvedPlacement, getInsetPins } from "./map-inset.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
 // Same budgets the previous Leaflet impl used; MapLibre's `idle` event
@@ -371,9 +371,16 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     const insetPlacement = activeInset ? getResolvedPlacement() : null;
     // Inset labels use the SAME sizeMultiplier convention; positions are in the
     // inset map's own (resized) CSS px, transformed into the box inside
-    // paintInset.
+    // paintInset. `pins: getInsetPins()` restricts the label set to the SAME
+    // group-filtered pins the live inset overlay renders — otherwise this
+    // repaint would fall back to computeLabelSpecs' default (every pin) and
+    // reintroduce, on export, the exact "ungrouped pin shows up in the inset"
+    // bug the render-layer fix in js/map-inset.js addresses on screen.
     const insetLabelSpecs = activeInset
-      ? computeLabelSpecs(activeInset, { sizeMultiplier: labelMultiplier })
+      ? computeLabelSpecs(activeInset, {
+          sizeMultiplier: labelMultiplier,
+          pins: getInsetPins(),
+        })
       : null;
 
     return {

@@ -1101,6 +1101,116 @@ body.dragging-inset * {
   will-change: transform;
 }
 
+/* Cheap selection cue while the box-select assignment popover is open
+   (js/map-select.js): outlines the DOM label of every selected pin. Pins
+   with no rendered label (empty name) get no cue — the popover's own count
+   is the fallback source of truth, per that feature's spec. */
+.map-pin-labels__label.map-select-highlighted {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 4px;
+  background: rgba(37, 99, 235, 0.15);
+}
+
+/* Box-select rubber band (js/map-select.js). Shift+drag on the main map
+   draws this dashed rectangle live; MapLibre's own Shift-drag boxZoom is
+   disabled so it can't fight the gesture (see that module's header for the
+   box-zoom-for-box-select trade-off). Purely visual — pointer-events:none —
+   the drag itself is tracked on the map container, not this div. z-index
+   sits above every other live overlay (fade 3, inset 4, frame 5, title 6)
+   so the rectangle is always visible while dragging, regardless of what
+   design overlays are enabled underneath it. */
+.map-select-rect {
+  position: absolute;
+  z-index: 7;
+  border: 1.5px dashed #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+  pointer-events: none;
+}
+
+/* Bulk group-assign popover shown after a box-select with >=1 pin inside
+   the rectangle. Visual language mirrors .picker__popover / .modal__panel
+   (white surface, rounded corners, soft shadow) but is a lightweight,
+   non-modal popover — no backdrop, so the map stays visible/interactive
+   everywhere outside the popover's own small footprint. Positioned near the
+   release point by js/map-select.js's positionPanel(), clamped to the map
+   container's bounds. */
+.map-select-panel {
+  position: absolute;
+  z-index: 8;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  padding: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.map-select-panel__count {
+  margin: 0;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.map-select-panel__select,
+.map-select-panel__name {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.map-select-panel__name[hidden] {
+  display: none;
+}
+
+.map-select-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.map-select-panel__cancel,
+.map-select-panel__assign {
+  appearance: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: #ffffff;
+  color: #0f172a;
+}
+.map-select-panel__cancel:hover {
+  border-color: #94a3b8;
+}
+
+.map-select-panel__assign {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+}
+.map-select-panel__assign:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+/* "+ New group…" is selected but the name is still blank — the action is
+   unavailable rather than silently doing nothing on click (js/map-select.js's
+   syncNameVisibility keeps this in sync with the input). Mirrors
+   .export-btn:disabled's muted-fill treatment. */
+.map-select-panel__assign:disabled {
+  background: #a5b4fc;
+  border-color: #a5b4fc;
+  cursor: not-allowed;
+}
+
 .app-side {
   grid-area: side;
   display: flex;

@@ -21,9 +21,10 @@
 //
 // So export.js can consume the LIVE overlay state without a handle plumbed
 // through app.js (the FBL-009..023 convention: export reads live state, not
-// snapshots), getInsetMap/getPlacement/getBoundsInUse are ALSO module-level
-// exports reading the same module-scoped state — null-safe before init().
-// init() still returns them bundled in its handle for app.js's own use.
+// snapshots), getInsetMap/getPlacement/getBoundsInUse/getInsetPins are ALSO
+// module-level exports reading the same module-scoped state — null-safe
+// before init(). init() still returns them bundled in its handle for app.js's
+// own use.
 //
 // The inset's basemap is SEEDED from the main map's already-resolved style
 // (mainMap.getStyle()), with the app-added sources/layers stripped by their
@@ -31,6 +32,14 @@
 // pins/route are then re-added onto the inset via the SHARED helpers exported
 // from js/map.js (addPinAndRouteLayers / renderPinsTo / renderRouteTo), which
 // also re-register the SDF sprite images that getStyle() omits.
+//
+// The inset shows ONLY the selected group's pins — never every pin on the
+// map. This is enforced by routing every pin consumer (the fit-bounds camera
+// target, the rendered markers, the inset's own route line, its DOM label
+// overlay, and js/export.js's repaint of that overlay) through the SAME
+// pinsForInset() filter below, rather than each computing its own — see that
+// function's own comment for why this fixed a real bug (ungrouped pins that
+// geographically fell inside the fitted viewport used to render anyway).
 //
 // Public surface:
 //   init(mainMap) — create the overlay (idempotent), wire the live
@@ -43,6 +52,9 @@
 //   handle.getPlacement()     — { corner, sizePct, heightPct, marginPx } in
 //                               effect (the export mirrors this geometry).
 //   handle.getBoundsInUse()   — the LngLatBounds currently fitted, or null.
+//   getInsetPins()            — the group-filtered pins currently shown (or
+//                               [] when hidden), module-level export so
+//                               export.js can read it without a handle.
 
 import {
   addPinAndRouteLayers,
@@ -308,19 +320,42 @@ export function getBoundsInUse() {
 
 // ---- Internals --------------------------------------------------------
 
+// SINGLE shared filter for every inset pin consumer — the fit-bounds path
+// (resolveBounds below), the render path (renderInsetData), the pins SOURCE's
+// initial seed (onInsetStyleData's addPinAndRouteLayers `seedPins`), the
+// inset's own route line (also renderInsetData, which feeds the same filtered
+// list to renderRouteTo), the inset's DOM label overlay (ensureInsetMap wires
+// this as insetLabels' pinsProvider), and js/export.js's paintInset (via the
+// getInsetPins() export below). Routing every consumer through this ONE
+// function is what makes "the inset shows only its group's pins" a
+// structural guarantee rather than a convention four call sites have to
+// remember independently — the bug this fixed (ungrouped pins that
+// geographically fell inside the fitted viewport used to render in the
+// inset) was exactly a case of the fit path and the render path each doing
+// their own filtering and drifting apart.
+//
+// Returns [] (not all pins) when unresolvable: no group chosen, or a
+// stale/deleted group id (its pins were cascade-cleared to `group: null`, so
+// the filter finds none) — the empty result is what makes resolveBounds's
+// zero-pins check hide the inset, so "hide on unresolvable" falls out of
+// this function rather than needing its own guard at each call site.
+function pinsForInset(cfg) {
+  if (!cfg || !cfg.groupId) return [];
+  return listPins().filter((p) => p && p.group === cfg.groupId);
+}
+
 // Resolve the chosen group's pin bounds. Returns `{ bounds, pins }` where
 // `bounds` is the group's pin extent (the camera FIT target — the locator is
 // then derived from the resulting viewport, not this raw extent) and `pins`
-// is EVERY pin (the inset renders the whole map like a magnifier — the group
-// only drives the fit). Returns null when unresolvable: no group chosen, a
-// stale/deleted group id (its pins were cascade-cleared to null, so the
-// filter finds none), or a group with zero valid-coordinate pins.
+// is the SAME group-filtered list pinsForInset() returns — the inset shows
+// ONLY the selected group's pins, not every pin on the map. Returns null when
+// unresolvable: no group chosen, a stale/deleted group id, or a group with
+// zero valid-coordinate pins.
 function resolveBounds(cfg) {
   if (!cfg.groupId) return null;
   if (typeof maplibregl === "undefined") return null;
 
-  const pins = listPins();
-  const groupPins = pins.filter((p) => p && p.group === cfg.groupId);
+  const groupPins = pinsForInset(cfg);
   if (groupPins.length === 0) return null;
 
   const bounds = new maplibregl.LngLatBounds();
@@ -332,7 +367,7 @@ function resolveBounds(cfg) {
     }
   }
   if (!any) return null;
-  return { bounds, pins };
+  return { bounds, pins: groupPins };
 }
 
 // Lazily construct the inset MapLibre map, seeded from the main map's current
@@ -374,7 +409,16 @@ function ensureInsetMap() {
   // labels at the box edge. It survives a basemap swap (setStyle only touches
   // WebGL layers, not this sibling DOM), so we just refresh it after re-styles
   // rather than tearing it down — see onInsetStyleData.
-  insetLabels = attachLabelOverlay(insetMap, { interactive: true });
+  //
+  // pinsProvider routes the overlay's label set through the SAME
+  // group-filtered pinsForInset(lastCfg) the fit/render paths use, instead of
+  // js/map-labels.js's default (every pin) — otherwise an ungrouped pin that
+  // geographically falls inside the fitted viewport would show its LABEL in
+  // the inset even after the render-layer fix above stopped drawing its icon.
+  insetLabels = attachLabelOverlay(insetMap, {
+    interactive: true,
+    pinsProvider: () => pinsForInset(lastCfg),
+  });
 
   // Re-add pins/route (+ re-register sprite images) once the seed style is
   // parsed. once() — re-armed after each setStyle in rebuildInsetStyle.
@@ -427,7 +471,16 @@ function rebuildInsetStyle() {
 // current data, and refits to the bounds in use.
 async function onInsetStyleData() {
   if (!insetMap) return;
-  await addPinAndRouteLayers(insetMap, { locator: false, reportFailures: false });
+  // seedPins keeps the source-CREATION step on the same group filter every
+  // other inset pin consumer uses; without it the source would be born holding
+  // the MAIN map's all-pins snapshot (overwritten by renderInsetData() below
+  // before paint, so never user-visible — but it would quietly contradict the
+  // "every inset pin consumer routes through pinsForInset()" contract).
+  await addPinAndRouteLayers(insetMap, {
+    locator: false,
+    reportFailures: false,
+    seedPins: pinsForInset(lastCfg),
+  });
   if (!insetMap) return;
   renderInsetData();
   // The DOM label overlay isn't wiped by setStyle, but the pin set / group
@@ -443,12 +496,17 @@ async function onInsetStyleData() {
   }
 }
 
-// Push the current pins + route into the inset's own sources. Route is
-// included iff the main app's route toggle is on (read from storage at render
-// time — see the module's known-limitations note re: reactivity to the
-// toggle). No-op until the inset's style has the sources (renderPinsTo /
-// renderRouteTo guard on that).
-function renderInsetData(pins = listPins()) {
+// Push the current pins + route into the inset's own sources. `pins` defaults
+// to pinsForInset(lastCfg) — the SAME group-filtered list resolveBounds()
+// fits to — so a caller that re-renders without an explicit list (the
+// basemap-swap re-add path below) still shows only the selected group's
+// pins, not every pin on the map. Route is included iff the main app's route
+// toggle is on (read from storage at render time — see the module's
+// known-limitations note re: reactivity to the toggle); it's built from the
+// SAME filtered list, so the inset's route only connects that group's pins —
+// consistent with the inset showing only that group. No-op until the inset's
+// style has the sources (renderPinsTo / renderRouteTo guard on that).
+function renderInsetData(pins = pinsForInset(lastCfg)) {
   if (!insetMap) return;
   renderPinsTo(insetMap, pins);
   renderRouteTo(insetMap, pins, { visible: loadRouteVisible() });
@@ -456,6 +514,21 @@ function renderInsetData(pins = listPins()) {
   // every pin/group re-sync (the overlay also subscribes to the stores itself,
   // but this covers the same call path the pins use so they never diverge).
   if (insetLabels) insetLabels.refresh();
+}
+
+/**
+ * The pins currently shown in the inset — the SAME group-filtered list the
+ * fit/render paths use (pinsForInset(lastCfg)) — or [] when the inset is
+ * hidden/unresolvable. Exported (mirroring getInsetMap()/getResolvedPlacement()'s
+ * "live state without a handle plumbed through app.js" pattern — see the
+ * module header) so js/export.js's paintInset can repaint the inset's pin
+ * labels from the SAME set the live overlay renders, instead of re-deriving
+ * its own (and risking the exact fit-vs-render divergence this module's
+ * pinsForInset() was introduced to prevent).
+ */
+export function getInsetPins() {
+  if (!insetMap || !boundsInUse) return [];
+  return pinsForInset(lastCfg);
 }
 
 function fitInset(bounds) {
