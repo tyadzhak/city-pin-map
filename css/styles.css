@@ -1174,10 +1174,17 @@ body.dragging-inset * {
 /* PO-004: foreign-file import row, directly under the Pins header bar.
    Its own row (rather than squeezing into .backup-controls) because the
    320px side panel has no width left once a fourth, longer-labeled
-   button joins the gear + Export JSON + Import JSON on one line. */
-.import-controls {
+   button joins the gear + Export JSON + Import JSON on one line.
+   .snapshot-controls (Save/Load/New, browser-memory backup sibling) shares
+   this same row shape for the same width reason — one more row directly
+   underneath. flex-wrap lets the inline status span drop to a second line
+   instead of overflowing once its message outgrows the space left beside
+   the buttons (three of them on the snapshot row). */
+.import-controls,
+.snapshot-controls {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 10px 16px;

@@ -47,6 +47,8 @@ import {
   normalizePinStyle,
   loadDefaultPin,
   saveDefaultPin,
+  loadSnapshot,
+  saveSnapshot,
   showError,
 } from "./storage.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
@@ -283,6 +285,7 @@ function init() {
   });
   initBackupControls();
   initImportFromFileControl();
+  initSnapshotControls();
   initSettingsPanel();
 }
 
@@ -1252,6 +1255,139 @@ function initImportFromFileControl() {
     });
     picker.click();
   });
+}
+
+// Save / Load / New (this milestone): a lighter, browser-memory sibling of
+// the Export/Import JSON backup buttons above — same "pins + groups only"
+// scope, round-tripped through localStorage (js/storage.js's loadSnapshot/
+// saveSnapshot) instead of a downloaded file. Confirms mirror the style of
+// initDefaultPinOptions's "Apply to all pins" confirm: state the counts,
+// ask before anything destructive happens; a zero-pin/zero-group click on
+// New has nothing to lose, so it skips the confirm entirely, same as that
+// button's zero-pin skip.
+//
+// Feedback split: purely-positive outcomes go to the inline
+// #snapshot-status span (mirroring #import-file-status), leaving the red
+// role="alert" #error-banner for failures and partial failures.
+function initSnapshotControls() {
+  const saveBtn = document.getElementById("snapshot-save");
+  const loadBtn = document.getElementById("snapshot-load");
+  const newBtn = document.getElementById("snapshot-new");
+  if (!saveBtn || !loadBtn || !newBtn) return;
+
+  saveBtn.addEventListener("click", () => {
+    setSnapshotStatus("");
+    const ok = saveSnapshot({
+      pins: pinStore.listPins(),
+      groups: groupStore.listGroups(),
+    });
+    // Skipped on failure: saveSnapshot() already showed its own
+    // "could not save" banner in that case.
+    if (ok) setSnapshotStatus("Snapshot saved.");
+  });
+
+  loadBtn.addEventListener("click", () => {
+    // Clear any stale positive message up front, so nothing from a previous
+    // click lingers next to this click's outcome — including the cancel
+    // path below, which must leave no message at all.
+    setSnapshotStatus("");
+
+    // Parse the snapshot FIRST — before asking to overwrite anything — so a
+    // missing/corrupt snapshot never triggers a pointless "replace your N
+    // pins?" confirm for a load that can't happen. loadSnapshot() shows its
+    // own banner on every null-returning path (see storage.js); on success
+    // it stays silent and hands back its drop counts for the one combined
+    // message composed below.
+    const snapshot = loadSnapshot();
+    if (!snapshot) return;
+
+    // Both stores are replaced, so the confirm gates on — and names — both
+    // counts: a pins-only gate would silently wipe a groups-only map.
+    const currentPins = pinStore.listPins();
+    const currentGroups = groupStore.listGroups();
+    if (currentPins.length > 0 || currentGroups.length > 0) {
+      const current = describePinGroupCounts(
+        currentPins.length,
+        currentGroups.length
+      );
+      if (
+        !confirm(`Load the saved snapshot? This replaces your current ${current}.`)
+      ) {
+        return;
+      }
+    }
+
+    // Groups before pins, same ordering (and never-crash-on-a-stale-
+    // reference rationale) as js/backup.js's import: loading the referenced
+    // entities first avoids a transient window where a restored pin's
+    // group id doesn't yet resolve to a live group.
+    groupStore.replaceAll(snapshot.groups);
+    pinStore.replaceAll(snapshot.pins);
+
+    const loaded = describePinGroupCounts(
+      snapshot.pins.length,
+      snapshot.groups.length
+    );
+    const skipped = describePinGroupCounts(
+      snapshot.dropped?.pins ?? 0,
+      snapshot.dropped?.groups ?? 0
+    );
+    if (skipped) {
+      // A load that dropped unreadable entries is a partial failure, not a
+      // clean success — the whole outcome goes to the error banner (same
+      // destination as backup.js's "Import finished, but skipped…") rather
+      // than being split across two affordances the user has to read
+      // together to understand what happened.
+      showError(
+        `Loaded ${loaded || "an empty snapshot"}, but skipped ${skipped} that couldn't be read.`
+      );
+    } else {
+      setSnapshotStatus(
+        loaded ? `Loaded ${loaded}.` : "Loaded an empty snapshot."
+      );
+    }
+  });
+
+  newBtn.addEventListener("click", () => {
+    setSnapshotStatus("");
+    const pins = pinStore.listPins();
+    const groups = groupStore.listGroups();
+    if (pins.length === 0 && groups.length === 0) return; // nothing to clear
+
+    const current = describePinGroupCounts(pins.length, groups.length);
+    if (
+      !confirm(
+        `Start over? This clears ${current}. Your last saved snapshot is unaffected.`
+      )
+    ) {
+      return;
+    }
+
+    // Same groups-before-pins ordering as Load, for the same reason.
+    groupStore.replaceAll([]);
+    pinStore.replaceAll([]);
+    setSnapshotStatus("Cleared.");
+  });
+}
+
+// "3 pins and 1 group" — a clause is omitted entirely at zero rather than
+// rendered as "0 pins", so a groups-only (or pins-only) state still reads
+// naturally. Returns "" when both counts are zero; every caller either
+// guards against that case or substitutes its own wording.
+function describePinGroupCounts(pinCount, groupCount) {
+  const parts = [];
+  if (pinCount > 0) {
+    parts.push(`${pinCount} pin${pinCount === 1 ? "" : "s"}`);
+  }
+  if (groupCount > 0) {
+    parts.push(`${groupCount} group${groupCount === 1 ? "" : "s"}`);
+  }
+  return parts.join(" and ");
+}
+
+function setSnapshotStatus(text) {
+  const el = document.getElementById("snapshot-status");
+  if (el) el.textContent = text;
 }
 
 document.addEventListener("DOMContentLoaded", init);
