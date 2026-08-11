@@ -1582,17 +1582,16 @@ body.dragging-inset * {
   display: block;
 }
 
-/* Read-only state for grouped pins (NICE-005). Tile still renders the
-   effective (group) color and icon, but it's no longer a control: no
-   hover ring, no scale-up. .pin-list.js disables the underlying button
-   so the row can't be focused into the popover flow either. */
-.pin-list__tile--readonly,
+/* Disabled state, kept generic (not tied to the removed NICE-005
+   grouped-pin read-only case — see js/pin-list.js's buildAppearanceTile,
+   which no longer sets this on a grouped pin's tile after the 2026-08-11
+   pin-color-precedence flip). Defensive: nothing currently disables a
+   pin-list__tile, but any future caller that does gets a sane look. */
 .pin-list__tile:disabled {
   cursor: default;
   background: transparent;
 }
 
-.pin-list__tile--readonly:hover,
 .pin-list__tile:disabled:hover {
   border-color: rgba(15, 23, 42, 0.12);
   background: transparent;
@@ -2382,6 +2381,17 @@ body.dragging-inset * {
   padding: 0;
   background: none;
   cursor: pointer;
+}
+
+/* 2026-08-11 pin-color-precedence flip: a pin with `color: null` doesn't own
+   the color its swatch displays — it's inherited from the pin's group, or
+   from the Design tab's default pin. The dotted border says "borrowed, not
+   set" (paired with a title tooltip from js/pin-list.js); picking a color
+   makes it concrete and the row re-renders with the solid border. */
+.pin-list__color-swatch--inherited {
+  border-style: dotted;
+  border-width: 2px;
+  border-color: #94a3b8;
 }
 
 /* ===== Side-tabs restructuring (Design | Pins | Groups) =====

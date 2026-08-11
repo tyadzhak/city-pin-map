@@ -1,12 +1,27 @@
 // DEFAULT_PIN_COLOR is the single source of truth for a new pin's shade
-// (pins.js). Imported here so the boot-time pin normalizer (FBL-014) can
-// repair a saved pin with a missing/blank color to the same default the
-// backup-import path uses, and so the default-pin feature's own default
-// color (see normalizeDefaultPin below) never drifts from it. pins.js
-// imports nothing, so this is cycle-free.
+// (pins.js). Two consumers here since the 2026-08-11 pin-color-precedence
+// flip:
+//   1. the ONE-SHOT migration sentinel — normalizeLoadedPinColor treats a
+//      stored color that is EXACTLY this shade as "never customized" and
+//      rewrites it to null (inherit), but only on the single migrating load
+//      of a pre-flip profile (see PINS_COLOR_MIGRATED_KEY below). It is no
+//      longer a repair target: a missing/blank color normalizes to null now,
+//      never back to this constant.
+//   2. the fallback for the default-pin config's own color (see
+//      normalizeDefaultPin / DEFAULT_DEFAULT_PIN below), so the shade a
+//      first-time user sees never drifts from pins.js's.
+// pins.js imports nothing, so this is cycle-free.
 import { DEFAULT_PIN_COLOR } from "./pins.js";
 
 const STORAGE_KEY = "city-pin-map.pins.v1";
+// One-shot marker for the 2026-08-11 pin-color-precedence flip's data
+// migration (see normalizeLoadedPinColor). Bare-string "true" convention,
+// like ROUTE_VISIBLE_KEY. Present === the stored pins have already been
+// reinterpreted once, so every later load must take concrete colors
+// VERBATIM — otherwise a user who deliberately picks exactly
+// DEFAULT_PIN_COLOR would be silently reverted to "inherit" on every
+// reload / snapshot Load / backup round-trip.
+const PINS_COLOR_MIGRATED_KEY = "city-pin-map.pins.color-migrated.v1";
 const GROUPS_STORAGE_KEY = "city-pin-map.groups.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const ROUTE_VISIBLE_KEY = "city-pin-map.route-visible.v1";
@@ -235,15 +250,34 @@ export function loadPins() {
     showError("Saved pins could not be read; starting empty.");
     return [];
   }
-  if (raw === null) return [];
+  // The DEFAULT_PIN_COLOR → null heuristic runs on the FIRST load of a
+  // pre-flip profile and never again (see normalizeLoadedPinColor and
+  // PINS_COLOR_MIGRATED_KEY): after that, a concrete color — including a
+  // deliberately re-picked DEFAULT_PIN_COLOR — is the user's, verbatim.
+  const migrate = !isPinColorMigrationDone();
+  if (raw === null) {
+    // Fresh profile: nothing to migrate, but close the window now so the
+    // pins this session goes on to write are never reinterpreted later.
+    if (migrate) markPinColorMigrationDone();
+    return [];
+  }
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error("saved pins is not an array");
     // Element-level validation (FBL-014): a null/malformed element used to
     // pass through verbatim and later crash init() (pin-list sorts on
     // a.createdAt) or load as an invisible ghost pin re-persisted forever.
-    const { items, dropped } = normalizeLoadedPins(parsed);
+    const { items, dropped } = normalizeLoadedPins(parsed, {
+      migrateLegacyDefault: migrate,
+    });
     reportLoadDropped(dropped, "pin");
+    if (migrate) {
+      // Persist the migrated shape immediately, and record the marker ONLY
+      // if that write landed: a failed write (quota, private mode) must
+      // leave the window open so the next load retries, rather than
+      // claiming "migrated" over untouched pre-flip bytes.
+      if (savePins(items)) markPinColorMigrationDone();
+    }
     return items;
   } catch (err) {
     console.error("saved pins corrupt; ignoring:", err);
@@ -252,18 +286,60 @@ export function loadPins() {
     // (FBL-015), then tell the user where recovery lives.
     const stashed = stashCorruptValue(STORAGE_KEY, raw);
     showError(corruptBannerMessage("pins", STORAGE_KEY, stashed));
+    // Those bytes are out of the picture now (stashed, store hydrates
+    // empty); everything written from here on is post-flip data, so close
+    // the migration window rather than leaving it open to reinterpret it.
+    if (migrate) markPinColorMigrationDone();
     return [];
   }
 }
 
+/**
+ * Persist the pin array. Returns whether the write actually landed, so a
+ * caller whose next step depends on it (loadPins's one-shot color
+ * migration, which only records its marker after a successful rewrite) can
+ * gate on a real write rather than a mere attempt. Mirrors saveSnapshot's
+ * boolean contract; the subscriber in attachStorage ignores it.
+ */
 export function savePins(pins) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(pins));
+    return true;
   } catch (err) {
     console.error("failed to save pins:", err);
     showError(
       "Could not save pins (storage may be full). Changes are kept in memory only."
     );
+    return false;
+  }
+}
+
+// ── pin.color one-shot migration marker ─────────────────────────────────
+
+function isPinColorMigrationDone() {
+  try {
+    return localStorage.getItem(PINS_COLOR_MIGRATED_KEY) === "true";
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    // Unreadable marker → assume the migration already ran. Guessing the
+    // other way would re-run the heuristic blind on every load, silently
+    // reverting a deliberately-red pin to "inherit" over and over — the
+    // exact failure this marker exists to prevent. The cost of this guess
+    // is only that a pre-flip profile keeps its reds concrete: visible,
+    // and fixable in one click via "Apply to all pins".
+    return true;
+  }
+}
+
+function markPinColorMigrationDone() {
+  try {
+    localStorage.setItem(PINS_COLOR_MIGRATED_KEY, "true");
+  } catch (err) {
+    console.error("failed to record the pin-color migration marker:", err);
+    // No banner: there's nothing the user can act on, and the consequence
+    // is bounded — the heuristic runs again on the next load, which only
+    // costs anything if the user deliberately re-picked the default red in
+    // between.
   }
 }
 
@@ -448,7 +524,57 @@ function toFiniteNumber(raw) {
   return Number.isFinite(num) ? num : null;
 }
 
-function normalizeLoadedPins(rawPins) {
+// pin.color normalizer + the ONE-SHOT migration heuristic behind the
+// 2026-08-11 pin-color-precedence flip — see js/pins.js's resolvePinColor()
+// for the new render-time precedence (own customized color > live group
+// color > default-pin config color).
+//
+// ALWAYS (every load, forever): a missing/blank/malformed color normalizes
+// to `null` (inherit). That's the post-flip representation of "this pin was
+// never given a color of its own".
+//
+// ONLY WHILE MIGRATING (`migrateLegacyDefault: true`): a stored color that
+// is EXACTLY DEFAULT_PIN_COLOR also becomes `null`. Before the flip, every
+// persisted pin had a CONCRETE color — every write path (search.js /
+// import-foreign.js's add-pin calls, this normalizer's own prior fallback,
+// backup.js's import fallback) stamped exactly that shade for a pin the
+// user never customized — and the data model carries no "was this ever
+// touched" bit, so that shade is the only available proxy for "untouched".
+//
+// That proxy is a HEURISTIC, and it is wrong for a user who deliberately
+// picks that same red. Which is why it is strictly one-shot, gated by the
+// caller:
+//   - live store: loadPins() passes true only until PINS_COLOR_MIGRATED_KEY
+//     is set, i.e. on the single migrating load of a pre-flip profile;
+//   - snapshots: loadSnapshot() passes true only for a version-1 envelope
+//     (written before the flip);
+//   - backups: js/backup.js passes true only for a v1/v2 payload (v3 is the
+//     post-flip format and is taken verbatim).
+// Post-migration, a concrete color — DEFAULT_PIN_COLOR included — is the
+// user's choice and passes through untouched.
+//
+// Net effect of the one migrating pass: an untouched red pin starts
+// inheriting — a grouped one keeps showing its group's color, a ZERO visual
+// change from before the flip — while a pin with a genuinely different
+// stored color now shows that color even while grouped, which is exactly
+// the user's ask (colouring a grouped pin used to have no visible effect).
+//
+// Exported so js/backup.js's JSON-import path — which duplicates
+// element-level pin validation rather than importing this module's
+// array-level normalizeLoadedPins (see that duplication's own cycle-
+// avoidance rationale above normalizeLoadedPins) — applies the identical
+// rule instead of drifting from it.
+//
+// @param {unknown} raw - The stored color value.
+// @param {{migrateLegacyDefault?: boolean}} [options] - Opt IN to the
+//   one-shot legacy-default heuristic. Defaults to false (verbatim).
+export function normalizeLoadedPinColor(raw, { migrateLegacyDefault = false } = {}) {
+  if (typeof raw !== "string" || !raw) return null;
+  if (migrateLegacyDefault && raw === DEFAULT_PIN_COLOR) return null;
+  return raw;
+}
+
+function normalizeLoadedPins(rawPins, { migrateLegacyDefault = false } = {}) {
   const items = [];
   let dropped = 0;
   for (const raw of rawPins) {
@@ -472,7 +598,7 @@ function normalizeLoadedPins(rawPins) {
       name: raw.name,
       lat,
       lon,
-      color: typeof raw.color === "string" && raw.color ? raw.color : DEFAULT_PIN_COLOR,
+      color: normalizeLoadedPinColor(raw.color, { migrateLegacyDefault }),
       group: typeof raw.group === "string" ? raw.group : null,
       icon: typeof raw.icon === "string" ? raw.icon : null,
       createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
@@ -1183,25 +1309,55 @@ export function normalizePinStyle(value) {
 const DEFAULT_PIN_KEY = "city-pin-map.default-pin.v1";
 const DEFAULT_DEFAULT_PIN = Object.freeze({ icon: null, color: DEFAULT_PIN_COLOR });
 
+// Unlike every other load* here, loadDefaultPin() sits on RENDER paths (it
+// supplies the final fallback of the pin-color precedence, so js/map.js's
+// feature build and the pin list's per-render hoist both call it), not just
+// on boot. A corrupt key would otherwise re-banner and re-console.error on
+// every render — each call resetting the 6s banner timer, making the banner
+// effectively permanent and drowning out every other message. So the
+// failure is reported ONCE per contiguous run of failures: the value can't
+// change between two consecutive failing reads, so repeating it adds no
+// information. The latch re-arms the moment the key becomes readable again
+// (a successful load, a missing key, or a successful save), so a LATER
+// corruption is still announced.
+let defaultPinLoadWarned = false;
+
+function warnDefaultPinOnce(logMessage, err, userMessage) {
+  if (defaultPinLoadWarned) return;
+  defaultPinLoadWarned = true;
+  console.error(logMessage, err);
+  showError(userMessage);
+}
+
 export function loadDefaultPin() {
   let raw;
   try {
     raw = localStorage.getItem(DEFAULT_PIN_KEY);
   } catch (err) {
-    console.error("localStorage unavailable on read:", err);
-    showError("Saved default pin appearance could not be read; using defaults.");
+    warnDefaultPinOnce(
+      "localStorage unavailable on read:",
+      err,
+      "Saved default pin appearance could not be read; using defaults."
+    );
     return { ...DEFAULT_DEFAULT_PIN };
   }
-  if (raw === null) return { ...DEFAULT_DEFAULT_PIN };
+  if (raw === null) {
+    defaultPinLoadWarned = false;
+    return { ...DEFAULT_DEFAULT_PIN };
+  }
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") {
       throw new Error("saved default pin is not an object");
     }
+    defaultPinLoadWarned = false;
     return normalizeDefaultPin(parsed);
   } catch (err) {
-    console.error("saved default pin corrupt; ignoring:", err);
-    showError("Saved default pin appearance was corrupted and has been ignored.");
+    warnDefaultPinOnce(
+      "saved default pin corrupt; ignoring:",
+      err,
+      "Saved default pin appearance was corrupted and has been ignored."
+    );
     return { ...DEFAULT_DEFAULT_PIN };
   }
 }
@@ -1209,6 +1365,9 @@ export function loadDefaultPin() {
 export function saveDefaultPin(value) {
   try {
     localStorage.setItem(DEFAULT_PIN_KEY, JSON.stringify(normalizeDefaultPin(value)));
+    // The key holds well-formed bytes again — re-arm the load-failure latch
+    // so a future corruption still gets announced (see warnDefaultPinOnce).
+    defaultPinLoadWarned = false;
   } catch (err) {
     console.error("failed to save default pin appearance:", err);
     showError(
@@ -1518,6 +1677,15 @@ export function loadAllApiKeys() {
 // Bannering them here would both stomp (and be stomped by) that message, and
 // would announce dropped rows even when the user then cancels the confirm.
 const SNAPSHOT_KEY = "city-pin-map.snapshot.v1";
+// Envelope version (distinct from the KEY's ".v1" suffix, which is frozen).
+// v1 = pre-2026-08-11, when every pin carried a concrete color and an
+// untouched pin's was DEFAULT_PIN_COLOR. v2 = post-pin-color-precedence-flip,
+// where `color: null` means "inherit" and a concrete color is always a
+// deliberate choice. Load applies the one-shot DEFAULT_PIN_COLOR → null
+// heuristic to v1 envelopes ONLY (their reds were inherited-in-effect); a v2
+// envelope's colors are taken verbatim, so saving a pin the user coloured
+// exactly DEFAULT_PIN_COLOR and loading it back keeps that red.
+const SNAPSHOT_VERSION = 2;
 
 export function loadSnapshot() {
   let raw;
@@ -1543,8 +1711,14 @@ export function loadSnapshot() {
     // Element-level validation — same normalizers/rationale as loadPins/
     // loadGroups above: a hand-edited or partially-written snapshot must
     // never crash Load or hand a store a malformed element.
+    //
+    // Anything that isn't a v2 envelope (v1, or a missing/garbled version
+    // field, which can only predate the bump) gets the one-shot
+    // DEFAULT_PIN_COLOR → null migration; a v2 envelope's colors are the
+    // user's, verbatim. See SNAPSHOT_VERSION and normalizeLoadedPinColor.
+    const migrateLegacyDefault = parsed.version !== SNAPSHOT_VERSION;
     const groupsResult = normalizeLoadedGroups(parsed.groups);
-    const pinsResult = normalizeLoadedPins(parsed.pins);
+    const pinsResult = normalizeLoadedPins(parsed.pins, { migrateLegacyDefault });
     return {
       pins: pinsResult.items,
       groups: groupsResult.items,
@@ -1580,7 +1754,7 @@ export function saveSnapshot({ pins, groups }) {
     localStorage.setItem(
       SNAPSHOT_KEY,
       JSON.stringify({
-        version: 1,
+        version: SNAPSHOT_VERSION,
         savedAt: new Date().toISOString(),
         pins,
         groups,

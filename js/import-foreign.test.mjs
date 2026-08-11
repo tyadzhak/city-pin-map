@@ -14,7 +14,7 @@ import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { resetStorage, mockFetch, jsonResponse } from "./test-helpers.mjs";
 import { importFromFile } from "./import-foreign.js";
-import { listPins, replaceAll as replaceAllPins, DEFAULT_PIN_COLOR } from "./pins.js";
+import { listPins, replaceAll as replaceAllPins } from "./pins.js";
 import { saveDefaultPin } from "./storage.js";
 
 function makeFile(name, content) {
@@ -335,15 +335,20 @@ test("geocode loop: origin lat/lon is captured for both immediate and geocoded p
 
 // ── default-pin appearance (icon + color) applied on import ──────────────
 
-test("importFromFile: no saved default-pin config falls back to DEFAULT_PIN_COLOR and a null icon", async () => {
+test("importFromFile: no saved default-pin config yields a null (inherit) color and a null icon", async () => {
   const csv = "name,lat,lon\nDublin,53.3498,-6.2603\n";
   await importFromFile(makeFile("cities.csv", csv));
   const [pin] = listPins();
-  assert.equal(pin.color, DEFAULT_PIN_COLOR);
+  assert.equal(pin.color, null);
   assert.equal(pin.icon, null);
 });
 
-test("importFromFile: a saved default-pin appearance is applied to both immediate and geocoded pins", async (t) => {
+test("importFromFile: a saved default-pin ICON is applied to both immediate and geocoded pins; color is always null (inherit)", async (t) => {
+  // 2026-08-11 pin-color-precedence flip: the add path no longer stamps a
+  // snapshot of the default-pin config's color onto new pins — it leaves
+  // color: null so the pin inherits (group, else the live default color)
+  // at render time. Only the icon is still stamped verbatim from the
+  // config, unchanged from before the flip.
   saveDefaultPin({ icon: "sunburst", color: "#00ff00" });
   const restore = mockFetch(() =>
     jsonResponse([{ display_name: "Oslo, Norway", lat: "59.91", lon: "10.75" }])
@@ -354,8 +359,8 @@ test("importFromFile: a saved default-pin appearance is applied to both immediat
   const pins = listPins();
   const rome = pins.find((p) => p.name === "Rome");
   const oslo = pins.find((p) => p.name === "Oslo");
-  assert.equal(rome.color, "#00ff00");
+  assert.equal(rome.color, null);
   assert.equal(rome.icon, "sunburst");
-  assert.equal(oslo.color, "#00ff00");
+  assert.equal(oslo.color, null);
   assert.equal(oslo.icon, "sunburst");
 });

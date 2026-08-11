@@ -21,6 +21,25 @@
 //      scenario yet for map-inset.js" gap, extended here cheaply rather than
 //      built from scratch.
 //
+//   3. End-to-end coverage for the 2026-08-11 pin-color-precedence flip
+//      (js/pins.js's resolvePinColor, consumed by js/map.js's
+//      effectiveColor/pinsToFeatureCollection): two more pins join the same
+//      group as #2's "inset-grouped" — one with a CUSTOMIZED color, one with
+//      color:null (inherit) — and the assertions read each map's live
+//      MapLibre GeoJSON pins-source data (via a dynamic import of the app's
+//      own js/map.js / js/map-inset.js modules, which the browser's module
+//      cache resolves to the SAME running instances app.js already booted —
+//      no production code changed to expose this) to confirm: the
+//      customized pin's OWN color renders on both the main map and inside
+//      the inset; the inherit pin renders the group's color on both; and
+//      recoloring the group via the real Groups-tab UI live-recolors only
+//      the inherit pin, leaving the customized one untouched. Plus the
+//      Design tab's "Default pin" group (previously uncovered end-to-end):
+//      changing #default-pin-color must live-recolor an UNGROUPED inherited
+//      pin on the map and in the pin list without any store mutation to
+//      ride on, and #default-pin-apply-all must clear every custom color
+//      back to inherit (dotted-swatch cue included).
+//
 // Seeds its OWN self-contained pins/groups via localStorage + reload (same
 // pattern 20-map-title-drag.mjs / 30-map-frame-2.mjs use) rather than relying
 // on whatever 00-boot-and-broad.mjs left behind, so this scenario's
@@ -143,6 +162,56 @@ function assertNoPan(before, after, label) {
   }
 }
 
+// Reads { pinId: renderedColor } straight off a live MapLibre GeoJSON pins
+// source's materialized feature properties — the single source of truth
+// js/map.js's pinsToFeatureCollection() writes and the icon-color/
+// circle-color paint expressions read, on WHICHEVER map (main or inset)
+// `inset` selects. A dynamic `import()` from inside page.evaluate resolves
+// to the SAME cached module instance app.js's own `<script type="module">`
+// already loaded (same origin, same URL, same browser module registry) —
+// so `getMap()`/`getInsetMap()` return the actual live map(s), no test hook
+// added to production code.
+//
+// Reads the GeoJSONSource's own `_data` (exactly what pinsToFeatureCollection
+// last passed to setData — not MapLibre's public querySourceFeatures(), which
+// this scenario's own probing found can return tile-duplicated features for
+// a geojson source) rather than any DOM proxy, so this is a true "what would
+// render" check, not an inference from the side panel.
+//
+// Polls briefly: right after enabling the inset (or any pin/group store
+// change), the async addPinAndRouteLayers()/icon-image-loading pipeline can
+// still be mid-flight even though the DOM label overlay (independent, and
+// synchronous off the store) has already rendered.
+async function readPinColorsFromSource(page, { inset = false, timeout = 10000 } = {}) {
+  return page.evaluate(
+    async ({ inset, timeout }) => {
+      const deadline = Date.now() + timeout;
+      const mapMod = await import("/js/map.js");
+      let map = mapMod.getMap();
+      if (inset) {
+        const insetMod = await import("/js/map-inset.js");
+        map = insetMod.getInsetMap();
+        while (!map && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          map = insetMod.getInsetMap();
+        }
+      }
+      if (!map) return null;
+      while (Date.now() < deadline) {
+        const source = map.getSource("city-pin-map.pins");
+        if (source && source._data) {
+          const byId = {};
+          for (const f of source._data.features) byId[f.properties.id] = f.properties.color;
+          return byId;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return null;
+    },
+    { inset, timeout }
+  );
+}
+
 export async function run(page) {
   // ── 0. Seed pins across three well-separated clusters + one pre-existing
   //     group, then reload. ──────────────────────────────────────────────
@@ -216,6 +285,47 @@ export async function run(page) {
             group: null,
             icon: null,
             createdAt: now + 4,
+          },
+          // pin-color-precedence flip coverage (2026-08-11, #3 above): both
+          // join the SAME group as inset-grouped, near the same Karachi
+          // cluster so they render inside the inset's fitted viewport too.
+          // "color-own" has a CUSTOMIZED color that must win over the
+          // group's; "color-inherit" has color:null and must render the
+          // group's color instead.
+          {
+            id: "color-own",
+            name: "Color Own Pin",
+            lat: 24.8,
+            lon: 66.95,
+            color: "#ff00ff",
+            group: insetGroupId,
+            icon: null,
+            createdAt: now + 5,
+          },
+          {
+            id: "color-inherit",
+            name: "Color Inherit Pin",
+            lat: 24.95,
+            lon: 67.1,
+            color: null,
+            group: insetGroupId,
+            icon: null,
+            createdAt: now + 6,
+          },
+          // UNGROUPED + color:null — the only pin that resolves all the way
+          // down to the Design tab's default-pin color, which is what step 7
+          // below changes. Parked near the Karachi cluster (well away from
+          // every box-select drag rect) and deliberately NOT in the inset's
+          // group, so it can't disturb the inset-filter check above.
+          {
+            id: "color-default",
+            name: "Color Default Pin",
+            lat: 24.7,
+            lon: 66.8,
+            color: null,
+            group: null,
+            icon: null,
+            createdAt: now + 7,
           },
         ];
         localStorage.setItem(pinsKey, JSON.stringify(pins));
@@ -389,6 +499,159 @@ export async function run(page) {
       );
     }
   });
+
+  // ── 6. Pin-color-precedence flip (2026-08-11): a grouped pin's own
+  //     customized color wins on BOTH maps; a null (inherit) pin follows
+  //     the live group color; recoloring the group live-recolors only the
+  //     inherit pin. ─────────────────────────────────────────────────────
+  await step(
+    "a grouped pin's own customized color wins over its group's, on the main map and inside the inset",
+    async () => {
+      const main = await readPinColorsFromSource(page);
+      const inset = await readPinColorsFromSource(page, { inset: true });
+      if (main?.["color-own"] !== "#ff00ff") {
+        throw new Error(
+          `expected main map color-own to render "#ff00ff", got ${main?.["color-own"]}`
+        );
+      }
+      if (inset?.["color-own"] !== "#ff00ff") {
+        throw new Error(
+          `expected inset color-own to render "#ff00ff", got ${inset?.["color-own"]}`
+        );
+      }
+    }
+  );
+
+  await step(
+    "a grouped pin with no customized color inherits the live group color, on the main map and inside the inset",
+    async () => {
+      const main = await readPinColorsFromSource(page);
+      const inset = await readPinColorsFromSource(page, { inset: true });
+      if (main?.["color-inherit"] !== "#2a9d8f") {
+        throw new Error(
+          `expected main map color-inherit to render the group's color "#2a9d8f", got ${main?.["color-inherit"]}`
+        );
+      }
+      if (inset?.["color-inherit"] !== "#2a9d8f") {
+        throw new Error(
+          `expected inset color-inherit to render the group's color "#2a9d8f", got ${inset?.["color-inherit"]}`
+        );
+      }
+    }
+  );
+
+  await step(
+    "changing the group's color live-recolors only the inherited pin, leaving the customized pin unchanged",
+    async () => {
+      const NEW_GROUP_COLOR = "#9d4edd";
+      await page.click("#side-tab-groups");
+      await page.waitForSelector("#side-panel-groups:not([hidden])", { timeout: 5000 });
+      await page.fill(
+        `.group-list__row[data-group-id="${INSET_GROUP_ID}"] .group-list__color`,
+        NEW_GROUP_COLOR
+      );
+      // Give the store notify -> map re-render pipeline a beat to settle
+      // before the polling read below (it also tolerates this being 0).
+      await page.waitForTimeout(200);
+
+      const main = await readPinColorsFromSource(page);
+      const inset = await readPinColorsFromSource(page, { inset: true });
+      if (main?.["color-inherit"] !== NEW_GROUP_COLOR) {
+        throw new Error(
+          `expected color-inherit to pick up the new group color on the main map, got ${main?.["color-inherit"]}`
+        );
+      }
+      if (inset?.["color-inherit"] !== NEW_GROUP_COLOR) {
+        throw new Error(
+          `expected color-inherit to pick up the new group color inside the inset, got ${inset?.["color-inherit"]}`
+        );
+      }
+      if (main?.["color-own"] !== "#ff00ff") {
+        throw new Error(
+          `expected color-own to keep its own color after the group recolor, got ${main?.["color-own"]}`
+        );
+      }
+
+      // Switch back to the Design tab — the "disable the inset" cleanup
+      // step below needs #inset-enabled visible, and that control lives in
+      // #side-panel-design, not the Groups tab this step just switched to.
+      await page.click("#side-tab-design");
+      await page.waitForSelector("#side-panel-design:not([hidden])", { timeout: 5000 });
+    }
+  );
+
+  // ── 7. Design-tab "Default pin" (js/app.js's initDefaultPinOptions) — the
+  //     FINAL fallback of the precedence, and the only input here that
+  //     changes what pins render without mutating a store for the
+  //     subscriptions to ride on. Runs while the inset is still enabled so
+  //     the handler's inset refresh is exercised too. ────────────────────
+  await step(
+    "changing the default pin color live-recolors inherited ungrouped pins, on the map and in the pin list",
+    async () => {
+      const NEW_DEFAULT_COLOR = "#00b4d8";
+      await page.fill("#default-pin-color", NEW_DEFAULT_COLOR);
+      await page.waitForTimeout(200);
+
+      const main = await readPinColorsFromSource(page);
+      if (main?.["color-default"] !== NEW_DEFAULT_COLOR) {
+        throw new Error(
+          `expected the ungrouped inherited pin to re-render in the new default color, got ${main?.["color-default"]}`
+        );
+      }
+      // A GROUPED inherited pin still stops at its group's color — the
+      // default is only the last resort.
+      if (main?.["color-inherit"] !== "#9d4edd") {
+        throw new Error(
+          `expected the grouped inherited pin to keep its group color, got ${main?.["color-inherit"]}`
+        );
+      }
+      // The side panel re-rendered too (the swatch shows the resolved color).
+      const swatch = await page
+        .locator('.pin-list__row[data-pin-id="color-default"] .pin-list__color-swatch')
+        .inputValue();
+      if (swatch !== NEW_DEFAULT_COLOR) {
+        throw new Error(`expected the pin-list swatch to follow the new default, got ${swatch}`);
+      }
+      // …and the live inset survived its refresh with its own pins intact.
+      const inset = await readPinColorsFromSource(page, { inset: true });
+      if (inset?.["color-inherit"] !== "#9d4edd") {
+        throw new Error(
+          `the inset lost its group-colored pin after the default-color refresh, got ${inset?.["color-inherit"]}`
+        );
+      }
+    }
+  );
+
+  await step(
+    "'Apply to all pins' clears every custom pin color back to inherit",
+    async () => {
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.click("#default-pin-apply-all");
+      await page.waitForTimeout(300);
+
+      const main = await readPinColorsFromSource(page);
+      // color-own's customized #ff00ff is gone, so it follows its group now.
+      if (main?.["color-own"] !== "#9d4edd") {
+        throw new Error(
+          `expected the previously-customized pin to fall back to its group color, got ${main?.["color-own"]}`
+        );
+      }
+      // An ungrouped pin falls all the way through to the default.
+      if (main?.["color-default"] !== "#00b4d8") {
+        throw new Error(
+          `expected the ungrouped pin to fall back to the default color, got ${main?.["color-default"]}`
+        );
+      }
+      // Every row's swatch now carries the dotted "inherited" cue.
+      const rows = await page.locator(".pin-list__row").count();
+      const inherited = await page.locator(".pin-list__color-swatch--inherited").count();
+      if (rows === 0 || inherited !== rows) {
+        throw new Error(
+          `expected all ${rows} pin rows to show the inherited swatch cue, got ${inherited}`
+        );
+      }
+    }
+  );
 
   await step("disable the inset for a clean handoff", async () => {
     await page.uncheck("#inset-enabled");

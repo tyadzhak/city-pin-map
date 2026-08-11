@@ -283,7 +283,12 @@ async function applyRows(rows, skippedBlank = 0) {
       name: row.name,
       lat: row.lat,
       lon: row.lon,
-      color: defaultPin.color,
+      // color: null — inherit, same rationale as js/search.js's add path
+      // (2026-08-11 pin-color-precedence flip): a foreign-file row never
+      // carries its own color, so there's nothing to preserve by stamping
+      // a snapshot of the default; inheriting keeps a later Design-tab
+      // default-color edit live for these pins too.
+      color: null,
       icon: defaultPin.icon,
       group: null,
       originalLat: row.lat,
@@ -335,11 +340,13 @@ async function applyRows(rows, skippedBlank = 0) {
         continue;
       }
       // Capture the geocoded origin (FBL-008) from the resolved result.
+      // color: null — inherit; see the comment on the `immediate` loop's
+      // addPin call above for the rationale.
       addPin({
         name: row.name,
         lat: top.lat,
         lon: top.lon,
-        color: defaultPin.color,
+        color: null,
         icon: defaultPin.icon,
         group: null,
         originalLat: top.lat,

@@ -7,6 +7,46 @@
 // shade the app ships with.
 export const DEFAULT_PIN_COLOR = "#e63946";
 
+/**
+ * Resolve the color a pin should render as — the pure precedence rule
+ * behind js/map.js's effectiveColor() (which supplies the live group +
+ * default-pin color and delegates here). Kept pure/standalone (no group or
+ * localStorage lookups) so it's node-testable without a DOM (js/pins.test.mjs).
+ *
+ * Precedence (2026-08-11 pin-color-precedence flip — user decision): a
+ * pin's own CUSTOMIZED color always wins now; group color is only a
+ * DEFAULT for a pin that was never given a custom color (`pin.color ===
+ * null`); the app-wide default-pin color (Design tab) is the final
+ * fallback when there's no group either (or the group is stale/deleted).
+ *
+ *   1. `pin.color`, when it's a concrete (non-empty string) value —
+ *      "customized" in the data model's sense.
+ *   2. else `group.color`, when `group` is a live (non-null) group object
+ *      carrying a concrete color.
+ *   3. else `defaultColor` (whatever the caller passes — typically
+ *      `loadDefaultPin().color`, itself already normalized to a hex).
+ *
+ * Tolerant of malformed input by design — a missing/undefined `pin.color`,
+ * a stale group (pass `null`, never throw on a dangling id yourself), or a
+ * missing `defaultColor` never throw; the caller just gets whatever
+ * `defaultColor` was (even `undefined`) as the last resort. Render must
+ * never crash on stale/malformed pin data (CLAUDE.md invariant).
+ *
+ * @param {{color?: string|null}|null|undefined} pin
+ * @param {{color?: string}|null|undefined} group - The pin's live group, or
+ *   null/undefined when ungrouped or the reference is stale.
+ * @param {string} [defaultColor] - Final fallback, typically the
+ *   default-pin config's color.
+ * @returns {string|undefined}
+ */
+export function resolvePinColor(pin, group, defaultColor) {
+  const own = pin?.color;
+  if (typeof own === "string" && own) return own;
+  const groupColor = group?.color;
+  if (typeof groupColor === "string" && groupColor) return groupColor;
+  return defaultColor;
+}
+
 const pins = [];
 const listeners = [];
 
@@ -28,7 +68,12 @@ function notify() {
  * @param {string} input.name - User-facing label.
  * @param {number} input.lat
  * @param {number} input.lon
- * @param {string} input.color - Hex like "#e63946". Overridden visually by group color when assigned.
+ * @param {string|null} input.color - Hex like "#e63946", or null to INHERIT
+ *   (2026-08-11 pin-color-precedence flip): a customized (concrete) color
+ *   always wins at render time; null falls through to the live group's
+ *   color when assigned, else the default-pin config color. See
+ *   resolvePinColor below for the precedence and js/map.js's
+ *   effectiveColor() for the render-time consumer.
  * @param {string|null} [input.group=null] - Group id; null means ungrouped.
  * @param {string|null} [input.icon=null] - Icon id from the registry; null falls back to DEFAULT_PIN_ICON at render time.
  * @param {number} [input.originalLat] - Geocoded origin latitude, captured once at creation (FBL-008). Optional; omitted for add paths that don't supply an origin.

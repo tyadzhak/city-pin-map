@@ -9,6 +9,7 @@ import {
   listPins,
   replaceAll,
   subscribe,
+  resolvePinColor,
 } from "./pins.js";
 
 // pins.js is a singleton in-memory store (module-level `pins` array) — reset
@@ -225,4 +226,59 @@ test("a throwing listener does not prevent other listeners from being notified",
 
   assert.deepEqual(calls, ["second"]);
   assert.equal(errSpy.mock.calls.length, 1);
+});
+
+// ── resolvePinColor: 2026-08-11 pin-color-precedence flip ────────────────
+//
+// Precedence: a pin's own CUSTOMIZED (concrete) color always wins; else the
+// live group's color; else the caller-supplied default. Pure function — no
+// store lookups, no localStorage — so the precedence rule itself is
+// directly node-testable. js/map.js's effectiveColor() is the thin wrapper
+// that supplies the live group + loadDefaultPin().color.
+
+test("resolvePinColor: a customized pin color wins even when grouped", () => {
+  const pin = { color: "#123456" };
+  const group = { color: "#abcdef" };
+  assert.equal(resolvePinColor(pin, group, "#000000"), "#123456");
+});
+
+test("resolvePinColor: a null pin color falls back to the live group's color", () => {
+  const pin = { color: null };
+  const group = { color: "#abcdef" };
+  assert.equal(resolvePinColor(pin, group, "#000000"), "#abcdef");
+});
+
+test("resolvePinColor: a null pin color with no group falls back to the default color", () => {
+  const pin = { color: null };
+  assert.equal(resolvePinColor(pin, null, "#000000"), "#000000");
+});
+
+test("resolvePinColor: a stale/deleted group (null) falls back to the default color", () => {
+  const pin = { color: null };
+  // Caller resolves a dangling pin.group id to null before calling here —
+  // resolvePinColor itself never looks up groups, so this is just the
+  // ungrouped case from its point of view.
+  assert.equal(resolvePinColor(pin, null, "#654321"), "#654321");
+});
+
+test("resolvePinColor: an undefined pin color behaves like null (inherit)", () => {
+  const pin = {};
+  assert.equal(resolvePinColor(pin, { color: "#abcdef" }, "#000000"), "#abcdef");
+  assert.equal(resolvePinColor(pin, null, "#000000"), "#000000");
+});
+
+test("resolvePinColor: a group with no/blank color is treated as not overriding", () => {
+  const pin = { color: null };
+  assert.equal(resolvePinColor(pin, { color: "" }, "#000000"), "#000000");
+  assert.equal(resolvePinColor(pin, {}, "#000000"), "#000000");
+});
+
+test("resolvePinColor: malformed pin (null/undefined) never throws and falls through to group, then default", () => {
+  assert.equal(resolvePinColor(null, { color: "#abcdef" }, "#000000"), "#abcdef");
+  assert.equal(resolvePinColor(undefined, null, "#000000"), "#000000");
+});
+
+test("resolvePinColor: an empty-string pin color is treated as not customized (falls through)", () => {
+  const pin = { color: "" };
+  assert.equal(resolvePinColor(pin, { color: "#abcdef" }, "#000000"), "#abcdef");
 });

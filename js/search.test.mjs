@@ -379,13 +379,21 @@ test("addPin-on-select via list click (delegated click, not just Enter)", async 
 
   const [pin] = pinStore.listPins();
   assert.equal(pin.name, "ClickCity");
-  assert.equal(pin.color, "#e63946"); // DEFAULT_PIN_COLOR
+  // 2026-08-11 pin-color-precedence flip: a new pin always gets color:
+  // null (inherit) — see js/pins.js's resolvePinColor and the doc comment
+  // on this add path in js/search.js.
+  assert.equal(pin.color, null);
   assert.equal(pin.icon, null); // no default-pin config saved -> falls back to null
 });
 
 // ── default-pin appearance (icon + color) applied on add ─────────────────
 
-test("selectResult: a saved default-pin appearance (icon + color) is applied to the new pin", async (t) => {
+test("selectResult: a saved default-pin ICON is applied to the new pin; color is left null (inherit)", async (t) => {
+  // 2026-08-11 pin-color-precedence flip: only the icon is stamped
+  // verbatim from the default-pin config now — color is always left null
+  // so the pin inherits (the live default color, in this ungrouped case)
+  // at render time rather than freezing a snapshot of it. See
+  // js/pins.js's resolvePinColor and js/map.js's effectiveColor.
   const { input, list } = setupDom();
   saveDefaultPin({ icon: "sunburst", color: "#00ff00" });
   initSearch();
@@ -395,11 +403,11 @@ test("selectResult: a saved default-pin appearance (icon + color) is applied to 
   ]);
 
   const pin = pinStore.listPins().at(-1);
-  assert.equal(pin.color, "#00ff00");
+  assert.equal(pin.color, null);
   assert.equal(pin.icon, "sunburst");
 });
 
-test("selectResult: no saved default-pin config falls back to DEFAULT_PIN_COLOR and a null icon", async (t) => {
+test("selectResult: no saved default-pin config yields a null (inherit) color and a null icon", async (t) => {
   const { input, list } = setupDom();
   initSearch();
 
@@ -408,7 +416,7 @@ test("selectResult: no saved default-pin config falls back to DEFAULT_PIN_COLOR 
   ]);
 
   const pin = pinStore.listPins().at(-1);
-  assert.equal(pin.color, __internals.DEFAULT_PIN_COLOR);
+  assert.equal(pin.color, null);
   assert.equal(pin.icon, null);
 });
 
@@ -443,7 +451,9 @@ test("Enter with an empty/hidden dropdown does nothing", async () => {
 // ── __internals sanity ────────────────────────────────────────────────────
 
 test("__internals exposes the module's tuning constants", () => {
-  assert.equal(__internals.DEFAULT_PIN_COLOR, "#e63946");
+  // DEFAULT_PIN_COLOR is deliberately absent: since the 2026-08-11
+  // pin-color-precedence flip this module stamps `color: null` and never
+  // reads that constant, and js/pins.test.mjs owns its value.
   assert.equal(__internals.DEBOUNCE_MS, 350);
   assert.equal(__internals.MIN_QUERY_LEN, 2);
 });
