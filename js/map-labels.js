@@ -87,12 +87,19 @@ export function init(mainMap) {
 /**
  * Attach an additional label overlay to `map` (used by js/map-inset.js for the
  * corner inset). `interactive` controls whether labels accept drag/pointer
- * events — the inset passes false so its labels are display-only. Returns
- * `{ refresh, destroy }`; destroy tears the overlay down and unregisters it.
+ * events — the corner inset passes true (its labels ARE draggable — see the
+ * inset-polish history in CLAUDE.md). `pinsProvider`, when given, is called
+ * with no arguments to get the pin LIST this overlay should render instead of
+ * every pin in the store — js/map-inset.js passes `() => pinsForInset(lastCfg)`
+ * so the inset's labels stay in lockstep with its group-filtered markers/fit
+ * (see that module's header for why routing every consumer through one filter
+ * matters). Omitted (the default), the overlay renders every pin, same as the
+ * main map's. Returns `{ refresh, destroy }`; destroy tears the overlay down
+ * and unregisters it.
  */
-export function attachTo(map, { interactive = false } = {}) {
+export function attachTo(map, { interactive = false, pinsProvider } = {}) {
   if (!map) return { refresh() {}, destroy() {} };
-  const overlay = createOverlay(map, { interactive });
+  const overlay = createOverlay(map, { interactive, pinsProvider });
   return { refresh: overlay.render, destroy: overlay.destroy };
 }
 
@@ -132,8 +139,15 @@ export function refreshAllLabelLayers() {
  * whole offset-from-anchor grow together exactly as before. The pin ANCHOR
  * (map.project) is never multiplied — only the offset off it. Default 1 leaves
  * the live overlays' geometry untouched.
+ *
+ * `pins` (optional) overrides the pin LIST to build labels from — omitted, it
+ * defaults to every pin in the store (listPins()), the main map's behaviour.
+ * js/map-inset.js's corner inset passes its group-filtered pin list here (both
+ * live, via its pinsProvider-driven overlay, and from js/export.js's
+ * paintInset via getInsetPins()) so the inset's labels never show a pin its
+ * markers don't.
  */
-export function computeLabelSpecs(map, { sizeMultiplier = 1 } = {}) {
+export function computeLabelSpecs(map, { sizeMultiplier = 1, pins } = {}) {
   const m =
     Number.isFinite(sizeMultiplier) && sizeMultiplier > 0 ? sizeMultiplier : 1;
   const style = computeStyle();
@@ -144,7 +158,8 @@ export function computeLabelSpecs(map, { sizeMultiplier = 1 } = {}) {
   if (!map || typeof map.project !== "function") return { style, labels };
 
   const labelSize = style.sizePx;
-  for (const pin of listPins()) {
+  const source = Array.isArray(pins) ? pins : listPins();
+  for (const pin of source) {
     if (!pin) continue;
     if (!Number.isFinite(pin.lon) || !Number.isFinite(pin.lat)) continue;
     if (typeof pin.name !== "string" || pin.name.length === 0) continue;
@@ -189,8 +204,11 @@ function computeStyle() {
 
 // One overlay instance bound to one map. Owns its container div, its child
 // label divs, the map move/resize listeners, the store subscriptions, and (for
-// the interactive main map) the drag state.
-function createOverlay(map, { interactive }) {
+// the interactive main map) the drag state. `pinsProvider`, when given, is
+// called fresh on every render()/reposition() to get the pin LIST this
+// overlay should draw labels for (js/map-inset.js's group filter); omitted,
+// computeLabelSpecs falls back to every pin in the store.
+function createOverlay(map, { interactive, pinsProvider }) {
   const container = document.createElement("div");
   container.className = "map-pin-labels";
   map.getContainer().appendChild(container);
@@ -205,9 +223,13 @@ function createOverlay(map, { interactive }) {
   // cursor control.
   let dragging = null;
 
+  function currentPins() {
+    return typeof pinsProvider === "function" ? pinsProvider() : undefined;
+  }
+
   function render() {
     if (dragging) return;
-    const { style, labels } = computeLabelSpecs(map);
+    const { style, labels } = computeLabelSpecs(map, { pins: currentPins() });
     container.innerHTML = "";
     labelEls = new Map();
     for (const label of labels) {
@@ -231,7 +253,7 @@ function createOverlay(map, { interactive }) {
   // (labelEls out of sync), the missing-node guard just skips — the store
   // subscription's render() will have already rebuilt in that case.
   function reposition() {
-    const { labels } = computeLabelSpecs(map);
+    const { labels } = computeLabelSpecs(map, { pins: currentPins() });
     for (const label of labels) {
       if (dragging && dragging.pinId === label.id) continue;
       const el = labelEls.get(label.id);

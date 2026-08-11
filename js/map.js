@@ -1491,10 +1491,15 @@ function fetchImage(href) {
  *   - `reportFailures: false` — the shared icon-image cache means the main
  *     map already surfaced any load failure; the inset must not re-spam the
  *     banner (or reset the failed-set debounce) for the same icons.
+ *   - `seedPins` — the pin list the pins SOURCE is created with. Defaults to
+ *     the main map's own snapshot; the inset passes its group-filtered list so
+ *     the "every inset pin consumer routes through pinsForInset()" contract
+ *     holds at source-creation time too, not just from the renderPinsTo()
+ *     call that immediately follows.
  */
 export async function addPinAndRouteLayers(
   targetMap = mapInstance,
-  { locator = true, reportFailures = true } = {}
+  { locator = true, reportFailures = true, seedPins = lastPinsSnapshot } = {}
 ) {
   if (!targetMap) return;
 
@@ -1593,7 +1598,7 @@ export async function addPinAndRouteLayers(
   if (!targetMap.getSource(PINS_SOURCE_ID)) {
     targetMap.addSource(PINS_SOURCE_ID, {
       type: "geojson",
-      data: pinsToFeatureCollection(lastPinsSnapshot),
+      data: pinsToFeatureCollection(seedPins),
     });
   }
 
