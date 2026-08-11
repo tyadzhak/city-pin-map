@@ -800,6 +800,32 @@
               aria-live="polite"
             ></span>
           </div>
+          <!-- Save/Load/New (this milestone): a lighter, browser-memory
+               sibling of Export/Import JSON above — same pins+groups-only
+               scope, round-tripped through a single localStorage slot
+               instead of a downloaded file. Own row, same rationale as
+               .import-controls just above: no width left on the header
+               bar for three more buttons. Positive feedback lands in the
+               inline #snapshot-status span (same :empty-hides-itself
+               convention as #import-file-status); the red #error-banner
+               (js/storage.js's showError()) stays reserved for failures. -->
+          <div class="snapshot-controls">
+            <button id="snapshot-save" type="button" class="backup-btn">
+              Save
+            </button>
+            <button id="snapshot-load" type="button" class="backup-btn">
+              Load
+            </button>
+            <button id="snapshot-new" type="button" class="backup-btn">
+              New
+            </button>
+            <span
+              id="snapshot-status"
+              class="import-status"
+              role="status"
+              aria-live="polite"
+            ></span>
+          </div>
           <ul id="pin-list" class="pin-list"></ul>
           <p id="pin-list-empty" class="pin-list__empty">
             No pins yet — search for a city above.

@@ -59,6 +59,8 @@ import {
   saveApiKey,
   loadAllApiKeys,
   ON_MAP_TITLE_FONTS,
+  loadSnapshot,
+  saveSnapshot,
 } from "./storage.js";
 
 // ── literal key names (mirrors the private constants in storage.js, needed
@@ -68,6 +70,7 @@ const GROUPS_KEY = "city-pin-map.groups.v1";
 const USER_ICONS_KEY = "city-pin-map.user-icons.v1";
 const MAP_STYLE_KEY = "city-pin-map.map-style.v1";
 const EXPORT_FRAME_KEY = "city-pin-map.export-frame.v1";
+const SNAPSHOT_KEY = "city-pin-map.snapshot.v1";
 
 beforeEach(() => {
   resetStorage();
@@ -1467,4 +1470,114 @@ test("loadApiKey: getItem throw returns '' without throwing", () => {
 test("saveApiKey: setItem throw shows a banner", () => {
   withThrowingSetItem(() => saveApiKey("stadia", "value"));
   assert.match(banner().textContent, /Could not save API key/);
+});
+
+// ── loadSnapshot / saveSnapshot ─────────────────────────────────────────
+
+test("loadSnapshot: missing key returns null with a 'nothing saved' banner", () => {
+  assert.equal(loadSnapshot(), null);
+  assert.match(banner().textContent, /Nothing saved yet/);
+});
+
+test("saveSnapshot/loadSnapshot: valid pins+groups round-trip", () => {
+  const pins = [
+    {
+      id: "p1",
+      name: "Kyiv",
+      lat: 50.45,
+      lon: 30.52,
+      color: "#123456",
+      group: "g1",
+      icon: "circle",
+      createdAt: 111,
+    },
+  ];
+  const groups = [{ id: "g1", name: "Europe", color: "#e63946", createdAt: 100 }];
+  const ok = saveSnapshot({ pins, groups });
+  assert.equal(ok, true);
+
+  const loaded = loadSnapshot();
+  assert.equal(loaded.pins.length, 1);
+  assert.deepEqual(loaded.pins[0], pins[0]);
+  assert.equal(loaded.groups.length, 1);
+  assert.deepEqual(loaded.groups[0], groups[0]);
+  assert.deepEqual(loaded.dropped, { pins: 0, groups: 0 });
+  // A clean load is silent — the caller owns the success message.
+  assert.equal(banner().textContent, "");
+});
+
+test("saveSnapshot: persists the documented { version, savedAt, pins, groups } envelope", () => {
+  saveSnapshot({ pins: [{ name: "A", lat: 1, lon: 1 }], groups: [] });
+  const payload = JSON.parse(globalThis.localStorage.getItem(SNAPSHOT_KEY));
+  assert.equal(payload.version, 1);
+  assert.equal(typeof payload.savedAt, "string");
+  assert.ok(!Number.isNaN(Date.parse(payload.savedAt)));
+  assert.ok(Array.isArray(payload.pins));
+  assert.ok(Array.isArray(payload.groups));
+});
+
+test("saveSnapshot: overwrites any previous snapshot (single slot)", () => {
+  saveSnapshot({ pins: [{ name: "A", lat: 1, lon: 1 }], groups: [] });
+  saveSnapshot({ pins: [{ name: "B", lat: 2, lon: 2 }], groups: [] });
+  const loaded = loadSnapshot();
+  assert.equal(loaded.pins.length, 1);
+  assert.equal(loaded.pins[0].name, "B");
+});
+
+test("loadSnapshot: corrupt (non-JSON) value returns null, stashes original bytes, and banners", () => {
+  globalThis.localStorage.setItem(SNAPSHOT_KEY, "{not json");
+  assert.equal(loadSnapshot(), null);
+  assert.equal(globalThis.localStorage.getItem(`${SNAPSHOT_KEY}.corrupt`), "{not json");
+  assert.match(banner().textContent, /corrupted/);
+  assert.match(banner().textContent, /\.corrupt/);
+});
+
+test("loadSnapshot: wrong top-level shape (not an object) is treated as corrupt", () => {
+  globalThis.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify([1, 2, 3]));
+  assert.equal(loadSnapshot(), null);
+  assert.match(banner().textContent, /corrupted/);
+});
+
+test("loadSnapshot: object missing pins/groups arrays is treated as corrupt", () => {
+  globalThis.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ pins: [] }));
+  assert.equal(loadSnapshot(), null);
+  assert.match(banner().textContent, /corrupted/);
+
+  globalThis.localStorage.setItem(
+    SNAPSHOT_KEY,
+    JSON.stringify({ pins: "nope", groups: [] })
+  );
+  assert.equal(loadSnapshot(), null);
+});
+
+test("loadSnapshot: malformed individual pin/group elements are dropped and their counts returned", () => {
+  globalThis.localStorage.setItem(
+    SNAPSHOT_KEY,
+    JSON.stringify({
+      version: 1,
+      pins: [null, { name: "Valid", lat: 1, lon: 1 }],
+      groups: [{ name: "" }, { name: "Valid group", color: "#111111" }],
+    })
+  );
+  const loaded = loadSnapshot();
+  assert.equal(loaded.pins.length, 1);
+  assert.equal(loaded.pins[0].name, "Valid");
+  assert.equal(loaded.groups.length, 1);
+  assert.equal(loaded.groups[0].name, "Valid group");
+  assert.deepEqual(loaded.dropped, { pins: 1, groups: 1 });
+  // Reported to the CALLER, not bannered here: the caller still has a
+  // confirm to run (and its own outcome message) after this returns.
+  assert.equal(banner().textContent, "");
+});
+
+test("loadSnapshot: getItem throw returns null with a banner, no stash possible", () => {
+  const loaded = withThrowingGetItem(() => loadSnapshot());
+  assert.equal(loaded, null);
+  assert.match(banner().textContent, /could not be read/);
+});
+
+test("saveSnapshot: setItem throw returns false and shows a banner", () => {
+  const ok = withThrowingSetItem(() => saveSnapshot({ pins: [], groups: [] }));
+  assert.equal(ok, false);
+  assert.match(banner().textContent, /Could not save snapshot/);
 });

@@ -1488,3 +1488,110 @@ export function loadAllApiKeys() {
     thunderforest: loadApiKey("thunderforest"),
   };
 }
+
+// ── Save / Load / New: browser-memory snapshot ──────────────────────────
+//
+// A single-slot, in-browser snapshot of pins + groups — deliberately the
+// SAME scope as js/backup.js's JSON-file export (no userIcons, no UI
+// preferences; see the module comment at the top of backup.js), just
+// persisted to localStorage instead of downloaded as a file. A lighter
+// sibling of Export/Import JSON for a quick "try something, then get back
+// to where I was" loop within one session — Save overwrites the one slot,
+// Load restores it, New (js/app.js) clears the live state without touching
+// this key, so Save → New → Load round-trips.
+//
+// Unlike every load* function above, loadSnapshot() is never called at
+// boot — only in direct response to a user clicking "Load" — so, unlike
+// their silent-on-missing-key convention (a missing preference there is the
+// normal first-boot state, not worth a banner), this one banners on every
+// null-returning path, missing key included: the click always gets a
+// direct answer, and the caller never has to layer its own "nothing to
+// load" message on top of this function's — which would just stomp it,
+// since both write through the same single banner element. Those paths are
+// terminal (nothing is loaded, no confirm can follow), so bannering from
+// here is safe.
+//
+// A SUCCESSFUL load is different: the caller still has a confirm to run and
+// its own outcome message to show, so per-element drop counts are RETURNED
+// (`dropped: { pins, groups }`) rather than bannered here — the caller folds
+// them into the one combined message it shows after replacing the stores.
+// Bannering them here would both stomp (and be stomped by) that message, and
+// would announce dropped rows even when the user then cancels the confirm.
+const SNAPSHOT_KEY = "city-pin-map.snapshot.v1";
+
+export function loadSnapshot() {
+  let raw;
+  try {
+    raw = localStorage.getItem(SNAPSHOT_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved snapshot could not be read.");
+    return null;
+  }
+  if (raw === null) {
+    showError("Nothing saved yet — click Save first.");
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("saved snapshot is not an object");
+    }
+    if (!Array.isArray(parsed.pins) || !Array.isArray(parsed.groups)) {
+      throw new Error("saved snapshot is missing pins or groups");
+    }
+    // Element-level validation — same normalizers/rationale as loadPins/
+    // loadGroups above: a hand-edited or partially-written snapshot must
+    // never crash Load or hand a store a malformed element.
+    const groupsResult = normalizeLoadedGroups(parsed.groups);
+    const pinsResult = normalizeLoadedPins(parsed.pins);
+    return {
+      pins: pinsResult.items,
+      groups: groupsResult.items,
+      dropped: { pins: pinsResult.dropped, groups: groupsResult.dropped },
+    };
+  } catch (err) {
+    console.error("saved snapshot corrupt; ignoring:", err);
+    // The bytes ARE readable here — preserve them (mirrors loadPins/
+    // loadGroups's FBL-015 stash) before the next Save overwrites this key,
+    // then tell the user where recovery lives. Not routed through the
+    // shared corruptBannerMessage() helper below: that template assumes a
+    // plural noun ("Saved pins were corrupted…") — "snapshot" is singular.
+    const stashed = stashCorruptValue(SNAPSHOT_KEY, raw);
+    showError(
+      stashed
+        ? `Saved snapshot was corrupted and has been ignored. The original data was preserved under "${SNAPSHOT_KEY}.corrupt" for recovery.`
+        : "Saved snapshot was corrupted and has been ignored."
+    );
+    return null;
+  }
+}
+
+/**
+ * Overwrite the single snapshot slot with the given pins + groups — plain
+ * arrays straight from pinStore.listPins()/groupStore.listGroups(), no
+ * normalization on the way in (mirrors savePins/saveGroups; normalization
+ * happens on the way OUT, in loadSnapshot, same as every other store here).
+ * Returns whether the write succeeded, so the caller can gate its own
+ * success feedback on an actual write rather than a mere attempt.
+ */
+export function saveSnapshot({ pins, groups }) {
+  try {
+    localStorage.setItem(
+      SNAPSHOT_KEY,
+      JSON.stringify({
+        version: 1,
+        savedAt: new Date().toISOString(),
+        pins,
+        groups,
+      })
+    );
+    return true;
+  } catch (err) {
+    console.error("failed to save snapshot:", err);
+    showError(
+      "Could not save snapshot (storage may be full). Changes are kept in memory only."
+    );
+    return false;
+  }
+}

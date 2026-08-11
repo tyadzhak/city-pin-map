@@ -217,6 +217,90 @@ export async function run(page) {
     await input.press("Enter");
   });
 
+  // ── 9b. Save/Load/New browser-memory snapshot (js/app.js's
+  //     initSnapshotControls + js/storage.js's loadSnapshot/saveSnapshot).
+  //     Runs after the rename/recolor/regroup edits above so the saved
+  //     snapshot captures them, then New clears the live state (accepting
+  //     its confirm() dialog) and Load restores it — round-tripping the
+  //     SAME pin ids so later steps (icon picker on coverage-pin-1) still
+  //     find their rows. ──────────────────────────────────────────────
+  await step("Save the current pins/groups into the browser snapshot", async () => {
+    await page.click("#snapshot-save");
+    await page.waitForFunction(
+      () => localStorage.getItem("city-pin-map.snapshot.v1") !== null,
+      { timeout: 5000 }
+    );
+  });
+
+  await step("New: clear pins + groups (accepting the confirm dialog)", async () => {
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.click("#snapshot-new");
+    await page.waitForSelector("#pin-list-empty:not([hidden])", { timeout: 5000 });
+  });
+
+  await step("Load: restore the saved snapshot", async () => {
+    await page.click("#snapshot-load");
+    await page.waitForSelector('.pin-list__row[data-pin-id="coverage-pin-2"]', {
+      timeout: 5000,
+    });
+    const restoredName = await page
+      .locator('.pin-list__row[data-pin-id="coverage-pin-2"] .pin-list__name')
+      .textContent();
+    if (!restoredName || !restoredName.includes("Tokyo (renamed)")) {
+      throw new Error("Load did not restore the pre-New renamed pin: " + restoredName);
+    }
+  });
+
+  // The Load above ran against an empty map (New had just cleared it), so it
+  // never reached the confirm. These two cover the OTHER branch — a Load
+  // with live state to overwrite — once accepted, once cancelled.
+  await step("Load again with pins present: accept the replace confirm", async () => {
+    let sawDialog = false;
+    page.once("dialog", (dialog) => {
+      sawDialog = true;
+      dialog.accept();
+    });
+    await page.click("#snapshot-load");
+    await page.waitForFunction(
+      () =>
+        (document.getElementById("snapshot-status")?.textContent || "").length > 0,
+      { timeout: 5000 }
+    );
+    if (!sawDialog) {
+      throw new Error("Load replaced existing pins without confirming");
+    }
+  });
+
+  await step("Load with pins present: cancel the confirm, nothing changes", async () => {
+    const before = await page.locator(".pin-list__row").count();
+    let sawDialog = false;
+    page.once("dialog", (dialog) => {
+      sawDialog = true;
+      dialog.dismiss();
+    });
+    await page.click("#snapshot-load");
+    // Give any (buggy) asynchronously-emitted message time to land before
+    // asserting silence.
+    await page.waitForTimeout(200);
+    if (!sawDialog) {
+      throw new Error("Load replaced existing pins without confirming");
+    }
+    const after = await page.locator(".pin-list__row").count();
+    if (after !== before) {
+      throw new Error(
+        `cancelled Load still changed the pin list: ${before} → ${after}`
+      );
+    }
+    const status = await page.locator("#snapshot-status").textContent();
+    if (status) {
+      throw new Error("cancelled Load still emitted a status message: " + status);
+    }
+    const bannerText = await page.locator("#error-banner").textContent();
+    if (bannerText && /snapshot|skipped/i.test(bannerText)) {
+      throw new Error("cancelled Load still emitted a banner message: " + bannerText);
+    }
+  });
+
   // ── 10. Icon picker modal + add-icon sub-view (icon-picker.js) ─────
   await step("open icon picker, add a custom SVG icon, select it", async () => {
     const tile = page.locator(
