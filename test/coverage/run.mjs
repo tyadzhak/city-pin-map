@@ -19,11 +19,13 @@
 // `page` is a live Playwright Page already navigated to the booted app
 // (index.html loaded, MapLibre initialized, the Design tab visible) with
 // `page.coverage.startJSCoverage({ resetOnNavigation: false })` already
-// running — a scenario does not start/stop coverage itself, just drives
-// UI. Scenarios run in alphabetical file-name order (hence the `00-` prefix
-// convention for the broad boot driver) and are independent: each should
-// leave the app in a reasonable state for the next one, but must not
-// assume anything about what ran before it beyond "the app is booted".
+// running for THAT scenario — the runner brackets each scenario file with
+// its own start/stop pair, so a scenario does not start/stop coverage
+// itself, just drives UI. Scenarios run in alphabetical file-name order
+// (hence the `00-` prefix convention for the broad boot driver) and are
+// independent: each should leave the app in a reasonable state for the
+// next one, but must not assume anything about what ran before it beyond
+// "the app is booted".
 // Wrap risky interactions in try/catch internally if a failure there
 // shouldn't abort the rest of your own scenario — the runner already
 // isolates FILE-level failures (one scenario throwing doesn't stop the
@@ -145,24 +147,22 @@ async function runBrowserScenarios() {
     log("[requestfailed]", req.url(), req.failure()?.errorText);
   });
 
-  let browserEntries = [];
+  let browserEntryBatches = [];
   try {
-    await page.coverage.startJSCoverage({ resetOnNavigation: false });
-
     await page.goto(url, { waitUntil: "load", timeout: 30000 });
     await page.waitForSelector(BOOT_SELECTOR, { timeout: BOOT_TIMEOUT_MS });
     log("app booted (Design tab present)");
 
-    await runScenarios(page);
+    browserEntryBatches = await runScenarios(page);
 
-    browserEntries = await page.coverage.stopJSCoverage();
-    log(`collected browser coverage for ${browserEntries.length} script entries`);
+    const totalEntries = browserEntryBatches.reduce((n, batch) => n + batch.length, 0);
+    log(`collected browser coverage for ${totalEntries} script entries`);
   } finally {
     await browser.close();
     await close();
   }
 
-  return browserEntries;
+  return browserEntryBatches;
 }
 
 // Discovers test/coverage/scenarios/*.mjs in alphabetical order, imports
@@ -172,10 +172,15 @@ async function runBrowserScenarios() {
 // contribution is smaller than if it had fully succeeded. Failures are
 // logged loudly rather than swallowed, per CLAUDE.md's "never silently
 // swallow" rule, even though this is dev-only tooling.
+//
+// Returns one V8-entry BATCH per scenario that ran — see the per-scenario
+// coverage bracketing below for why this can't be one whole-run batch.
 async function runScenarios(page) {
+  const batches = [];
+
   if (!fs.existsSync(SCENARIOS_DIR)) {
     log("no scenarios dir found, skipping");
-    return;
+    return batches;
   }
   const files = fs
     .readdirSync(SCENARIOS_DIR)
@@ -184,7 +189,7 @@ async function runScenarios(page) {
 
   if (files.length === 0) {
     log("no scenario files found under test/coverage/scenarios/");
-    return;
+    return batches;
   }
 
   for (const file of files) {
@@ -201,13 +206,38 @@ async function runScenarios(page) {
       log(`✘ scenario ${file} does not export an async function run(page) — skipping`);
       continue;
     }
+
+    // Coverage is collected PER SCENARIO rather than once around this whole
+    // loop because playwright >= 1.62 (and the newer chromium it bundles)
+    // resets precise V8 coverage on every navigation regardless of
+    // `resetOnNavigation: false` — and every scenario reloads the page near
+    // its top, so a single whole-run session would keep only the LAST
+    // scenario's post-reload work and silently drop the rest (168 script
+    // entries collapsed to 28). `resetOnNavigation` stays false because it
+    // still helps wherever it is honoured, and a per-navigation reset now
+    // costs at most the cheap steps a scenario runs before its own reload.
+    // Each scenario's entries are kept as their own batch and merged
+    // downstream, the same way the node side's per-file dumps already are.
+    await page.coverage.startJSCoverage({ resetOnNavigation: false });
     try {
       await mod.run(page);
       log(`✔ scenario ${file} completed`);
     } catch (err) {
       log(`✘ scenario ${file} threw:`, err?.stack || err);
+    } finally {
+      // Always stop, even for a throwing scenario: a still-running session
+      // would make the next scenario's start() throw and cost every later
+      // scenario its coverage. A failed scenario still contributes whatever
+      // it managed to collect.
+      try {
+        batches.push(await page.coverage.stopJSCoverage());
+      } catch (err) {
+        log(`✘ scenario ${file} coverage could not be collected:`, err?.stack || err);
+      }
     }
   }
+
+  return batches;
 }
 
 // ── Step 3: merge + report + gate ───────────────────────────────────────
@@ -249,7 +279,7 @@ function sourcePath(filePath) {
   return filePath;
 }
 
-async function mergeAndReport(nodeEntryBatches, browserEntries) {
+async function mergeAndReport(nodeEntryBatches, browserEntryBatches) {
   const mcr = new CoverageReport({
     name: "city-pin-map — combined whole-repo coverage",
     outputDir: OUTPUT_DIR,
@@ -277,7 +307,9 @@ async function mergeAndReport(nodeEntryBatches, browserEntries) {
   for (const batch of nodeEntryBatches) {
     if (batch.length) await mcr.add(batch);
   }
-  if (browserEntries.length) await mcr.add(browserEntries);
+  for (const batch of browserEntryBatches) {
+    if (batch.length) await mcr.add(batch);
+  }
 
   const results = await mcr.generate();
   return results;
@@ -307,10 +339,10 @@ function printPerFileTable(results) {
 
 async function main() {
   const nodeEntryBatches = await runNodeTestsWithCoverage();
-  const browserEntries = await runBrowserScenarios();
+  const browserEntryBatches = await runBrowserScenarios();
 
   log("merging node + browser coverage and generating report...");
-  const results = await mergeAndReport(nodeEntryBatches, browserEntries);
+  const results = await mergeAndReport(nodeEntryBatches, browserEntryBatches);
 
   if (!results) {
     // MCR returns undefined when there's no coverage data at all to
