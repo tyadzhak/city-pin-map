@@ -11,6 +11,6 @@
   "devDependencies": {
     "c8": "^12.0.0",
     "monocart-coverage-reports": "^2.13.0",
-    "playwright": "^1.62.1"
+    "playwright": "^1.63.0"
   }
 }
