@@ -274,15 +274,25 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
   wrapper.style.top = "0";
   wrapper.style.background = CANVAS_BACKGROUND;
 
-  const frameWidth = preset ? preset.width : rect.width;
-  const frameHeight = preset ? preset.height : rect.height;
+  // UXR-001: the CSS layout box is ALWAYS the on-screen (letterboxed
+  // preview) size, preset or not. A preset used to resize the container to the
+  // preset's pixel size at the same zoom, which revealed MORE map than the
+  // preview showed and drifted every overlay's proportions. Now the camera and
+  // the layout stay exactly as previewed and the preset's resolution comes from
+  // a render pixel-ratio boost (`outputScale`), so the PNG is the preview,
+  // just sharper. (UXR-016's 300-dpi print option plugs in here: it only needs
+  // a different target width — outputScale = targetWidthPx / rect.width.)
+  const frameWidth = rect.width;
+  const frameHeight = rect.height;
+  const outputScale =
+    preset && rect.width > 0 ? preset.width / rect.width : 1;
 
-  // PO-006: the typography coefficient is a function of the export's
-  // longest side. For preset captures we use the preset dimensions
-  // directly; for "current view" we use the live map's CSS rect, so
-  // ~1.0 for a typical 1280-px-wide window keeps the on-map title at
-  // the visual weight the user picked in the live overlay.
-  const coeff = computeCoeff(frameWidth, frameHeight);
+  // PO-006 typography coefficient. Current view keeps its legacy
+  // longest-side/1280 weighting. A preset uses 1: overlay CSS px are already
+  // the preview's, and the CSS→output factor (outputScale, applied as
+  // chipScale/frame scale) alone carries them to the output, so title/label/
+  // frame/inset proportions equal the preview's.
+  const coeff = preset ? 1 : computeCoeff(frameWidth, frameHeight);
 
   wrapper.style.width = `${frameWidth}px`;
   wrapper.style.height = `${frameHeight}px`;
@@ -300,10 +310,17 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
   wrapper.appendChild(mapEl);
   document.body.appendChild(wrapper);
 
+  let boostedInset = null;
   try {
-    // Tell MapLibre the container is a different size. animate:false is
-    // implicit — `resize()` doesn't animate.
-    mapInstance.resize();
+    // Camera untouched: only the render pixel ratio changes (setPixelRatio
+    // resizes the canvas backing store and re-measures the container).
+    if (preset) {
+      mapInstance.setPixelRatio(outputScale);
+      boostedInset = getInsetMap();
+      if (boostedInset) boostedInset.setPixelRatio(outputScale);
+    } else {
+      mapInstance.resize();
+    }
     await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS_PRESET);
 
     mapInstance.triggerRepaint();
@@ -345,8 +362,8 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // current view, and drives both the title-chip typography and, back in
     // the caller, the frame thickness.
     const mapCanvas = mapInstance.getCanvas();
-    const outputWidth = preset ? frameWidth : mapCanvas.width;
-    const outputHeight = preset ? frameHeight : mapCanvas.height;
+    const outputWidth = preset ? preset.width : mapCanvas.width;
+    const outputHeight = preset ? preset.height : mapCanvas.height;
     const scale = frameWidth > 0 ? outputWidth / frameWidth : 1;
 
     // The title's anchor (nx/ny) is a normalized frame-relative fraction, so
@@ -369,7 +386,9 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // the ems-derived offset) and 1 for a current-view composite (so the export
     // matches the on-screen labels 1:1). paintPinLabels then scales the returned
     // CSS-px positions/font by `scale` (chipScale) like the title chip does.
-    const labelMultiplier = preset ? coeff : 1;
+    // UXR-001: 1 for presets too — specs are in preview CSS px and scale by
+    // chipScale (= outputScale) in paintPinLabels, like the title and frame.
+    const labelMultiplier = 1;
     const labelSpecs = computeLabelSpecs(mapInstance, {
       sizeMultiplier: labelMultiplier,
     });
@@ -430,6 +449,12 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     mapEl.style.left = savedInline.left;
     mapEl.style.width = savedInline.width;
     mapEl.style.height = savedInline.height;
+    if (preset) {
+      mapInstance.setPixelRatio(null); // back to devicePixelRatio (also resizes)
+      const insetNow = getInsetMap();
+      if (boostedInset) boostedInset.setPixelRatio(null);
+      if (insetNow && insetNow !== boostedInset) insetNow.setPixelRatio(null);
+    }
     mapInstance.resize();
     // The inset overlay still holds the preset-sized px box written during
     // capture: re-place it for the restored container so the live corner box
