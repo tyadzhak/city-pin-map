@@ -6,6 +6,7 @@ import { loadTipsOpen, saveTipsOpen } from "./storage.js";
 const TIPS = [
   "Shift + drag on the map to select several pins and assign them to a group.",
   "Drag a pin's name on the map to move its label.",
+  "Double-click a label on the map to reset its position.",
   "Drag the on-map title or the inset map to reposition it.",
   "Double-click a pin's name in this list to rename it.",
   "Click a pin on the map to find it in the list.",
