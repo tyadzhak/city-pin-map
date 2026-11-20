@@ -69,6 +69,10 @@ const DEFAULT_LABEL_FONT_STACK =
 // { render, reposition, destroy }.
 const overlays = new Set();
 
+// Must match PINS_LAYER_ID in js/map.js (not exported there).
+const PINS_LAYER_ID = "city-pin-map.pins-fill";
+const REVEAL_FALLBACK_MS = 4000;
+
 // The main map's overlay handle, kept for init() idempotence.
 let mainOverlay = null;
 
@@ -230,6 +234,26 @@ function createOverlay(map, { interactive, pinsProvider }) {
   container.className = "map-pin-labels";
   map.getContainer().appendChild(container);
 
+  // UXR-023: stay invisible (opacity only, so layout/geometry is untouched and
+  // export's computeLabelSpecs is unaffected) until the map has rendered its
+  // pins layer, so names never float without their dots after a reload. The
+  // timeout is a safety net so a style failure can't hide labels forever.
+  let revealed = false;
+  function reveal() {
+    if (revealed) return;
+    revealed = true;
+    map.off("render", maybeReveal);
+    clearTimeout(revealTimer);
+    container.classList.add("map-pin-labels--ready");
+  }
+  function maybeReveal() {
+    // Layer presence (not isStyleLoaded/idle): those also wait on basemap
+    // tiles, which can take seconds while the pin dots are already drawn.
+    if (map.getLayer(PINS_LAYER_ID)) reveal();
+  }
+  const revealTimer = setTimeout(reveal, REVEAL_FALLBACK_MS);
+  map.on("render", maybeReveal);
+
   // pinId -> label element, so reposition() can move existing nodes on a map
   // pan/zoom without a full teardown (cheaper than render()).
   let labelEls = new Map();
@@ -362,6 +386,8 @@ function createOverlay(map, { interactive, pinsProvider }) {
   function destroy() {
     map.off("move", reposition);
     map.off("resize", reposition);
+    map.off("render", maybeReveal);
+    clearTimeout(revealTimer);
     unsubPins();
     unsubGroups();
     if (container.parentNode) container.parentNode.removeChild(container);
