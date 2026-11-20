@@ -118,6 +118,20 @@ body {
   background: #eef2ff;
 }
 
+/* UXR-013: keyboard-active option; same tint as hover so mouse and keys agree. */
+.search__row--active {
+  background: #eef2ff;
+}
+
+.search__badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: #6b7280;
+  background: #f1f3f5;
+  border-radius: 999px;
+}
+
 .search__row--empty,
 .search__row--error {
   cursor: default;
