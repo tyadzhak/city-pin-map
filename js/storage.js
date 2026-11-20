@@ -1048,6 +1048,67 @@ export function saveBottomFade(value) {
   }
 }
 
+// Map camera (UXR-003): `{ center: [lon, lat], zoom, bearing, pitch }` so the
+// user's poster framing survives a reload. UI preference — deliberately not in
+// the JSON backup. Unlike the other preference loaders this returns `null`
+// (not a default object) when nothing usable is saved, because the default
+// camera belongs to initMap and a half-valid view must not be half-applied.
+const MAP_VIEW_KEY = "city-pin-map.view.v1";
+
+export function normalizeMapView(value) {
+  const v = value && typeof value === "object" ? value : null;
+  if (!v || !Array.isArray(v.center)) return null;
+  const lon = Number(v.center[0]);
+  const lat = Number(v.center[1]);
+  const zoom = Number(v.zoom);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat) || !Number.isFinite(zoom)) {
+    return null;
+  }
+  // Panning across the antimeridian can leave lon outside ±180; wrap it back.
+  const wrappedLon = ((((lon + 180) % 360) + 360) % 360) - 180;
+  const bearingNum = Number(v.bearing);
+  const pitchNum = Number(v.pitch);
+  return {
+    center: [wrappedLon, Math.max(-85, Math.min(85, lat))],
+    zoom: Math.max(0, Math.min(22, zoom)),
+    bearing: Number.isFinite(bearingNum) ? Math.max(-180, Math.min(180, bearingNum)) : 0,
+    pitch: Number.isFinite(pitchNum) ? Math.max(0, Math.min(85, pitchNum)) : 0,
+  };
+}
+
+export function loadMapView() {
+  let raw;
+  try {
+    raw = localStorage.getItem(MAP_VIEW_KEY);
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    return null;
+  }
+  if (raw === null) return null;
+  try {
+    return normalizeMapView(JSON.parse(raw));
+  } catch (err) {
+    console.error("saved map view corrupt; ignoring:", err);
+    stashCorruptValue(MAP_VIEW_KEY, raw);
+    showError("Saved map position was corrupted and has been ignored.");
+    return null;
+  }
+}
+
+export function saveMapView(value) {
+  const view = normalizeMapView(value);
+  if (!view) return false;
+  try {
+    localStorage.setItem(MAP_VIEW_KEY, JSON.stringify(view));
+    return true;
+  } catch (err) {
+    // Camera position is low-value and saved on every move; a banner per pan
+    // would be noise, so log only.
+    console.error("failed to save map view:", err);
+    return false;
+  }
+}
+
 // Field-by-field clamp/coerce, mirroring normalizeFrame's contract — a
 // caller can pass a partial object (e.g. `{ enabled: true }` from a single
 // change event, or a live DOM read with a briefly-NaN valueAsNumber) and
