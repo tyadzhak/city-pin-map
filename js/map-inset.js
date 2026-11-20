@@ -240,7 +240,10 @@ function update(cfg) {
 
   // Show + place + size FIRST so the inset map's container has real dimensions
   // when (and if) it's lazily constructed just below. Placement honors freePos
-  // (custom drag position, clamped) or docks to the frame-aware corner.
+  // (custom drag position, clamped) or docks to the frame-aware corner. Mid-drag
+  // this is a no-op (the pointer owns the box); lastCfg is already recorded above,
+  // so onBoxPointerMove picks up a size change and onBoxPointerUp re-applies the
+  // rest. Data refresh and refit below still run — they don't move the box.
   applyPlacement(c);
 
   const ready = ensureInsetMap();
@@ -530,8 +533,14 @@ function fitInset(bounds) {
 // explicit px left/top/width/height (not the old corner-anchored
 // top/right/bottom/left + percentage width) so a freePos drag and a corner
 // dock share ONE geometry path — the exact px getResolvedPlacement() reports.
+// While a box drag is in flight the pointer owns left/top/width/height: any
+// store tick (e.g. the background import adding a pin each second), config
+// change or resize that reached here would write the PRE-drag freePos and snap
+// the box back under the cursor. Guarding here, rather than at each caller, means
+// no present or future placement path can forget it; onBoxPointerUp re-applies
+// placement once the pointer releases, so nothing skipped is lost.
 function applyPlacement(cfg) {
-  if (!overlay) return;
+  if (!overlay || boxDragging) return;
   const { x, y, width, height } = resolvePlacement(cfg);
   overlay.style.display = "block";
   overlay.style.left = `${x}px`;
@@ -580,7 +589,7 @@ export function refreshPlacement() {
  */
 export function relayoutInset() {
   if (!insetMap || !overlay || overlay.style.display === "none") return;
-  if (!boxDragging) applyPlacement(lastCfg);
+  applyPlacement(lastCfg); // no-ops mid-drag (see applyPlacement)
   insetMap.resize();
   // The viewport changed, so refit the camera and re-derive the locator from
   // the new visible bounds — otherwise the outline drifts from what the inset
@@ -770,14 +779,20 @@ function onBoxPointerUp(ev) {
   // stored freePos round-trips cleanly (re-resolving it lands on the same px).
   const last = boxDragLast;
   boxDragLast = null;
-  if (!last || last.W <= 0 || last.H <= 0) return;
+  if (last && last.W > 0 && last.H > 0) {
+    const freePos = { nx: last.x / last.W, ny: last.y / last.H };
+    lastCfg = { ...(lastCfg || {}), freePos };
+    // Persist directly: this module owns freePos writes. app.js's UI persist
+    // preserves it (readInset reads it back via loadInset) and clears it only on
+    // an explicit corner pick — so there's one writer per intent, no clobber.
+    saveInset(lastCfg);
+  }
 
-  const freePos = { nx: last.x / last.W, ny: last.y / last.H };
-  lastCfg = { ...(lastCfg || {}), freePos };
-  // Persist directly: this module owns freePos writes. app.js's UI persist
-  // preserves it (readInset reads it back via loadInset) and clears it only on
-  // an explicit corner pick — so there's one writer per intent, no clobber.
-  saveInset(lastCfg);
+  // Placement, canvas measure and camera were all deferred while the pointer
+  // owned the box (update()/relayoutInset() skip placement mid-drag), so a
+  // config change or resize that landed during the drag is applied now, from
+  // lastCfg — whose freePos is the just-dropped position.
+  relayoutInset();
 }
 
 function hideInset() {
