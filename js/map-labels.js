@@ -44,6 +44,7 @@
 import { listPins, subscribe as subscribePins, updatePin } from "./pins.js";
 import { subscribe as subscribeGroups } from "./groups.js";
 import { getPinStyle } from "./map.js";
+import { projectNearCenter } from "./geo-wrap.js";
 
 // Baseline vertical offset (ems of the configured label size) anchoring a
 // label just below its pin — carried over verbatim from js/map.js's
@@ -120,7 +121,8 @@ export function refreshAllLabelLayers() {
  * Returns `{ style, labels }`:
  *   style  — { fontFamily, sizePx, color, bold, italic, halo:{color, blurPx} }
  *   labels — [{ id, text, x, y }] where x/y are CSS px in `map`'s viewport:
- *            map.project([lon,lat]) + the base below-pin offset + the pin's
+ *            the pin projected on the world copy nearest the map center
+ *            (see js/geo-wrap.js) + the base below-pin offset + the pin's
  *            labelDx/labelDy. x is the label's horizontal CENTER, y its TOP
  *            edge (the old layer used text-anchor:top with a centered
  *            justification — the overlay applies translate(-50%,0) to match).
@@ -164,7 +166,7 @@ export function computeLabelSpecs(map, { sizeMultiplier = 1, pins } = {}) {
     if (!Number.isFinite(pin.lon) || !Number.isFinite(pin.lat)) continue;
     if (typeof pin.name !== "string" || pin.name.length === 0) continue;
 
-    const p = map.project([pin.lon, pin.lat]);
+    const p = projectNearCenter(map, pin.lon, pin.lat);
     const dx = (Number.isFinite(pin.labelDx) ? pin.labelDx : 0) * m;
     const dy = (Number.isFinite(pin.labelDy) ? pin.labelDy : 0) * m;
     labels.push({
@@ -311,7 +313,9 @@ function createOverlay(map, { interactive, pinsProvider }) {
     const pin = listPins().find((p) => p.id === dragging.pinId);
     if (!pin) return;
     const size = computeStyle().sizePx;
-    const p = map.project([pin.lon, pin.lat]);
+    // Same wrapped projection as computeLabelSpecs: labelDx/labelDy are
+    // offsets from THAT anchor, so the live drag must not use the raw copy.
+    const p = projectNearCenter(map, pin.lon, pin.lat);
     position(dragging.el, p.x + dx, p.y + PIN_LABEL_BASE_OFFSET_Y_EMS * size + dy);
   }
 
