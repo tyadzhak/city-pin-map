@@ -1104,6 +1104,15 @@ body.dragging-inset * {
      on the main map (the .app-map mat clips the whole map anyway) — the inset's
      own .map-inset-overlay overflow:hidden clips its labels to the box. */
   overflow: visible;
+  /* UXR-023: hidden until js/map-labels.js sees the pins layer render. */
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+.map-pin-labels.map-pin-labels--ready {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-pin-labels { transition: none; }
 }
 
 /* One pin's label. Positioned via an inline transform (translate3d to the
