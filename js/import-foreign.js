@@ -144,11 +144,23 @@ function rowFromObject(obj) {
   const nameKey = findKeyCI(obj, NAME_KEYS);
   const latKey = findKeyCI(obj, LAT_KEYS);
   const lonKey = findKeyCI(obj, LON_KEYS);
-  const rowName = nameKey !== undefined ? String(obj[nameKey]).trim() : "";
+  const rowName = nameKey !== undefined ? nameToString(obj[nameKey]) : "";
   const lat = latKey !== undefined ? parseCoord(obj[latKey]) : null;
   const lon = lonKey !== undefined ? parseCoord(obj[lonKey]) : null;
   const hasCoords = hasValidCoords(lat, lon);
   return { name: rowName, lat: hasCoords ? lat : null, lon: hasCoords ? lon : null };
+}
+
+// Coerces a raw JSON name value to a trimmed string. Plain String() turns
+// null into "null", undefined into "undefined" and objects/arrays into
+// "[object Object]" — all non-empty, so they sailed past the blank-name
+// filter and became literally-named pins. Only strings, numbers and
+// booleans are treated as real names; anything else counts as blank so the
+// row is reported as skipped instead of pinned.
+function nameToString(raw) {
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw).trim();
+  return "";
 }
 
 // Coerces a raw CSV/JSON coordinate value to a finite number, or null if

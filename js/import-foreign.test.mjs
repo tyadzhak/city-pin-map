@@ -214,6 +214,73 @@ test("JSON: array of {name,lat,lon}-shaped objects with alternate key casing", a
   assert.equal(pins[0].lon, 139.76);
 });
 
+// FBL-034: String(null) === "null" used to pass the blank-name filter and
+// pin a place literally named "null". Each bad row sits beside a good one so
+// the import still proceeds and the skipped-blank summary is observable.
+test("JSON: a null name is skipped as blank, not pinned as 'null'", async () => {
+  const json = JSON.stringify([
+    { name: null, lat: 10, lon: 20 },
+    { name: "Tokyo", lat: 35.68, lon: 139.76 },
+  ]);
+  await importFromFile(makeFile("cities.json", json));
+  const pins = listPins();
+  assert.equal(pins.length, 1);
+  assert.equal(pins[0].name, "Tokyo");
+  assert.match(alertMessages[0], /Skipped 1 row with no name\./);
+});
+
+test("JSON: an object- or array-valued name is skipped as blank, not '[object Object]'", async () => {
+  const json = JSON.stringify([
+    { name: { first: "Paris" }, lat: 1, lon: 2 },
+    { name: ["Paris"], lat: 3, lon: 4 },
+    { name: "Tokyo", lat: 35.68, lon: 139.76 },
+  ]);
+  await importFromFile(makeFile("cities.json", json));
+  const pins = listPins();
+  assert.equal(pins.length, 1);
+  assert.equal(pins[0].name, "Tokyo");
+  assert.match(alertMessages[0], /Skipped 2 rows with no name\./);
+});
+
+test("JSON: a file whose only name is null reports 'no rows found' and pins nothing", async () => {
+  await importFromFile(makeFile("cities.json", JSON.stringify([{ name: null, lat: 10, lon: 20 }])));
+  assert.equal(errorBanner.textContent, "No rows found in that file.");
+  assert.equal(listPins().length, 0);
+});
+
+// JSON cannot encode `undefined`; the nearest equivalent is an object with
+// no name-like key at all. Shape detection requires every element to have
+// one, so a single such element rejects the file rather than being skipped
+// per-row, and nothing is pinned (in particular, no "undefined" pin).
+test("JSON: an element missing the name key makes the shape unrecognised, pinning nothing", async () => {
+  const json = JSON.stringify([
+    { name: "Tokyo", lat: 35.68, lon: 139.76 },
+    { lat: 10, lon: 20 },
+  ]);
+  await importFromFile(makeFile("cities.json", json));
+  assert.match(errorBanner.textContent, /Unrecognised JSON shape/);
+  assert.equal(listPins().length, 0);
+});
+
+test("JSON: a numeric name is still imported as its string form", async () => {
+  const json = JSON.stringify([{ name: 12345, lat: 10, lon: 20 }]);
+  await importFromFile(makeFile("cities.json", json));
+  const pins = listPins();
+  assert.equal(pins.length, 1);
+  assert.equal(pins[0].name, "12345");
+  assert.equal(pins[0].lat, 10);
+  assert.equal(pins[0].lon, 20);
+});
+
+test("JSON: a normal string name is trimmed and imported unchanged", async () => {
+  const json = JSON.stringify([{ name: "  Lisbon  ", lat: 38.7223, lon: -9.1393 }]);
+  await importFromFile(makeFile("cities.json", json));
+  const pins = listPins();
+  assert.equal(pins.length, 1);
+  assert.equal(pins[0].name, "Lisbon");
+  assert.equal(alertMessages[0].includes("Skipped"), false);
+});
+
 test("JSON: out-of-range coordinates are treated as 'not provided' and geocoded", async (t) => {
   const restore = mockFetch(() =>
     jsonResponse([{ display_name: "Nowhere", lat: "1", lon: "2" }])
