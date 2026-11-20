@@ -29,6 +29,8 @@
     <link rel="stylesheet" href="css/styles.css?v=side-tabs" />
   </head>
   <body>
+    <a class="skip-link" href="#side-panel">Skip to side panel</a>
+    <a class="skip-link" href="#map-region">Skip to map</a>
     <div class="app-shell">
       <header class="app-header" aria-label="Search">
         <h1 class="app-title">City Pin Map</h1>
@@ -142,7 +144,7 @@
         </button>
       </header>
 
-      <main class="app-map" aria-label="Map">
+      <main class="app-map" id="map-region" tabindex="-1" aria-label="Map">
         <div id="map"></div>
       </main>
 
@@ -151,7 +153,7 @@
            own tab so the header stays a thin search/basemap toolbar. Wired
            by js/side-tabs.js; active tab persists via storage.js
            load/saveActiveSideTab so a reload reopens the last-used tab. -->
-      <aside class="app-side" aria-label="Map design and pinned cities">
+      <aside class="app-side" id="side-panel" tabindex="-1" aria-label="Map design and pinned cities">
         <div class="side-tabs" role="tablist" aria-label="Side panel sections">
           <button
             id="side-tab-design"

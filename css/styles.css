@@ -65,6 +65,44 @@ body {
   border: 0;
 }
 
+/* UXR-031: skip links. Hidden off-screen until keyboard-focused so the first
+   Tab can jump past the header/map straight to the side panel. */
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 8px 12px;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 6px;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+/* UXR-031: one strong ring for every keyboard-focused control. !important
+   because many component rules below blank the outline in favour of a faint
+   box-shadow; :focus-visible keeps mouse clicks ring-free. */
+:focus-visible {
+  outline: 2px solid #1d4ed8 !important;
+  outline-offset: 2px !important;
+}
+
+/* Tabs sit flush against clipping edges, so draw their ring inside. */
+.side-tab:focus-visible {
+  outline-offset: -3px !important;
+}
+
+/* Programmatic skip-link targets: no ring on the container itself. */
+[tabindex="-1"]:focus {
+  outline: none !important;
+}
+
 /* Wrapper is relative so the absolutely-positioned dropdown anchors to it
    and overlays the map without pushing layout. */
 .search {
