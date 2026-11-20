@@ -28,6 +28,7 @@ import * as pinStore from "./pins.js";
 import * as groupStore from "./groups.js";
 import * as userIconStore from "./user-icons.js";
 import { ingestSvg } from "./svg-ingest.js";
+import { showToast } from "./toast.js";
 import {
   showError,
   prewriteImportPayloads,
@@ -202,6 +203,12 @@ export async function importFromJson(file) {
   // via effectiveIcon's clamp-to-known-id contract.
 
   reportDropped(dropped);
+  // The single success signal for a backup restore (import-foreign delegates
+  // here and shows nothing of its own, so this fires exactly once).
+  showToast(
+    `Restored ${pluralize(pins.length, "pin")} and ${pluralize(groups.length, "group")}`,
+    { type: "success" }
+  );
 }
 
 // Assemble one user-visible summary of anything the normalizers rejected.

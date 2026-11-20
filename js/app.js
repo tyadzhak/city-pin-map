@@ -1389,11 +1389,13 @@ function initExportButton({ getFrame, getOnMapTitle, getBottomFade } = {}) {
     try {
       // Read the live overlay state at CLICK time (not init time) and hand it
       // to the export, which prefers it over persisted storage (FBL-013).
-      await exportMapAsPng(getMap(), {
+      const savedName = await exportMapAsPng(getMap(), {
         frame: getFrame ? getFrame() : undefined,
         onMapTitle: getOnMapTitle ? getOnMapTitle() : undefined,
         bottomFade: getBottomFade ? getBottomFade() : undefined,
       });
+      // null = failure (exportMapAsPng already showed the error).
+      if (savedName) showToast(`Saved ${savedName}`, { type: "success" });
     } finally {
       window.clearTimeout(statusTimer);
       if (status) status.textContent = "";

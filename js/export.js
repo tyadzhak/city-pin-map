@@ -61,7 +61,7 @@ import {
   loadExportQuality,
 } from "./storage.js";
 import { computeLabelSpecs } from "./map-labels.js";
-import { resolveExportSize } from "./export-quality.js";
+import { resolveExportSize, buildExportFilename } from "./export-quality.js";
 import { showToast } from "./toast.js";
 import {
   getInsetMap,
@@ -148,7 +148,9 @@ const ON_MAP_TITLE_BOX = {
 /**
  * Capture the current map view and trigger a PNG download.
  * On any failure, surfaces a user-visible message via showError() and keeps
- * the app usable (no re-throw).
+ * the app usable (no re-throw). Resolves to the downloaded file name on
+ * success and null on failure, so callers can confirm success without the
+ * internal catch hiding it (UXR-015).
  */
 export async function exportMapAsPng(mapInstance, options = {}) {
   try {
@@ -251,10 +253,16 @@ export async function exportMapAsPng(mapInstance, options = {}) {
     const finalCanvas = wrapFrame(innerCanvas, frame, innerScale);
     const dataUrl = finalCanvas.toDataURL("image/png");
 
-    triggerDownload(dataUrl, `city-pin-map-${todayStamp()}.png`);
+    const filename = buildExportFilename(
+      onMapTitle ? onMapTitle.lines : null,
+      todayStamp()
+    );
+    triggerDownload(dataUrl, filename);
+    return filename;
   } catch (err) {
     console.error("PNG export failed:", err);
     showError("Could not export the map. Try again.");
+    return null;
   }
 }
 
