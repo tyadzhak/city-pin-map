@@ -62,6 +62,7 @@ import {
   renderRouteTo,
   renderLocator,
   onStyleRendered,
+  installMissingImageGuard,
 } from "./map.js";
 import { listPins, subscribe as subscribePins } from "./pins.js";
 import { subscribe as subscribeGroups } from "./groups.js";
@@ -387,6 +388,7 @@ function ensureInsetMap() {
     zoom: mainMap.getZoom(),
     fadeDuration: 0, // crisp labels immediately, no cross-fade on (re)style
   });
+  installMissingImageGuard(insetMap);
 
   // Pin-label overlay for the inset. interactive:true → each label div is a
   // drag target (Pointer Events, same labelDx/labelDy store path as the main

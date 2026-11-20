@@ -486,6 +486,19 @@ let cancelBootGuard = null;
  * ~5–15% FPS on sustained pan per MapLibre's own benchmarks; invisible at
  * this app's scale.
  */
+// UXR-030: some basemap styles reference sprite ids their own sprite sheet
+// lacks (e.g. data-driven poi `icon-image` yielding "circle-11"); MapLibre
+// then logs `Image "…" could not be loaded` per id. Register a transparent
+// 1x1 stand-in so the layer simply draws nothing there. App pin icons
+// (namespaced) are skipped: their absence is handled by the registry
+// fallback and should stay loud.
+export function installMissingImageGuard(map) {
+  map.on("styleimagemissing", (e) => {
+    if (!e.id || e.id.startsWith(PIN_ICON_IMAGE_PREFIX) || map.hasImage(e.id)) return;
+    map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
+  });
+}
+
 export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   if (mapInstance) return mapInstance;
 
@@ -535,6 +548,8 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
     // link tab stops, yet attribution stays visible/required.
     attributionControl: { compact: true },
   });
+
+  installMissingImageGuard(mapInstance);
 
   // MapLibre opens the compact control on first render, which exposes every
   // attribution link as a tab stop. Collapse it once; the (i) button still
