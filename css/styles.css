@@ -41,12 +41,16 @@ body {
   padding: 0 16px;
   background: #ffffff;
   border-bottom: 1px solid #e4e7eb;
+  /* Single row at every width: items shrink (search first) rather than wrap. */
+  min-width: 0;
 }
 
 .app-title {
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .visually-hidden {
@@ -66,7 +70,9 @@ body {
 .search {
   position: relative;
   margin-left: 24px;
-  flex: 0 0 360px;
+  flex: 1 1 auto;
+  min-width: 180px;
+  max-width: 360px;
 }
 
 .search__input {
@@ -297,6 +303,50 @@ body {
 .route-toggle__label {
   font: inherit;
   line-height: 1;
+}
+
+/* Header toggles/picker never wrap or shrink their text; the search field
+   absorbs the squeeze instead. */
+.hide-labels-toggle,
+.route-toggle,
+.app-header .picker {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 800-1000px: tighten gaps and chrome so the header stays one tidy row.
+   Mobile is out of scope. */
+@media (max-width: 1000px) {
+  .app-header {
+    padding: 0 10px;
+  }
+  .app-title {
+    font-size: 14px;
+  }
+  .search {
+    margin-left: 12px;
+    min-width: 150px;
+  }
+  .hide-labels-toggle,
+  .route-toggle {
+    margin-left: 6px;
+    padding: 0 8px;
+    gap: 4px;
+    font-size: 13px;
+  }
+  .app-header .picker__trigger {
+    min-width: 0;
+    padding: 0.4rem 0.5rem;
+    margin-left: 6px;
+  }
+  .app-header .app-header__settings {
+    margin-left: auto;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .app-shell {
+    grid-template-columns: 1fr 280px;
+  }
 }
 
 /* Two compact text inputs grouped right before the Export PNG button.
