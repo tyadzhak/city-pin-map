@@ -141,6 +141,31 @@ export function replaceAll(newPins) {
   notify();
 }
 
+// UXR-009: pure reorder computation. The list and the route both order by
+// `createdAt`, so a reorder is expressed by REASSIGNING the existing
+// createdAt values (sorted ascending) to the pins in their new visual order:
+// no new pin field, and backups and the route follow automatically.
+// `pins` may be in any order (visual order = createdAt ascending). Returns
+// new pin objects in the NEW visual order, or null when nothing would change
+// (unknown id or same position). `newIndex` is clamped.
+export function reorderByCreatedAt(pins, movedId, newIndex) {
+  const order = pins.slice().sort((a, b) => a.createdAt - b.createdAt);
+  const from = order.findIndex((p) => p.id === movedId);
+  if (from === -1) return null;
+  const to = Math.max(0, Math.min(order.length - 1, Math.trunc(newIndex)));
+  if (!Number.isFinite(to) || to === from) return null;
+  const values = order.map((p) => p.createdAt);
+  const [moved] = order.splice(from, 1);
+  order.splice(to, 0, moved);
+  // Duplicate/NaN createdAt values would leave the new order ambiguous
+  // (stable-sort ties), so force strictly increasing values.
+  for (let i = 0; i < values.length; i++) {
+    if (!Number.isFinite(values[i])) values[i] = i === 0 ? 0 : values[i - 1];
+    if (i > 0 && values[i] <= values[i - 1]) values[i] = values[i - 1] + 1;
+  }
+  return order.map((p, i) => ({ ...p, createdAt: values[i] }));
+}
+
 export function subscribe(fn) {
   listeners.push(fn);
   return () => {

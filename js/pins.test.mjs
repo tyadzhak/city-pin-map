@@ -282,3 +282,33 @@ test("resolvePinColor: an empty-string pin color is treated as not customized (f
   const pin = { color: "" };
   assert.equal(resolvePinColor(pin, { color: "#abcdef" }, "#000000"), "#abcdef");
 });
+
+import { reorderByCreatedAt } from "./pins.js";
+
+const mk = (id, createdAt) => ({ id, createdAt, name: id });
+const ids = (arr) => arr.slice().sort((a, b) => a.createdAt - b.createdAt).map((p) => p.id);
+
+test("reorderByCreatedAt moves a pin to the top, reusing the same createdAt values", () => {
+  const pins = [mk("a", 10), mk("b", 20), mk("c", 30)];
+  const out = reorderByCreatedAt(pins, "c", 0);
+  assert.deepEqual(ids(out), ["c", "a", "b"]);
+  assert.deepEqual(out.map((p) => p.createdAt).sort((x, y) => x - y), [10, 20, 30]);
+  assert.equal(pins[2].createdAt, 30, "input not mutated");
+});
+
+test("reorderByCreatedAt handles unsorted input and clamps index", () => {
+  const pins = [mk("c", 30), mk("a", 10), mk("b", 20)];
+  assert.deepEqual(ids(reorderByCreatedAt(pins, "a", 99)), ["b", "c", "a"]);
+});
+
+test("reorderByCreatedAt returns null for no-op or unknown id", () => {
+  const pins = [mk("a", 10), mk("b", 20)];
+  assert.equal(reorderByCreatedAt(pins, "a", 0), null);
+  assert.equal(reorderByCreatedAt(pins, "zzz", 0), null);
+});
+
+test("reorderByCreatedAt keeps order unambiguous with duplicate createdAt", () => {
+  const pins = [mk("a", 5), mk("b", 5), mk("c", 5)];
+  const out = reorderByCreatedAt(pins, "c", 0);
+  assert.deepEqual(ids(out), ["c", "a", "b"]);
+});

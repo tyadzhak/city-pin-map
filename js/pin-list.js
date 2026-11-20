@@ -16,7 +16,14 @@
 // 6-icon grid AND the native color input — color and icon are siblings
 // of "appearance" so they share one affordance.
 
-import { subscribe, listPins, removePin, updatePin } from "./pins.js";
+import {
+  subscribe,
+  listPins,
+  removePin,
+  updatePin,
+  replaceAll,
+  reorderByCreatedAt,
+} from "./pins.js";
 import {
   subscribe as subscribeGroups,
   listGroups,
@@ -47,6 +54,10 @@ import { loadDefaultPin } from "./storage.js";
 let panelEls = null;
 let renderPending = false;
 let renameActive = false;
+let reorderDragActive = false;
+// Set when a reorder drag ends so the click the browser fires on pointerup
+// doesn't also fly the map (UXR-007 row click).
+let suppressRowClickUntil = 0;
 
 function renderNow() {
   if (!panelEls) return;
@@ -60,7 +71,9 @@ function renderNow() {
 // rebuild without destroying the focused input, so we record the request and
 // let finalize() flush it once the edit resolves.
 function requestRender() {
-  if (renameActive) {
+  // A drag-reorder (UXR-009) also holds the list: a rebuild mid-drag would
+  // detach the handle that owns the pointer capture.
+  if (renameActive || reorderDragActive) {
     renderPending = true;
     return;
   }
@@ -192,6 +205,7 @@ function buildRow(pin, groups, defaultColor) {
   const tileColor = effectiveColor(pin, defaultColor);
   const tileIcon = effectiveIcon(pin);
 
+  row.appendChild(buildDragHandle(pin));
   row.appendChild(buildAppearanceTile(pin, tileIcon, tileColor));
 
   // UXR-007: click the row body to fly the map to the pin. Interactive
@@ -199,6 +213,7 @@ function buildRow(pin, groups, defaultColor) {
   // double-click (rename) alone.
   row.addEventListener("click", (ev) => {
     if (ev.detail > 1) return;
+    if (performance.now() < suppressRowClickUntil) return;
     if (
       ev.target.closest(
         "button, select, input, .pin-list__tile, .pin-list__color-swatch"
@@ -248,6 +263,93 @@ function buildRow(pin, groups, defaultColor) {
   row.appendChild(remove);
 
   return row;
+}
+
+// UXR-009: persist a reorder by reassigning createdAt values in one batch,
+// so the route (also createdAt-ordered) follows.
+function applyReorder(pinId, newIndex) {
+  const next = reorderByCreatedAt(listPins(), pinId, newIndex);
+  if (next) replaceAll(next);
+  return !!next;
+}
+
+function clearDropIndicators() {
+  if (!panelEls) return;
+  for (const r of panelEls.listEl.children) {
+    r.classList.remove("pin-list__row--drop-before", "pin-list__row--drop-after");
+  }
+}
+
+// Row-start drag handle. Pointer Events + capture (no HTML5 DnD, which is
+// flaky inside scroll containers). Keyboard: Alt+ArrowUp/Down moves one place.
+function buildDragHandle(pin) {
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.className = "pin-list__drag-handle";
+  handle.textContent = "⋮⋮";
+  handle.title = "Drag to reorder (Alt+Up/Down on keyboard)";
+  handle.setAttribute("aria-label", `Reorder pin ${pin.name} (Alt+Arrow Up or Down to move)`);
+
+  handle.addEventListener("keydown", (ev) => {
+    if (!ev.altKey || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
+    ev.preventDefault();
+    const order = listPins().sort((a, b) => a.createdAt - b.createdAt);
+    const idx = order.findIndex((p) => p.id === pin.id);
+    if (idx === -1) return;
+    if (!applyReorder(pin.id, idx + (ev.key === "ArrowUp" ? -1 : 1))) return;
+    // The store notify rebuilt the rows; put focus back on this pin's handle.
+    panelEls?.listEl
+      .querySelector(`[data-pin-id="${CSS.escape(pin.id)}"] .pin-list__drag-handle`)
+      ?.focus();
+  });
+
+  let dropIndex = null;
+  const rows = () => [...panelEls.listEl.children];
+  // Target index = number of OTHER rows whose midpoint is above the pointer.
+  const indexAt = (clientY) => {
+    let n = 0;
+    for (const r of rows()) {
+      if (r.dataset.pinId === pin.id) continue;
+      const b = r.getBoundingClientRect();
+      if (clientY > b.top + b.height / 2) n++;
+    }
+    return n;
+  };
+  const showIndicator = (idx) => {
+    clearDropIndicators();
+    const others = rows().filter((r) => r.dataset.pinId !== pin.id);
+    if (idx < others.length) others[idx].classList.add("pin-list__row--drop-before");
+    else if (others.length) others[others.length - 1].classList.add("pin-list__row--drop-after");
+  };
+  const end = (ev, commit) => {
+    if (!reorderDragActive) return;
+    reorderDragActive = false;
+    suppressRowClickUntil = performance.now() + 300;
+    handle.releasePointerCapture?.(ev.pointerId);
+    handle.closest(".pin-list__row")?.classList.remove("pin-list__row--dragging");
+    clearDropIndicators();
+    const target = dropIndex;
+    dropIndex = null;
+    if (commit && target !== null && applyReorder(pin.id, target)) return;
+    // No store mutation happened; flush any rebuild deferred during the drag.
+    if (renderPending) renderNow();
+  };
+
+  handle.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0 || renameActive) return;
+    ev.preventDefault();
+    reorderDragActive = true;
+    handle.setPointerCapture?.(ev.pointerId);
+    handle.closest(".pin-list__row")?.classList.add("pin-list__row--dragging");
+  });
+  handle.addEventListener("pointermove", (ev) => {
+    if (!reorderDragActive) return;
+    dropIndex = indexAt(ev.clientY);
+    showIndicator(dropIndex);
+  });
+  handle.addEventListener("pointerup", (ev) => end(ev, true));
+  handle.addEventListener("pointercancel", (ev) => end(ev, false));
+  return handle;
 }
 
 // Renders the per-row appearance composition: an icon tile (opens the

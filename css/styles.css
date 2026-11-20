@@ -1843,6 +1843,36 @@ body.dragging-inset * {
   box-shadow: inset 3px 0 0 #2563eb;
 }
 
+/* UXR-009: drag handle + drop indicator for reordering rows. */
+.pin-list__drag-handle {
+  flex: none;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: #9ca3af;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: -2px;
+  cursor: grab;
+  touch-action: none;
+}
+.pin-list__drag-handle:hover,
+.pin-list__drag-handle:focus-visible {
+  color: #374151;
+}
+.pin-list__row--dragging {
+  opacity: 0.6;
+}
+.pin-list__row--dragging .pin-list__drag-handle {
+  cursor: grabbing;
+}
+.pin-list__row--drop-before {
+  box-shadow: inset 0 3px 0 #2563eb;
+}
+.pin-list__row--drop-after {
+  box-shadow: inset 0 -3px 0 #2563eb;
+}
+
 /* Appearance tile (PI-001) — replaces the old color swatch. The tile is
    a button that previews the chosen icon at the chosen color: it doubles
    as the row's appearance display AND the affordance that opens the
