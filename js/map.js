@@ -310,7 +310,10 @@ export const MAP_STYLES = [
   },
 ];
 
-export const DEFAULT_MAP_STYLE_ID = "osm";
+// Positron-based "Light": a quiet, low-contrast basemap that lets pins and
+// labels carry a poster. The "osm" entry (OpenFreeMap Liberty) is busy and
+// bilingual, so it is no longer the first-run default. Saved styles win.
+export const DEFAULT_MAP_STYLE_ID = "carto-light";
 
 // Providers whose styles bake labels into the tile pixels server-side, so
 // labels can't be hidden client-side. Single source of truth for PO-001's
