@@ -8,6 +8,13 @@
 // panel currently contains them.
 import { loadActiveSideTab, saveActiveSideTab } from "./storage.js";
 
+// UXR-007: lets other modules (pin selection) switch tabs without reaching
+// into the DOM; a no-op until initSideTabs has run.
+let activateByName = null;
+export function activateTab(name) {
+  if (activateByName) activateByName(name);
+}
+
 export function initSideTabs() {
   const tablist = document.querySelector(".side-tabs");
   const tabs = Array.from(document.querySelectorAll(".side-tab"));
@@ -79,6 +86,8 @@ export function initSideTabs() {
     activate(nextTab.id);
     nextTab.focus();
   });
+
+  activateByName = (name) => activate(tabElementIdFromId(name));
 
   const saved = loadActiveSideTab();
   activate(tabElementIdFromId(saved));

@@ -557,6 +557,7 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   );
   mapInstance.addControl(new FitPinsControl(), "top-left");
   mapInstance.on("moveend", scheduleViewSave);
+  wirePinSelection(mapInstance);
 
   // Boot-load guard. The very first style load gets the same failure
   // surfacing setMapStyle gives runtime swaps — but simpler: on failure we
@@ -820,6 +821,33 @@ export function flyToPin(pin, opts = {}) {
     zoom: Math.max(mapInstance.getZoom(), minZoom),
     ...flyOpts,
   });
+}
+
+// UXR-007: clicking a pin icon selects it. Layer-scoped listeners are stored
+// on the map by layer id, so they keep working across basemap style swaps
+// (which drop and re-add the layers). Dispatched as a DOM event so the pin
+// list / side tabs can react without map.js importing UI modules.
+export const PIN_SELECTED_EVENT = "city-pin-map:pin-selected";
+
+function wirePinSelection(map) {
+  const layers = [PINS_LAYER_ID, PINS_COLOR_RING_LAYER_ID];
+  for (const layerId of layers) {
+    map.on("click", layerId, (e) => {
+      // Shift+drag is box-select; never treat its release as a click.
+      if (e.originalEvent?.shiftKey) return;
+      const id = e.features?.[0]?.properties?.id;
+      if (!id) return;
+      document.dispatchEvent(
+        new CustomEvent(PIN_SELECTED_EVENT, { detail: { pinId: id } })
+      );
+    });
+    map.on("mouseenter", layerId, () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", layerId, () => {
+      map.getCanvas().style.cursor = "";
+    });
+  }
 }
 
 const REVEAL_MARGIN_PX = 48;

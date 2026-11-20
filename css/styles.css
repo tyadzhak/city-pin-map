@@ -1790,6 +1790,17 @@ body.dragging-inset * {
   border-top: 1px solid #f1f3f5;
 }
 
+/* UXR-007: clicking a row flies to its pin; selected rows (from a map click
+   or a row click) get a brief highlight that fades with the JS timer. */
+.pin-list__row {
+  cursor: pointer;
+  transition: background-color 0.4s ease;
+}
+.pin-list__row--selected {
+  background: rgba(37, 99, 235, 0.14);
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
 /* Appearance tile (PI-001) — replaces the old color swatch. The tile is
    a button that previews the chosen icon at the chosen color: it doubles
    as the row's appearance display AND the affordance that opens the
