@@ -851,11 +851,11 @@ test("saveActiveSideTab: setItem throw shows a banner", () => {
 test("normalizeFrame: defaults for empty/undefined input", () => {
   assert.deepEqual(normalizeFrame(undefined), {
     enabled: false,
-    thickness: 60,
-    color: "#ffffff",
+    thickness: 14,
+    color: "#1f2937",
     shadow: false,
     padding: 0,
-    margin: 0,
+    margin: 24,
     radius: 0,
   });
 });
@@ -870,14 +870,14 @@ test("normalizeFrame: clamps thickness/padding/margin/radius to [0,200] and roun
 
 test("normalizeFrame: non-finite numeric fields fall back to defaults", () => {
   const result = normalizeFrame({ thickness: "abc", padding: NaN, margin: undefined, radius: null });
-  assert.equal(result.thickness, 60);
+  assert.equal(result.thickness, 14);
   assert.equal(result.padding, 0);
-  assert.equal(result.margin, 0);
+  assert.equal(result.margin, 24);
   assert.equal(result.radius, 0);
 });
 
 test("normalizeFrame: rejects invalid hex color, accepts valid", () => {
-  assert.equal(normalizeFrame({ color: "red" }).color, "#ffffff");
+  assert.equal(normalizeFrame({ color: "red" }).color, "#1f2937");
   assert.equal(normalizeFrame({ color: "#00FF00" }).color, "#00FF00");
 });
 
@@ -920,7 +920,7 @@ test("normalizeFrameSet: fills in both frame slots and outside from partial inpu
 
 test("normalizeFrameSet: non-array frames falls back to both defaults", () => {
   const set = normalizeFrameSet({ frames: "nope" });
-  assert.equal(set.frames[0].thickness, 60);
+  assert.equal(set.frames[0].thickness, 14);
   assert.equal(set.frames[1].thickness, 4);
 });
 
@@ -985,26 +985,26 @@ test("loadExportFrame: {frames:[...]} without outside backfills a valid default 
 test("loadExportFrame: unrecognizable object (no frames, no legacy fields) falls back to defaults + banner", () => {
   globalThis.localStorage.setItem(EXPORT_FRAME_KEY, JSON.stringify({ totally: "unrelated" }));
   const set = loadExportFrame();
-  assert.equal(set.frames[0].thickness, 60);
+  assert.equal(set.frames[0].thickness, 14);
   assert.match(banner().textContent, /corrupted/);
 });
 
 test("loadExportFrame: non-object JSON (e.g. a number) is treated as corrupt", () => {
   globalThis.localStorage.setItem(EXPORT_FRAME_KEY, "42");
   const set = loadExportFrame();
-  assert.equal(set.frames[0].thickness, 60);
+  assert.equal(set.frames[0].thickness, 14);
   assert.match(banner().textContent, /corrupted/);
 });
 
 test("loadExportFrame: non-JSON value is treated as corrupt", () => {
   globalThis.localStorage.setItem(EXPORT_FRAME_KEY, "{bad");
   const set = loadExportFrame();
-  assert.equal(set.frames[0].thickness, 60);
+  assert.equal(set.frames[0].thickness, 14);
 });
 
 test("loadExportFrame: getItem throw returns fresh defaults with a banner", () => {
   const set = withThrowingGetItem(() => loadExportFrame());
-  assert.equal(set.frames[0].thickness, 60);
+  assert.equal(set.frames[0].thickness, 14);
   assert.match(banner().textContent, /could not be read/);
 });
 

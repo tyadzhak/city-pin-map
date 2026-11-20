@@ -130,9 +130,10 @@ const EMPTY_ON_MAP_TITLE = Object.freeze({
 // outside }`, `frames` always exactly two elements ("Frame 1" at index 0,
 // "Frame 2" at index 1), each the same 7-field shape a single frame always
 // had. Two independently nested bands (different margins) produce the
-// double-frame look. Frame 1's defaults are unchanged from the original
-// single-frame feature; Frame 2 defaults to a thin black band nested just
-// inside Frame 1 so enabling it immediately shows a sensible result. A
+// double-frame look. Frame 1 defaults to a visible charcoal band inset 24px
+// (UXR-011: the old 60px white default just looked like the map had shrunk);
+// Frame 2 defaults to a thin black band at margin 16, which nests OUTSIDE
+// Frame 1 (hairline, 4px gap, thick band) so enabling both looks sensible. A
 // legacy pre-two-frames value (a bare single frame object, no `frames`
 // array) is migrated into Frame 1 on load, with Frame 2 seeded from its own
 // defaults — see loadExportFrame. `outside` (this milestone) controls what
@@ -140,11 +141,11 @@ const EMPTY_ON_MAP_TITLE = Object.freeze({
 // DEFAULT_FRAME_OUTSIDE / normalizeFrameOutside below.
 const DEFAULT_EXPORT_FRAME = Object.freeze({
   enabled: false,
-  thickness: 60,
-  color: "#ffffff",
+  thickness: 14,
+  color: "#1f2937",
   shadow: false,
   padding: 0,
-  margin: 0,
+  margin: 24,
   radius: 0,
 });
 const DEFAULT_EXPORT_FRAME_2 = Object.freeze({
