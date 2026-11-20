@@ -60,3 +60,29 @@ export function subscribe(fn) {
     if (idx !== -1) listeners.splice(idx, 1);
   };
 }
+
+// Palette for new-group defaults. The first entry deliberately is NOT the
+// default pin red: a group whose color equals the default pin color makes
+// assigning inherited pins look like a no-op.
+export const GROUP_PALETTE = [
+  "#1d3557",
+  "#2a9d8f",
+  "#f4a261",
+  "#9d4edd",
+  "#e63946",
+  "#264653",
+];
+
+// First palette color that is neither the default pin color nor already used
+// by a group; if every candidate is taken, rotate by group count but still
+// skip the default pin color.
+export function pickGroupColor(existingGroups, defaultPinColor) {
+  const norm = (c) => String(c || "").toLowerCase();
+  const def = norm(defaultPinColor);
+  const used = new Set((existingGroups || []).map((g) => norm(g.color)));
+  const usable = GROUP_PALETTE.filter((c) => norm(c) !== def);
+  const free = usable.find((c) => !used.has(norm(c)));
+  if (free) return free;
+  const n = (existingGroups || []).length;
+  return usable[n % usable.length];
+}

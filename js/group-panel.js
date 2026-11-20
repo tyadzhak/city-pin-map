@@ -18,19 +18,10 @@ import {
   addGroup,
   updateGroup,
   removeGroup,
+  pickGroupColor,
 } from "./groups.js";
+import { loadDefaultPin } from "./storage.js";
 import { listPins, updatePin } from "./pins.js";
-
-// Rotated through on each "Add group" click so successive defaults are
-// visually distinct without forcing the user to pick a color first.
-const DEFAULT_COLORS = [
-  "#e63946",
-  "#1d3557",
-  "#2a9d8f",
-  "#f4a261",
-  "#264653",
-  "#9d4edd",
-];
 
 export function initGroupPanel() {
   const listEl = document.getElementById("group-list");
@@ -51,7 +42,7 @@ export function initGroupPanel() {
     const n = groups.length + 1;
     addGroup({
       name: `Group ${n}`,
-      color: DEFAULT_COLORS[groups.length % DEFAULT_COLORS.length],
+      color: pickGroupColor(groups, loadDefaultPin().color),
     });
   });
 
