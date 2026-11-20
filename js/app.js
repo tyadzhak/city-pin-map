@@ -49,6 +49,7 @@ import {
   saveDefaultPin,
   loadSnapshot,
   saveSnapshot,
+  prewriteImportPayloads,
   showError,
 } from "./storage.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
@@ -1352,6 +1353,28 @@ function initSnapshotControls() {
       ) {
         return;
       }
+    }
+
+    // FBL-028: persist both payloads as a unit BEFORE mutating either store
+    // (the same FBL-016 pre-verify js/backup.js's import uses). The two
+    // replaceAll calls below each fire their own storage subscriber; if the
+    // pins write hit quota after the groups write landed, disk would hold the
+    // snapshot's groups next to the pre-Load pins — whose group ids no longer
+    // exist — so every pin would reload as ungrouped. Pre-writing with
+    // rollback turns that into a clean abort. Runs after the confirm so a
+    // cancel writes nothing; userIcons: null because a snapshot never
+    // carries the icon library. snapshot.pins/groups are already normalized
+    // by loadSnapshot(), the same shape backup.js hands over.
+    const persisted = prewriteImportPayloads({
+      pins: snapshot.pins,
+      groups: snapshot.groups,
+      userIcons: null,
+    });
+    if (!persisted) {
+      showError(
+        "Load was NOT applied: the snapshot does not fit in your browser's storage. Your current pins and groups are unchanged — free up space and try again."
+      );
+      return;
     }
 
     // Groups before pins, same ordering (and never-crash-on-a-stale-
