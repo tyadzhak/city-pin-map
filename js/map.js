@@ -5,12 +5,16 @@
 // the app never touches `maplibregl` directly — they go through getMap().
 
 import { listGroups } from "./groups.js";
-import { resolvePinColor } from "./pins.js";
+import { resolvePinColor, listPins } from "./pins.js";
+import { getFrameSetInUse } from "./map-frame.js";
 import {
   saveMapStyle,
   showError,
   loadHideLabels,
   loadDefaultPin,
+  loadBottomFade,
+  loadMapView,
+  saveMapView,
 } from "./storage.js";
 import { refreshAllLabelLayers } from "./map-labels.js";
 import * as settings from "./settings.js";
@@ -509,13 +513,29 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
 
   // MapLibre uses [lon, lat]; our previous Leaflet code used [lat, lon].
   // Center [0, 20] → 20° north, 0° east, matching the previous setView.
+  // UXR-003: restore the last camera so poster framing survives a reload;
+  // null (nothing saved / corrupt) falls back to the world overview.
+  const savedView = loadMapView();
   mapInstance = new maplibregl.Map({
     container: containerId,
     style: resolvedStyle,
-    center: [0, 20],
-    zoom: 2,
+    center: savedView ? savedView.center : [0, 20],
+    zoom: savedView ? savedView.zoom : 2,
+    bearing: savedView ? savedView.bearing : 0,
+    pitch: savedView ? savedView.pitch : 0,
     preserveDrawingBuffer: true,
   });
+
+  // Zoom +/- and "Fit all pins" in one top-left group (top-right/bottom-right
+  // are the inset's default docking corners). DOM controls live outside the
+  // canvas, so exports never contain them. Compass hidden: rotation isn't a
+  // supported workflow here.
+  mapInstance.addControl(
+    new maplibregl.NavigationControl({ showCompass: false, showZoom: true }),
+    "top-left"
+  );
+  mapInstance.addControl(new FitPinsControl(), "top-left");
+  mapInstance.on("moveend", scheduleViewSave);
 
   // Boot-load guard. The very first style load gets the same failure
   // surfacing setMapStyle gives runtime swaps — but simpler: on failure we
@@ -677,6 +697,133 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
   });
 
   return mapInstance;
+}
+
+// ── Camera persistence + fit/fly helpers (UXR-003) ──────────────────────
+
+const VIEW_SAVE_DEBOUNCE_MS = 400;
+let viewSaveTimer = null;
+
+// Debounced so a drag/wheel burst writes once. The guard is evaluated when the
+// timer FIRES (and reads the camera then): js/export.js's captureFramed
+// reparents #map off-screen and resizes it for a preset, and map.resize()
+// emits moveend; persisting that would save the export's temporary geometry as
+// the user's view. Same ".app-map parent" test js/map-viewport.js uses.
+function scheduleViewSave() {
+  if (viewSaveTimer) clearTimeout(viewSaveTimer);
+  viewSaveTimer = setTimeout(() => {
+    viewSaveTimer = null;
+    if (!mapInstance) return;
+    const parent = mapInstance.getContainer().parentElement;
+    if (!parent || !parent.classList.contains("app-map")) return;
+    const c = mapInstance.getCenter();
+    saveMapView({
+      center: [c.lng, c.lat],
+      zoom: mapInstance.getZoom(),
+      bearing: mapInstance.getBearing(),
+      pitch: mapInstance.getPitch(),
+    });
+  }, VIEW_SAVE_DEBOUNCE_MS);
+}
+
+const FIT_BASE_PADDING_PX = 40;
+const FIT_MAX_ZOOM = 12;
+
+/**
+ * Screen padding that keeps fitted pins clear of the decorative overlays:
+ * the outermost enabled frame (margin + thickness + padding on every side)
+ * and, at the bottom, the enabled bottom fade (a % of the map height).
+ * Each axis is capped so opposing sides never consume the whole canvas.
+ */
+function computeFitPadding(map) {
+  let frameInset = 0;
+  const { frames } = getFrameSetInUse();
+  for (const f of Array.isArray(frames) ? frames : []) {
+    if (!f || !f.enabled) continue;
+    const extent =
+      (Number(f.margin) || 0) + (Number(f.thickness) || 0) + (Number(f.padding) || 0);
+    frameInset = Math.max(frameInset, extent);
+  }
+  const { clientWidth: w, clientHeight: h } = map.getContainer();
+  const fade = loadBottomFade();
+  const fadePx = fade.enabled ? (fade.height / 100) * h : 0;
+  const side = FIT_BASE_PADDING_PX + frameInset;
+  const capX = Math.max(0, w * 0.4);
+  const capY = Math.max(0, h * 0.4);
+  return {
+    left: Math.min(side, capX),
+    right: Math.min(side, capX),
+    top: Math.min(side, capY),
+    bottom: Math.min(side + fadePx, capY),
+  };
+}
+
+/**
+ * Frame every given pin in the main map's viewport, clear of enabled frames
+ * and the bottom fade. No-op for an empty list or a missing map.
+ *
+ * @param {Array<{lat:number, lon:number}>} [pins] Defaults to the live pin store.
+ * @param {{animate?: boolean}} [opts] `animate: false` jumps instantly.
+ */
+export function fitToPins(pins = listPins(), { animate = true } = {}) {
+  if (!mapInstance) return;
+  const valid = (pins || []).filter(
+    (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon)
+  );
+  if (valid.length === 0) return;
+  const bounds = new maplibregl.LngLatBounds();
+  for (const p of valid) bounds.extend([p.lon, p.lat]);
+  mapInstance.fitBounds(bounds, {
+    padding: computeFitPadding(mapInstance),
+    maxZoom: FIT_MAX_ZOOM, // a lone pin must not zoom to street level
+    animate,
+    duration: 600,
+  });
+}
+
+/**
+ * Fly the main map to a single pin, keeping the current zoom unless it is
+ * zoomed out below `minZoom` (default 6) — so a click from the pin list
+ * actually brings the pin into view. Extra MapLibre flyTo options (e.g.
+ * `{ animate: false }`, `{ zoom }`) are passed through and win over defaults.
+ *
+ * @param {{lat:number, lon:number}} pin
+ * @param {object} [opts] MapLibre FlyToOptions, plus `minZoom`.
+ */
+export function flyToPin(pin, opts = {}) {
+  if (!mapInstance || !pin) return;
+  if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lon)) return;
+  const { minZoom = 6, ...flyOpts } = opts;
+  mapInstance.flyTo({
+    center: [pin.lon, pin.lat],
+    zoom: Math.max(mapInstance.getZoom(), minZoom),
+    ...flyOpts,
+  });
+}
+
+/** MapLibre IControl: a button styled as part of the zoom button group. */
+class FitPinsControl {
+  onAdd() {
+    const container = document.createElement("div");
+    container.className = "maplibregl-ctrl maplibregl-ctrl-group map-fit-ctrl";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "map-fit-ctrl__btn";
+    btn.title = "Fit all pins";
+    btn.setAttribute("aria-label", "Fit all pins");
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" ' +
+      'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+    btn.addEventListener("click", () => fitToPins());
+    container.appendChild(btn);
+    this._container = container;
+    return container;
+  }
+  onRemove() {
+    this._container?.remove();
+    this._container = null;
+  }
 }
 
 /**

@@ -830,6 +830,20 @@ body {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
+/* UXR-003: zoom / "Fit all pins" control group. Raised above the frame, fade
+   and title overlays (z 3-6) so a frame band can't swallow the buttons; DOM
+   controls are never part of the PNG export. */
+#map .maplibregl-ctrl-top-left {
+  z-index: 7;
+}
+
+.map-fit-ctrl__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+
 /* Drag affordance for the SVG circle markers (NICE-001). `.city-pin` is
    added to `marker.getElement()` once the path is mounted. While a drag
    is in progress, `.dragging-pin` on <body> wins via !important so the

@@ -34,6 +34,9 @@ import {
   normalizeFrame,
   normalizeFrameSet,
   normalizeFrameOutside,
+  loadMapView,
+  saveMapView,
+  normalizeMapView,
   loadBottomFade,
   saveBottomFade,
   normalizeBottomFade,
@@ -1051,6 +1054,33 @@ test("loadBottomFade/saveBottomFade: round trip and backfills intensity for lega
     JSON.stringify({ enabled: true, height: 20, color: "#ffffff" })
   );
   assert.equal(loadBottomFade().intensity, 50);
+});
+
+// ── normalizeMapView / loadMapView / saveMapView (UXR-003) ──────────────
+
+test("normalizeMapView: valid view passes, clamps and wraps", () => {
+  assert.deepEqual(normalizeMapView({ center: [10, 20], zoom: 4, bearing: 30, pitch: 10 }), {
+    center: [10, 20], zoom: 4, bearing: 30, pitch: 10,
+  });
+  const v = normalizeMapView({ center: [190, 95], zoom: 99, bearing: "x", pitch: 200 });
+  assert.deepEqual(v, { center: [-170, 85], zoom: 22, bearing: 0, pitch: 85 });
+});
+
+test("normalizeMapView: unusable input returns null", () => {
+  assert.equal(normalizeMapView(null), null);
+  assert.equal(normalizeMapView({ center: [1], zoom: 3 }), null);
+  assert.equal(normalizeMapView({ center: [1, 2], zoom: "z" }), null);
+  assert.equal(normalizeMapView({ center: "no", zoom: 3 }), null);
+});
+
+test("loadMapView/saveMapView: missing -> null, round trip, corrupt stashed", () => {
+  assert.equal(loadMapView(), null);
+  assert.equal(saveMapView({ center: [5, 6], zoom: 3 }), true);
+  assert.deepEqual(loadMapView(), { center: [5, 6], zoom: 3, bearing: 0, pitch: 0 });
+  assert.equal(saveMapView({ center: [NaN, 1], zoom: 3 }), false);
+  globalThis.localStorage.setItem("city-pin-map.view.v1", "{bad");
+  assert.equal(loadMapView(), null);
+  assert.equal(globalThis.localStorage.getItem("city-pin-map.view.v1.corrupt"), "{bad");
 });
 
 test("loadBottomFade: corrupt/non-object value falls back to defaults + banner", () => {
