@@ -217,12 +217,20 @@ export async function exportMapAsPng(mapInstance, options = {}) {
       // resolution). An active corner inset (or any pin label) forces the
       // composite path just like the fade does, since getCanvas() alone can't
       // carry the second map's box or the DOM label overlay.
-      // triggerRepaint + once('render') ensures it reflects the current
-      // state before we read it. The frame wrap only allocates a canvas if a
-      // frame is enabled.
-      await waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
+      // The frame wrap only allocates a canvas if a frame is enabled.
+      //
+      // Order matters (FBL-031): MapLibre emits `idle` only from inside a
+      // render frame, and a settled map schedules no frames on its own — so
+      // awaiting idle BEFORE triggering a repaint would sit out the whole
+      // tile timeout. Arm the idle listener first, then request the repaint:
+      // that frame draws the current state, fires `render`, and (when nothing
+      // is loading or moving) fires `idle` right after drawing. If tiles are
+      // still loading, idle simply waits for the frame that finishes them.
+      // The main map is created with preserveDrawingBuffer:true (js/map.js),
+      // so the framebuffer from that frame is still readable after the await.
+      const idle = waitForIdle(mapInstance, TILE_WAIT_TIMEOUT_MS);
       mapInstance.triggerRepaint();
-      await waitForRender(mapInstance, RENDER_WAIT_TIMEOUT_MS);
+      await idle;
       innerCanvas = mapInstance.getCanvas();
       innerScale = deviceScale(mapInstance);
     } else {
@@ -1123,8 +1131,11 @@ function addRoundedRectSubpath(ctx, x, y, w, h, r) {
 }
 
 // Resolves when MapLibre fires `idle` (all tiles loaded + nothing pending
-// to render) or after the timeout, whichever comes first. If the map is
-// already idle, `once('idle')` resolves on the next tick. Resolves `true`
+// to render) or after the timeout, whichever comes first. `idle` is only ever
+// emitted from within a render frame, so an ALREADY-settled map will NOT
+// resolve this on its own — callers must make sure a frame is coming
+// (resize() or triggerRepaint() issued after arming it) or they wait out the
+// full timeout. Resolves `true`
 // when `idle` won the race and `false` on timeout — the main-map callers
 // ignore the value (a stale-but-valid frame is acceptable there), but the
 // inset capture path treats a `false` as a hard failure (see captureFramed).
