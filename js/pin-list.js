@@ -156,6 +156,12 @@ function buildRow(pin, groups, defaultColor) {
   name.className = "pin-list__name";
   // textContent (not innerHTML) — pin.name is user- or geocoder-provided.
   name.textContent = pin.name;
+  name.title = "Double-click to rename";
+  // Same entry point as the pencil button; the renameActive guard keeps a
+  // second rename from starting while another row's edit holds the list.
+  name.addEventListener("dblclick", () => {
+    if (!renameActive) enterRenameMode(pin, name);
+  });
   row.appendChild(name);
 
   row.appendChild(buildGroupSelect(pin, groups, groupAssigned));
