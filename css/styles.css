@@ -1701,17 +1701,17 @@ body.dragging-inset * {
   border: 1px solid transparent;
   border-radius: 4px;
   cursor: pointer;
-  /* Hidden by default; revealed on row hover or when the button itself
-     receives keyboard focus. The :focus-visible variant keeps the button
-     out of sight for mouse users who happen to land focus on it via
-     click, but always reveals it for keyboard navigation. */
-  opacity: 0;
+  /* Dimmed but always visible so the actions are discoverable without
+     hovering; full opacity on row hover/focus-within or button focus. */
+  opacity: 0.45;
   transition: opacity 120ms ease, color 120ms ease, background 120ms ease,
     border-color 120ms ease;
 }
 
 .pin-list__row:hover .remove-pin,
 .pin-list__row:hover .edit-pin,
+.pin-list__row:focus-within .remove-pin,
+.pin-list__row:focus-within .edit-pin,
 .remove-pin:focus-visible,
 .edit-pin:focus-visible {
   opacity: 1;
