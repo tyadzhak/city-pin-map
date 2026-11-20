@@ -805,7 +805,15 @@ function initInsetOptions(insetHandle) {
       groupSelect.appendChild(opt);
     }
     groupSelect.value = stillExists ? preserveId : "";
-    if (groupHint) groupHint.hidden = groups.length > 0;
+    syncHint();
+  }
+
+  // Prominent only when it blocks the user: inset ticked but no group exists.
+  // Shown while unticked it would just be noise.
+  function syncHint() {
+    if (groupHint) {
+      groupHint.hidden = !(enabled.checked && groupStore.listGroups().length === 0);
+    }
   }
 
   const writeInset = (cfg) => {
@@ -818,6 +826,7 @@ function initInsetOptions(insetHandle) {
     locator.checked = cfg.showLocator;
     enabled.checked = cfg.enabled;
     controls.dataset.insetEnabled = cfg.enabled ? "true" : "false";
+    syncHint();
   };
   writeInset(saved);
 
@@ -852,7 +861,16 @@ function initInsetOptions(insetHandle) {
 
   enabled.addEventListener("change", () => {
     controls.dataset.insetEnabled = enabled.checked ? "true" : "false";
+    // Ticking with nothing chosen used to show nothing at all; default to the
+    // first group so the inset appears immediately.
+    if (enabled.checked && !groupSelect.value) {
+      const first = groupStore.listGroups()[0];
+      if (first) groupSelect.value = first.id;
+    }
+    syncHint();
     persist();
+    // The group select can sit below the sticky Export footer.
+    if (enabled.checked) controls.scrollIntoView({ block: "nearest" });
   });
   groupSelect.addEventListener("change", () => persist());
   // Choosing a corner re-docks the box: clear the dragged freePos.
@@ -874,7 +892,16 @@ function initInsetOptions(insetHandle) {
   // lifecycle (create/rename/recolor/delete) — not just at boot. Reads the
   // CURRENT select value (not `saved.groupId`) as the id to preserve, so a
   // rename after boot doesn't get reverted back to the original selection.
-  groupStore.subscribe(() => renderGroupOptions(groupSelect.value));
+  groupStore.subscribe(() => {
+    const prevId = groupSelect.value;
+    renderGroupOptions(prevId);
+    // The chosen group vanished: turn the inset off (and persist) rather than
+    // leave a ticked checkbox over a silently hidden inset.
+    if (enabled.checked && prevId && groupSelect.value === "") {
+      setState({ ...readInset(), enabled: false, groupId: null });
+      showToast("Inset map turned off — its group was deleted");
+    }
+  });
 
   // getState/setState/reset (UXR-021): see initExportFrameOptions. freePos
   // rides along in the state (it is persisted, not a control) so a restore
