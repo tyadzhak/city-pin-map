@@ -27,6 +27,7 @@ import {
   getMergedIcons,
   subscribe as subscribeIcons,
   effectiveIcon,
+  renderIconGlyph,
 } from "./icons.js";
 import { effectiveColor } from "./map.js";
 import * as userIconStore from "./user-icons.js";
@@ -322,12 +323,10 @@ function formatCredit(icon) {
 // `svg` markup string (user icon). Both render via <img> for simplicity;
 // the browser caches built-in src paths and decodes data: URLs natively.
 function buildIconNode(icon) {
-  const img = document.createElement("img");
-  img.alt = icon.label;
-  img.src = icon.svg
-    ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(icon.svg)
-    : icon.src;
-  return img;
+  const host = document.createElement("span");
+  host.className = "icon-glyph-host";
+  renderIconGlyph(host, icon);
+  return host;
 }
 
 // In-flight ingest result. The form's tintable radio + commit button read
@@ -496,7 +495,11 @@ export function showAddSubView(target, state, modal) {
     const dataUrl =
       "data:image/svg+xml;charset=utf-8," +
       encodeURIComponent(result.sanitizedSvg);
-    tintedCol.preview.replaceChildren(makePreviewImg(dataUrl));
+    renderIconGlyph(
+      tintedCol.preview,
+      { tintable: true, svg: result.sanitizedSvg },
+      "Preview",
+    );
     asIsCol.preview.replaceChildren(makePreviewImg(dataUrl));
     addBtn.disabled = nameField.input.value.trim().length === 0;
   };

@@ -1,7 +1,7 @@
 import "./test-helpers.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { BUILTIN_ICONS, DEFAULT_ICON_ID, getMergedIcons, getIcon, subscribe, effectiveIcon } from "./icons.js";
+import { BUILTIN_ICONS, DEFAULT_ICON_ID, getMergedIcons, getIcon, subscribe, effectiveIcon, iconUrl } from "./icons.js";
 import * as userIcons from "./user-icons.js";
 
 // icons.js subscribes to user-icons.js's store at module-eval time
@@ -159,4 +159,10 @@ test("effectiveIcon degrades to DEFAULT_ICON_ID once the referenced user icon is
   userIcons.remove(added.id);
 
   assert.equal(effectiveIcon({ icon: added.id }), DEFAULT_ICON_ID);
+});
+
+test("iconUrl: data URI for inline svg, src for built-ins, empty for missing", () => {
+  assert.match(iconUrl({ svg: "<svg/>" }), /^data:image\/svg\+xml;charset=utf-8,/);
+  assert.equal(iconUrl({ src: "a.svg" }), "a.svg");
+  assert.equal(iconUrl(null), "");
 });

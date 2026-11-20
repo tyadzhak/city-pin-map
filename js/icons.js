@@ -70,6 +70,40 @@ function notifyMerged() {
 // Subscribe to user-icon changes once at module-eval. Built-ins are static.
 userIcons.subscribe(notifyMerged);
 
+// URL an <img> (or CSS mask) can load for a registry entry.
+export function iconUrl(entry) {
+  if (!entry) return "";
+  return entry.svg
+    ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(entry.svg)
+    : entry.src || "";
+}
+
+// Fills `host` (cleared first) with the icon glyph, sized by CSS. An SVG in
+// an <img> can't inherit CSS color, so a TINTABLE icon renders as a CSS mask
+// over a `currentColor` background — the host's `color` then tints it, exactly
+// like the map's SDF tinting. Non-tintable icons keep their own colors (<img>).
+export function renderIconGlyph(host, entry, fallbackLabel = "") {
+  host.replaceChildren();
+  const label = entry?.label || fallbackLabel;
+  const url = iconUrl(entry);
+  if (entry?.tintable && url) {
+    const glyph = document.createElement("span");
+    glyph.className = "icon-glyph-mask";
+    glyph.setAttribute("role", "img");
+    glyph.setAttribute("aria-label", label);
+    const mask = `url("${url}")`;
+    glyph.style.webkitMaskImage = mask;
+    glyph.style.maskImage = mask;
+    host.appendChild(glyph);
+    return;
+  }
+  const img = document.createElement("img");
+  img.alt = label;
+  img.src = url;
+  img.className = "icon-glyph-img";
+  host.appendChild(img);
+}
+
 export function getMergedIcons() {
   if (mergedCache === null) rebuildMerged();
   return mergedCache.slice();
