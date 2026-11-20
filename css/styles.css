@@ -2091,8 +2091,39 @@ body.dragging-inset * {
 .pin-list__empty {
   flex: 0 0 auto;
   padding: 12px 16px;
-  color: #6b7280;
-  font-style: italic;
+  color: #374151;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* UXR-012: first-run card centered over the map. pointer-events only on the
+   card so the map stays pannable around it; z-index 9 is above the map
+   overlays (max 8) but below toasts (20). Toasts sit bottom-center and the
+   map controls top-left, so the vertical center never collides. */
+.empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9;
+  max-width: min(360px, calc(100% - 32px));
+  padding: 20px 24px;
+  text-align: center;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+.empty-state[hidden] { display: none; }
+.empty-state__title { margin: 0 0 8px; font-size: 18px; color: #1f2937; }
+.empty-state__text { margin: 0 0 14px; font-size: 14px; color: #4b5563; }
+.empty-state__button {
+  padding: 8px 16px;
+  font: inherit;
+  color: #fff;
+  background: #4c6ef5;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
 }
 
 /* Toasts (js/toast.js): stacked bottom-center inside the map area so they

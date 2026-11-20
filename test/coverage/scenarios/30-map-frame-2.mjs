@@ -29,6 +29,8 @@ export async function run(page) {
   await step("ensure Design tab is active and reload", async () => {
     await page.evaluate((key) => localStorage.setItem(key, "design"), SIDE_TAB_KEY);
     await page.reload({ waitUntil: "load", timeout: 30000 });
+    // UXR-012: a zero-pin boot opens the Pins tab; switch back explicitly.
+    await page.click("#side-tab-design");
     await page.waitForSelector("#export-frame-enabled-1", { timeout: 15000 });
   });
 

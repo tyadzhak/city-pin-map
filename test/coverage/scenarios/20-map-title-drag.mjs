@@ -59,6 +59,8 @@ export async function run(page) {
       { titleKey: ON_MAP_TITLE_KEY, sideTabKey: SIDE_TAB_KEY, exportFormatKey: EXPORT_FORMAT_KEY }
     );
     await page.reload({ waitUntil: "load", timeout: 30000 });
+    // UXR-012: a zero-pin boot opens the Pins tab; switch back explicitly.
+    await page.click("#side-tab-design");
     await page.waitForSelector(`${OVERLAY_SELECTOR}:not([hidden])`, { timeout: 15000 });
   });
 

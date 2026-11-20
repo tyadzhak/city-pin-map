@@ -69,6 +69,7 @@ import { initGroupPanel } from "./group-panel.js";
 import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
 import { initStylePicker } from "./style-picker.js";
 import { initSideTabs } from "./side-tabs.js";
+import { initEmptyState } from "./empty-state.js";
 import { openIconPickerFor } from "./icon-picker.js";
 import { effectiveIcon, getIcon, renderIconGlyph, subscribe as subscribeIcons } from "./icons.js";
 import * as mapTitle from "./map-title.js";
@@ -203,6 +204,8 @@ function init() {
   // Runs after the panel-specific inits above so their DOM (pin list rows,
   // group rows) already exists by the time a hidden panel is revealed.
   initSideTabs();
+  // UXR-012: after initSideTabs so activateTab("pins") is live on empty boot.
+  initEmptyState({ pinStore });
 
   // Search wires the header input to the geocoder + pin store. It must run
   // after the DOM is ready (we're already inside DOMContentLoaded) and
