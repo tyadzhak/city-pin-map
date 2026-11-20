@@ -409,6 +409,14 @@ function initExportFrameOptions() {
   return { getLiveFrame: () => normalizeFrameSet(readFrameSet()) };
 }
 
+// An empty number input has a NaN valueAsNumber (e.g. mid-edit after
+// select-all + delete). Left raw, the live overlays and export treat that as 0
+// while the storage.js normalizers swap in a default (thickness 60, even for
+// Frame 2) on save, so preview, saved value and export would disagree. Reading
+// it as 0 up front, as readFade does, keeps all three in step.
+const finiteOrZero = (input) =>
+  Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : 0;
+
 // Wires one frame's 7-field control cluster (ids suffixed by `suffix`, e.g.
 // "-1"/"-2"): hydrates from `savedFrameEl`, wires input listeners, and
 // returns `{ readFrame, onChange }` — or null if any of the seven elements
@@ -437,15 +445,16 @@ function wireFrameControls(suffix, savedFrameEl) {
 
   // Builds this frame's 7-field FRAME OBJECT straight from the DOM — the
   // single read path both persist() and the live-overlay update share, so
-  // they can never disagree about what's currently on screen.
+  // they can never disagree about what's currently on screen. Empty numeric
+  // fields read as 0 via finiteOrZero (see its comment).
   const readFrame = () => ({
     enabled: enabled.checked,
-    thickness: thickness.valueAsNumber,
+    thickness: finiteOrZero(thickness),
     color: color.value,
     shadow: shadow.checked,
-    padding: padding.valueAsNumber,
-    margin: margin.valueAsNumber,
-    radius: radius.valueAsNumber,
+    padding: finiteOrZero(padding),
+    margin: finiteOrZero(margin),
+    radius: finiteOrZero(radius),
   });
 
   enabled.checked = savedFrameEl.enabled;
@@ -500,7 +509,7 @@ function wireFrameOutsideControls(savedOutside) {
   const readOutside = () => ({
     mode: mode.value,
     color: color.value,
-    blur: blur.valueAsNumber,
+    blur: finiteOrZero(blur),
   });
 
   mode.value = savedOutside.mode;
