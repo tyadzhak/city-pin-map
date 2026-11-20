@@ -722,10 +722,18 @@ body {
    the sub-heading is a plain label rather than the toggle chrome the two
    frames use. */
 .frame-outside-block__heading {
-  font: inherit;
+  font-size: 12px;
   font-weight: 600;
-  color: #1f2933;
-  margin: 0 0 6px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4b5563;
+  margin: 0 0 2px;
+}
+
+/* display:flex above would otherwise beat the UA [hidden] rule; the block is
+   hidden while no frame is enabled (js/app.js, syncOutsideVisibility). */
+.export-frame-block[hidden] {
+  display: none;
 }
 
 .frame-outside-controls {
@@ -738,10 +746,10 @@ body {
    [data-frame-enabled="false"]'s single-attribute-driven show/hide above.
    "none" hides both dependent inputs; "white" keeps only the color swatch;
    "blur" keeps only the blur-radius number field. */
-.frame-outside-controls[data-outside-mode="none"] .frame-outside-controls__color,
-.frame-outside-controls[data-outside-mode="none"] .frame-outside-controls__blur,
-.frame-outside-controls[data-outside-mode="white"] .frame-outside-controls__blur,
-.frame-outside-controls[data-outside-mode="blur"] .frame-outside-controls__color {
+.frame-outside-controls[data-outside-mode="none"] .frame-outside-field--color,
+.frame-outside-controls[data-outside-mode="none"] .frame-outside-field--blur,
+.frame-outside-controls[data-outside-mode="white"] .frame-outside-field--blur,
+.frame-outside-controls[data-outside-mode="blur"] .frame-outside-field--color {
   display: none;
 }
 
@@ -2659,6 +2667,74 @@ body.dragging-inset * {
   gap: 6px;
 }
 
+/* Captioned control: a short visible label above its input. Used by every
+   numeric/colour/select control in the Design tab so none depends on a hover
+   tooltip. Grids are 3 columns (2 for the inset) inside the 320px panel. */
+.design-grid,
+.side-panel--design .export-frame-controls[data-frame-enabled="true"],
+.side-panel--design .bottom-fade-controls[data-fade-enabled="true"],
+.side-panel--design .frame-outside-controls,
+.side-panel--design .bottom-fade-controls[data-inset-enabled="true"] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 8px;
+  align-items: end;
+}
+
+.side-panel--design .bottom-fade-controls[data-inset-enabled="true"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.side-panel--design .bottom-fade-controls[data-inset-enabled="true"] > .inset-size-field,
+.side-panel--design .bottom-fade-controls[data-inset-enabled="true"] > .export-frame-shadow-toggle {
+  grid-column: 1 / -1;
+}
+
+.design-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.design-field--wide {
+  grid-column: 1 / -1;
+}
+
+.design-field__label {
+  font-size: 11px;
+  line-height: 1.2;
+  color: #4b5563;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.design-field__label--inline {
+  font-size: 12px;
+}
+
+.design-field__pair {
+  display: flex;
+  gap: 6px;
+}
+
+/* Inputs fill their grid cell instead of the fixed toolbar widths. */
+.design-field > input[type="number"],
+.design-field > select {
+  width: 100%;
+  min-width: 0;
+}
+
+.design-field > input[type="color"] {
+  width: 100%;
+}
+
+/* Shadow checkbox sits in the same grid, bottom-aligned with its row. */
+.design-field--toggle {
+  min-width: 0;
+}
+
 /* The moved controls were sized for an inline header toolbar (fixed narrow
    widths). Inside the 320px vertical panel, the wide ones should fill the
    row instead. Scoped under .side-panel--design so nothing outside this
@@ -2681,16 +2757,42 @@ body.dragging-inset * {
    overflowing — same wrap-not-scroll contract .export-frame-controls uses. */
 .otm-line-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Formatting controls stay together on ONE line beneath the full-width text
+   input (font grows, the rest are fixed-size). */
+.otm-line-controls {
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
 }
 
-/* Text input grows to fill the row's leading space; a sensible min-width
-   keeps it from collapsing to nothing once the format controls wrap. */
+.otm-line-controls .otm-format-select {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.otm-size-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #4b5563;
+}
+
+.otm-size-field .otm-format-size {
+  width: 46px;
+}
+
+/* Text input takes the full first line of the row. */
 .otm-line-text {
-  flex: 1 1 120px;
-  min-width: 80px;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
   height: 32px;
   padding: 0 10px;
   font: inherit;

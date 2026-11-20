@@ -393,8 +393,17 @@ function initExportFrameOptions() {
     outside: outside ? outside.readOutside() : saved.outside,
   });
 
+  // "Outside frame" only does anything beyond an enabled frame, so keep it
+  // hidden while both frames are off.
+  const outsideBlock = document.getElementById("frame-outside-block");
+  const syncOutsideVisibility = (set) => {
+    if (outsideBlock) outsideBlock.hidden = !set.frames.some((f) => f.enabled);
+  };
+  syncOutsideVisibility(saved);
+
   const persist = () => {
     const next = readFrameSet();
+    syncOutsideVisibility(next);
     saveExportFrame(next);
     if (map) mapFrame.update(next);
     // The corner-docked inset sits inside the innermost enabled frame band, so
@@ -1209,7 +1218,16 @@ function buildLineRow(line) {
   removeBtn.title = "Remove line";
   removeBtn.textContent = "✕";
 
-  row.append(textInput, fontSelect, boldBtn, italicBtn, colorInput, sizeInput, removeBtn);
+  // Text on its own full-width line; every formatting control together on the
+  // line beneath, so B / I never wrap apart from the font/color/size cluster.
+  // The "px" suffix gives the bare size box a visible unit caption.
+  const sizeField = document.createElement("label");
+  sizeField.className = "otm-size-field";
+  sizeField.append(sizeInput, document.createTextNode("px"));
+  const controls = document.createElement("div");
+  controls.className = "otm-line-controls";
+  controls.append(fontSelect, boldBtn, italicBtn, colorInput, sizeField, removeBtn);
+  row.append(textInput, controls);
 
   return { row, textInput, fontSelect, boldBtn, italicBtn, colorInput, sizeInput, removeBtn };
 }
