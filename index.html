@@ -803,8 +803,8 @@
                .import-controls just above: no width left on the header
                bar for three more buttons. Positive feedback lands in the
                inline #snapshot-status span (same :empty-hides-itself
-               convention as #import-file-status); the red #error-banner
-               (js/storage.js's showError()) stays reserved for failures. -->
+               convention as #import-file-status); the error toast
+               (js/storage.js's showError() -> js/toast.js) stays reserved for failures. -->
           <div class="snapshot-controls">
             <button id="snapshot-save" type="button" class="backup-btn">
               Save
@@ -852,14 +852,6 @@
         </section>
       </aside>
     </div>
-
-    <div
-      id="error-banner"
-      class="error-banner"
-      role="alert"
-      aria-live="polite"
-      hidden
-    ></div>
 
     <!-- Settings modal (closed by default). Wired in js/settings-panel.js.
          Three sections, one per free-tier provider. Inputs persist on blur;

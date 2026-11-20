@@ -12,6 +12,7 @@
 //      first-time user sees never drifts from pins.js's.
 // pins.js imports nothing, so this is cycle-free.
 import { DEFAULT_PIN_COLOR } from "./pins.js";
+import { showToast } from "./toast.js";
 
 const STORAGE_KEY = "city-pin-map.pins.v1";
 // One-shot marker for the 2026-08-11 pin-color-precedence flip's data
@@ -62,7 +63,6 @@ const API_KEY_STORAGE_BY_PROVIDER = {
 };
 
 const DEFAULT_EXPORT_FORMAT = "current";
-const BANNER_TIMEOUT_MS = 6000;
 
 // Side-tabs restructuring — valid tab ids and the default. "design" is
 // first/default per the spec: it's the tab a returning user most likely
@@ -238,8 +238,6 @@ const FADE_HEIGHT_MIN = 0;
 const FADE_HEIGHT_MAX = 100;
 const FADE_INTENSITY_MIN = 0;
 const FADE_INTENSITY_MAX = 100;
-
-let bannerTimer = null;
 
 export function loadPins() {
   let raw;
@@ -1686,18 +1684,8 @@ export function attachGroupStorage(groupStore) {
 }
 
 export function showError(message) {
-  const banner = document.getElementById("error-banner");
-  if (!banner) {
-    console.warn("error-banner element missing; message:", message);
-    return;
-  }
-  banner.textContent = message;
-  banner.hidden = false;
-  if (bannerTimer !== null) clearTimeout(bannerTimer);
-  bannerTimer = setTimeout(() => {
-    banner.hidden = true;
-    bannerTimer = null;
-  }, BANNER_TIMEOUT_MS);
+  // Kept as the app-wide failure entry point; rendering lives in toast.js.
+  showToast(message, { type: "error" });
 }
 
 // Per-provider API key load/save. Mirrors the bare-string convention of
