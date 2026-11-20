@@ -897,6 +897,29 @@ export function saveActiveSideTab(id) {
   }
 }
 
+// Pins-tab "Tips" disclosure (UXR-017). Open by default so a first-time user
+// sees the hidden gestures; only an explicit "closed" is remembered. A pure
+// cosmetic pref, so storage failures degrade silently to the default rather
+// than raising the error banner.
+const TIPS_OPEN_KEY = "city-pin-map.tips-open.v1";
+
+export function loadTipsOpen() {
+  try {
+    return localStorage.getItem(TIPS_OPEN_KEY) !== "closed";
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    return true;
+  }
+}
+
+export function saveTipsOpen(open) {
+  try {
+    localStorage.setItem(TIPS_OPEN_KEY, open ? "open" : "closed");
+  } catch (err) {
+    console.error("failed to save tips state:", err);
+  }
+}
+
 // Decorative export frame SET (PO-007 + two-frames extension). Single-key
 // object — see DEFAULT_EXPORT_FRAME / DEFAULT_EXPORT_FRAME_2 above. Same
 // defensive shape as loadOnMapTitle: missing key → defaults; corrupt key →
