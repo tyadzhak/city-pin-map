@@ -836,6 +836,37 @@ export function saveExportFormat(formatId) {
   }
 }
 
+// Export quality (UXR-016): "screen" (96 dpi, the historical output) or
+// "print" (300 dpi for the A-series presets). Bare string like the format id;
+// anything unknown or unreadable degrades silently to "screen" so a stale or
+// hand-edited value can never produce a surprise 70 MB export.
+export const EXPORT_QUALITIES = ["screen", "print"];
+const EXPORT_QUALITY_KEY = "city-pin-map.export-quality.v1";
+export function normalizeExportQuality(raw) {
+  return EXPORT_QUALITIES.includes(raw) ? raw : "screen";
+}
+
+export function loadExportQuality() {
+  try {
+    return normalizeExportQuality(localStorage.getItem(EXPORT_QUALITY_KEY));
+  } catch (err) {
+    console.error("localStorage unavailable on read:", err);
+    showError("Saved export quality could not be read; using default.");
+    return "screen";
+  }
+}
+
+export function saveExportQuality(quality) {
+  try {
+    localStorage.setItem(EXPORT_QUALITY_KEY, normalizeExportQuality(quality));
+  } catch (err) {
+    console.error("failed to save export quality:", err);
+    showError(
+      "Could not save export quality preference. Choice will reset on refresh."
+    );
+  }
+}
+
 // Active side-panel tab (side-tabs restructuring). Same bare-string,
 // unreadable-falls-back-to-default shape as loadExportFormat — a missing
 // key, an unknown id (older app version, hand-edited storage), or a read

@@ -58,8 +58,11 @@ import {
   loadExportFrame,
   loadOnMapTitle,
   loadBottomFade,
+  loadExportQuality,
 } from "./storage.js";
 import { computeLabelSpecs } from "./map-labels.js";
+import { resolveExportSize } from "./export-quality.js";
+import { showToast } from "./toast.js";
 import {
   getInsetMap,
   getResolvedPlacement,
@@ -153,7 +156,13 @@ export async function exportMapAsPng(mapInstance, options = {}) {
 
     const formatSelect = document.getElementById("export-format");
     const presetId = formatSelect ? formatSelect.value : "current";
-    const preset = EXPORT_PRESETS[presetId] ?? null;
+    // UXR-016: print quality swaps in a wider target width (same aspect, so
+    // the composition is identical); non-print-eligible presets pass through.
+    const preset = resolveExportSize(
+      presetId,
+      EXPORT_PRESETS[presetId] ?? null,
+      loadExportQuality()
+    );
 
     // FBL-013: prefer the LIVE in-memory frame the on-map overlay renders
     // from — app.js passes it in (normalized through storage.js's
@@ -362,8 +371,21 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // current view, and drives both the title-chip typography and, back in
     // the caller, the frame thickness.
     const mapCanvas = mapInstance.getCanvas();
-    const outputWidth = preset ? preset.width : mapCanvas.width;
-    const outputHeight = preset ? preset.height : mapCanvas.height;
+    let outputWidth = preset ? preset.width : mapCanvas.width;
+    let outputHeight = preset ? preset.height : mapCanvas.height;
+    // UXR-016: MapLibre silently clamps the drawing buffer to maxCanvasSize /
+    // the GPU's MAX_RENDERBUFFER_SIZE. If the map canvas came out smaller than
+    // requested, shrink the output to what was really rendered (same aspect)
+    // instead of upscaling a soft canvas, and tell the user the actual size.
+    if (preset && frameWidth > 0 && mapCanvas.width < outputWidth * 0.995) {
+      const ratio = mapCanvas.width / outputWidth;
+      outputWidth = mapCanvas.width;
+      outputHeight = Math.round(outputHeight * ratio);
+      showToast(
+        `This device can't render the full ${preset.width} × ${preset.height} px; exported at ${outputWidth} × ${outputHeight} px instead.`,
+        { type: "info", duration: 8000 }
+      );
+    }
     const scale = frameWidth > 0 ? outputWidth / frameWidth : 1;
 
     // The title's anchor (nx/ny) is a normalized frame-relative fraction, so
