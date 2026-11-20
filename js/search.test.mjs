@@ -217,7 +217,7 @@ test("renders 'No matches.' for a zero-result response", async (t) => {
   }
 });
 
-test("renders a geocoder HTTP error as an error row and calls showError", async (t) => {
+test("renders a geocoder HTTP error as an inline error row only (no duplicate toast)", async (t) => {
   const { input, list } = setupDom();
   initSearch();
 
@@ -234,8 +234,8 @@ test("renders a geocoder HTTP error as an error row and calls showError", async 
     assert.equal(list.children.length, 1);
     assert.equal(list.children[0].className, "search__row search__row--error");
     assert.match(list.children[0].textContent, /Geocoder returned an error/);
-    assert.equal(banner.hidden, false);
-    assert.match(banner.textContent, /Geocoder returned an error/);
+    assert.equal(banner.hidden, true);
+    assert.equal(banner.textContent, "");
   } finally {
     restore();
     banner.remove();

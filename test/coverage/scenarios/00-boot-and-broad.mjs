@@ -295,9 +295,9 @@ export async function run(page) {
     if (status) {
       throw new Error("cancelled Load still emitted a status message: " + status);
     }
-    const bannerText = await page.locator("#error-banner").textContent();
-    if (bannerText && /snapshot|skipped/i.test(bannerText)) {
-      throw new Error("cancelled Load still emitted a banner message: " + bannerText);
+    const toastText = (await page.locator(".toast").allTextContents()).join(" ");
+    if (toastText && /snapshot|skipped/i.test(toastText)) {
+      throw new Error("cancelled Load still emitted a toast: " + toastText);
     }
   });
 

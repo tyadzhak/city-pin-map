@@ -52,6 +52,7 @@ import {
   prewriteImportPayloads,
   showError,
 } from "./storage.js";
+import { showToast } from "./toast.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
 import { exportToJson, importFromJson } from "./backup.js";
 import { importFromFile } from "./import-foreign.js";
@@ -922,7 +923,7 @@ function initDefaultPinOptions() {
     if (count === 0) {
       // Nothing to apply — skip the confirm dialog entirely rather than
       // asking the user to confirm a no-op ("all 0 pins?").
-      showError("There are no pins to apply the default appearance to.");
+      showToast("There are no pins to apply the default appearance to.");
       return;
     }
 

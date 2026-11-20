@@ -13,7 +13,7 @@
 
 import { searchCities } from "./geocode.js";
 import { addPin } from "./pins.js";
-import { showError, loadDefaultPin } from "./storage.js";
+import { loadDefaultPin } from "./storage.js";
 
 const DEBOUNCE_MS = 350;
 const MIN_QUERY_LEN = 2;
@@ -84,8 +84,8 @@ async function runQuery(query) {
     if (myController !== abortController) return;
     currentResults = [];
     const message = err?.message ?? "Search failed.";
+    // Inline dropdown row only: a second toast just duplicated the message.
     renderError(message);
-    showError(message);
   }
 }
 

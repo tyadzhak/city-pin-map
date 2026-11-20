@@ -12,7 +12,8 @@
 import "./test-helpers.mjs";
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { resetStorage, mockFetch, jsonResponse } from "./test-helpers.mjs";
+import { resetStorage, mockFetch, jsonResponse, defaultToastSink } from "./test-helpers.mjs";
+import { setToastSink } from "./toast.js";
 import { importFromFile } from "./import-foreign.js";
 import { listPins, replaceAll as replaceAllPins } from "./pins.js";
 import { saveDefaultPin } from "./storage.js";
@@ -33,7 +34,12 @@ beforeEach(() => {
   alertMessages = [];
   confirmResult = true;
   globalThis.confirm = () => confirmResult;
-  globalThis.alert = (msg) => alertMessages.push(msg);
+  // The import summary used to be a blocking alert(); it is now a toast, so
+  // capture it here (the summary always starts "Imported N pin").
+  setToastSink((msg, opts) => {
+    if (/^Imported \d+ pins?\./.test(msg)) alertMessages.push(msg);
+    else defaultToastSink(msg, opts);
+  });
 
   // Register the two elements import-foreign.js / storage.js look up by id,
   // so showError()/setImportStatus() exercise their real (non-null) branch.

@@ -254,6 +254,28 @@ if (!globalThis.document) {
   globalThis.document = createFakeDocument();
 }
 
+// ── toast sink ──────────────────────────────────────────────────────────
+//
+// showError() now renders through js/toast.js. Tests assert on messages, so
+// every toast is recorded in `toasts`, and error toasts are mirrored into a
+// fake `#error-banner` element when a test registers one (kept so the many
+// pre-toast banner assertions stay meaningful as "an error was surfaced").
+import { setToastSink } from "./toast.js";
+
+export const toasts = [];
+
+export function defaultToastSink(message, options) {
+  toasts.push({ message, ...options });
+  if (options.type !== "error") return;
+  const el = document.getElementById("error-banner");
+  if (el) {
+    el.textContent = message;
+    el.hidden = false;
+  }
+}
+
+setToastSink(defaultToastSink);
+
 // ── fetch stub ──────────────────────────────────────────────────────────
 
 /**

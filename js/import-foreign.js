@@ -18,6 +18,7 @@ import { addPin } from "./pins.js";
 import { searchCities } from "./geocode.js";
 import { importFromJson } from "./backup.js";
 import { showError, loadDefaultPin } from "./storage.js";
+import { showToast } from "./toast.js";
 
 const NAME_KEYS = ["name", "city", "title"];
 const LAT_KEYS = ["lat", "latitude"];
@@ -394,5 +395,8 @@ function showSummary(successCount, failed, skippedBlank = 0, notAttempted = 0) {
   if (skippedBlank > 0) {
     message += ` Skipped ${skippedBlank} row${skippedBlank === 1 ? "" : "s"} with no name.`;
   }
-  alert(message);
+  const clean = failed.length === 0 && skippedBlank === 0 && notAttempted === 0;
+  // Nothing imported is a failure; a partial import is neutral information.
+  const type = successCount === 0 ? "error" : clean ? "success" : "info";
+  showToast(message, { type, duration: 12000 });
 }

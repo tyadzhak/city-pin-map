@@ -9,7 +9,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import "./test-helpers.mjs";
-import { resetStorage } from "./test-helpers.mjs";
+import { resetStorage, toasts } from "./test-helpers.mjs";
 import { DEFAULT_PIN_COLOR } from "./pins.js";
 import {
   loadPins,
@@ -1688,23 +1688,18 @@ test("saveOnMapTitle: setItem throw shows a banner", () => {
 
 // ── showError ────────────────────────────────────────────────────────────
 
-test("showError: writes the message and unhides the banner, re-hides after timeout", (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+test("showError: delegates to an error-type toast", () => {
   showError("hello world");
-  const el = banner();
-  assert.equal(el.textContent, "hello world");
-  assert.equal(el.hidden, false);
-  t.mock.timers.tick(6000);
-  assert.equal(el.hidden, true);
+  const last = toasts[toasts.length - 1];
+  assert.equal(last.message, "hello world");
+  assert.equal(last.type, "error");
+  assert.equal(banner().textContent, "hello world");
 });
 
-test("showError: replacing an in-flight timer with a new call doesn't throw", (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+test("showError: successive calls both surface", () => {
   showError("first");
   showError("second");
   assert.equal(banner().textContent, "second");
-  t.mock.timers.tick(6000);
-  assert.equal(banner().hidden, true);
 });
 
 test("showError: missing banner element does not throw", () => {
