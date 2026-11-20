@@ -34,6 +34,13 @@ const MAX_FAILED_NAMES_SHOWN = 5;
  *
  * @param {File} file
  */
+// UXR-002: optional hook fired once after a foreign-file import added pins, so
+// app.js can fit the map to them. Injected to keep this module map-free.
+let onImportComplete = null;
+export function setOnImportComplete(fn) {
+  onImportComplete = typeof fn === "function" ? fn : null;
+}
+
 export async function importFromFile(file) {
   if (!file) return;
 
@@ -372,6 +379,13 @@ async function applyRows(rows, skippedBlank = 0) {
   const successCount =
     immediate.length + (needsGeocode.length - failed.length - notAttempted);
   showSummary(successCount, failed, skippedBlank, notAttempted);
+  if (successCount > 0) {
+    try {
+      onImportComplete?.();
+    } catch (err) {
+      console.error("onImportComplete hook failed:", err);
+    }
+  }
 }
 
 function setImportStatus(text) {

@@ -18,6 +18,14 @@ import { loadDefaultPin } from "./storage.js";
 const DEBOUNCE_MS = 350;
 const MIN_QUERY_LEN = 2;
 
+// UXR-002: optional hook fired with the created pin so app.js can reveal it on
+// the map. Injected (not imported) so this module stays node-testable with no
+// map or DOM-heavy dependencies.
+let onPinAdded = null;
+export function setOnPinAdded(fn) {
+  onPinAdded = typeof fn === "function" ? fn : null;
+}
+
 let inputEl = null;
 let listEl = null;
 let debounceTimer = null;
@@ -162,7 +170,7 @@ function selectResult(result) {
   // search-add, with no store/subscription needed for a value that's only
   // ever read once per pin creation.
   const defaultPin = loadDefaultPin();
-  addPin({
+  const pin = addPin({
     name: shortName(result),
     lat: result.lat,
     lon: result.lon,
@@ -183,6 +191,11 @@ function selectResult(result) {
   });
   inputEl.value = "";
   clearDropdown();
+  try {
+    onPinAdded?.(pin);
+  } catch (err) {
+    console.error("onPinAdded hook failed:", err);
+  }
 }
 
 function handleListClick(event) {
