@@ -36,6 +36,15 @@ export function removeGroup(id) {
   notify();
 }
 
+// Undo support (UXR-004): re-insert a deleted group verbatim at its old
+// index. No-op if the id already exists.
+export function restoreGroup(group, index) {
+  if (groups.some((g) => g.id === group.id)) return;
+  const i = Number.isInteger(index) ? Math.max(0, Math.min(index, groups.length)) : groups.length;
+  groups.splice(i, 0, { ...group });
+  notify();
+}
+
 export function updateGroup(id, patch) {
   const idx = groups.findIndex((g) => g.id === id);
   if (idx === -1) return;

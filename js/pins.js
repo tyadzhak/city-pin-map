@@ -124,6 +124,17 @@ export function removePin(id) {
   notify();
 }
 
+// Undo support (UXR-004): re-insert a deleted pin verbatim (same id and
+// fields) at its old list index, so list order and the createdAt-ordered
+// route come back exactly. Targeted, so concurrent edits to other pins
+// survive. No-op if a pin with that id already exists.
+export function restorePin(pin, index) {
+  if (pins.some((p) => p.id === pin.id)) return;
+  const i = Number.isInteger(index) ? Math.max(0, Math.min(index, pins.length)) : pins.length;
+  pins.splice(i, 0, { ...pin });
+  notify();
+}
+
 export function updatePin(id, patch) {
   const idx = pins.findIndex((p) => p.id === id);
   if (idx === -1) return;

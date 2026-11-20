@@ -18,10 +18,12 @@ import {
   addGroup,
   updateGroup,
   removeGroup,
+  restoreGroup,
   pickGroupColor,
   formatPinCount,
 } from "./groups.js";
 import { loadDefaultPin } from "./storage.js";
+import { offerUndo } from "./undo.js";
 import { listPins, updatePin, subscribe as subscribePins } from "./pins.js";
 
 export function initGroupPanel() {
@@ -170,12 +172,29 @@ function buildRow(group) {
     // reference and any listener firing in between (storage, map render)
     // would see an inconsistent snapshot. Going pin-side first means each
     // updatePin notify() lands on a still-valid group store.
-    for (const pin of listPins()) {
-      if (pin.group === group.id) {
-        updatePin(pin.id, { group: null });
-      }
+    const groupIndex = listGroups().findIndex((g) => g.id === group.id);
+    const groupSnapshot = listGroups()[groupIndex];
+    const memberIds = listPins()
+      .filter((p) => p.group === group.id)
+      .map((p) => p.id);
+    for (const id of memberIds) {
+      updatePin(id, { group: null });
     }
     removeGroup(group.id);
+    if (!groupSnapshot) return;
+    const n = memberIds.length;
+    offerUndo(
+      `Deleted group “${groupSnapshot.name}”` +
+        (n ? ` (${n} pin${n === 1 ? "" : "s"} ungrouped)` : ""),
+      () => {
+        // Group first so the re-assigned pins never dangle.
+        restoreGroup(groupSnapshot, groupIndex);
+        const live = new Set(listPins().map((p) => p.id));
+        for (const id of memberIds) {
+          if (live.has(id)) updatePin(id, { group: groupSnapshot.id });
+        }
+      }
+    );
   });
 
   row.appendChild(colorInput);
