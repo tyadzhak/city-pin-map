@@ -316,6 +316,45 @@ test("importFromJson: a v2 (pre-flip) pin stored with exactly DEFAULT_PIN_COLOR 
   assert.equal(byId["already-null"].color, null);
 });
 
+test("importFromJson: a v1/v2 backup also migrates pins carrying the saved custom default-pin color (FBL-026); v3 and no-saved-default stay verbatim", async () => {
+  const pins = () => [
+    samplePin({ id: "blue", color: "#1d3557" }),
+    samplePin({ id: "blue-upper", color: "#1D3557" }),
+    samplePin({ id: "red", color: "#e63946" }),
+    samplePin({ id: "customized", color: "#123456" }),
+  ];
+  const importAndIndex = async (payload) => {
+    pinStore.replaceAll([]);
+    await importFromJson(makeFile(JSON.stringify(payload)));
+    return Object.fromEntries(pinStore.listPins().map((p) => [p.id, p]));
+  };
+
+  // No saved default-pin key: only the literal red migrates.
+  let byId = await importAndIndex({ version: 2, pins: pins(), groups: [], userIcons: [] });
+  assert.equal(byId.blue.color, "#1d3557");
+  assert.equal(byId.red.color, null);
+
+  globalThis.localStorage.setItem(
+    "city-pin-map.default-pin.v1",
+    JSON.stringify({ icon: null, color: "#1d3557" })
+  );
+
+  byId = await importAndIndex({ version: 2, pins: pins(), groups: [], userIcons: [] });
+  assert.equal(byId.blue.color, null);
+  assert.equal(byId["blue-upper"].color, null);
+  assert.equal(byId.red.color, null);
+  assert.equal(byId.customized.color, "#123456");
+
+  byId = await importAndIndex({ version: 1, pins: pins(), groups: [] });
+  assert.equal(byId.blue.color, null);
+  assert.equal(byId.customized.color, "#123456");
+
+  // v3 is post-flip: colors verbatim even with the default saved.
+  byId = await importAndIndex({ version: 3, pins: pins(), groups: [], userIcons: [] });
+  assert.equal(byId.blue.color, "#1d3557");
+  assert.equal(byId.red.color, "#e63946");
+});
+
 test("importFromJson: a v1 (pre-flip, no userIcons) backup gets the same DEFAULT_PIN_COLOR migration", async () => {
   await importFromJson(
     makeFile(
