@@ -20,10 +20,12 @@ import {
   subscribe,
   listPins,
   removePin,
+  restorePin,
   updatePin,
   replaceAll,
   reorderByCreatedAt,
 } from "./pins.js";
+import { offerUndo } from "./undo.js";
 import {
   subscribe as subscribeGroups,
   listGroups,
@@ -259,7 +261,15 @@ function buildRow(pin, groups, defaultColor) {
   remove.className = "remove-pin";
   remove.textContent = "✕";
   remove.setAttribute("aria-label", `Remove pin ${pin.name}`);
-  remove.addEventListener("click", () => removePin(pin.id));
+  remove.addEventListener("click", () => {
+    const index = listPins().findIndex((p) => p.id === pin.id);
+    const snapshot = listPins()[index];
+    if (!snapshot) return;
+    removePin(pin.id);
+    offerUndo(`Deleted “${snapshot.name || "pin"}”`, () =>
+      restorePin(snapshot, index)
+    );
+  });
   row.appendChild(remove);
 
   return row;

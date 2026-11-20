@@ -58,6 +58,7 @@ import {
   showError,
 } from "./storage.js";
 import { showToast } from "./toast.js";
+import { offerUndo } from "./undo.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
 import { resolveExportSize, isPrintEligible } from "./export-quality.js";
 import { exportToJson } from "./backup.js";
@@ -324,6 +325,22 @@ function init() {
   initBackupControls();
   initImportFromFileControl();
   initSnapshotControls({
+    // UXR-004: capture the poster composition so New can offer Undo; the
+    // returned function restores exactly what getState() saw.
+    captureDesign: () => {
+      const saved = {
+        title: onMapTitleHandle?.getState(),
+        frame: exportFrameHandle?.getState(),
+        fade: bottomFadeHandle?.getState(),
+        inset: insetOptionsHandle?.getState(),
+      };
+      return () => {
+        if (saved.title) onMapTitleHandle?.setState(saved.title);
+        if (saved.frame) exportFrameHandle?.setState(saved.frame);
+        if (saved.fade) bottomFadeHandle?.setState(saved.fade);
+        if (saved.inset) insetOptionsHandle?.setState(saved.inset);
+      };
+    },
     resetDesign: () => {
       // Poster composition only; basemap, pin style, default pin, export
       // size and API keys are deliberately left alone.
@@ -1107,8 +1124,10 @@ function initDefaultPinOptions() {
     // since the batch below also overwrites every pin's ICON with the
     // default one, and a per-pin icon is just as deliberate a choice as a
     // per-pin color.
-    const message = `Apply the default pin appearance to all ${count} pin${count === 1 ? "" : "s"}? Every pin's icon will be set to the default icon, and custom pin colors will be cleared so pins follow their group (or the default) color again.`;
-    if (!confirm(message)) return;
+    // UXR-004: no confirm any more; the Undo toast below is the safety net.
+    const previous = new Map(
+      pins.map((p) => [p.id, { icon: p.icon ?? null, color: p.color ?? null }])
+    );
 
     // Reuse readState() so the icon actually stamped onto every pin is the
     // same effectiveIcon()-clamped id the tile preview shows — a dangling
@@ -1122,6 +1141,18 @@ function initDefaultPinOptions() {
     // via the spread — group assignment is untouched.
     pinStore.replaceAll(
       pins.map((p) => ({ ...p, icon: state.icon, color: null }))
+    );
+    offerUndo(
+      `Applied default to ${count} pin${count === 1 ? "" : "s"}`,
+      () => {
+        // Restore only icon/color, on the CURRENT pins, so edits made since
+        // (renames, new pins, deletions) are not lost.
+        pinStore.replaceAll(
+          pinStore.listPins().map((p) =>
+            previous.has(p.id) ? { ...p, ...previous.get(p.id) } : p
+          )
+        );
+      }
     );
   });
 }
@@ -1510,7 +1541,7 @@ function initImportFromFileControl() {
 // Feedback split: purely-positive outcomes go to the inline
 // #snapshot-status span (mirroring #import-file-status), leaving the red
 // role="alert" #error-banner for failures and partial failures.
-function initSnapshotControls({ resetDesign } = {}) {
+function initSnapshotControls({ resetDesign, captureDesign } = {}) {
   const saveBtn = document.getElementById("snapshot-save");
   const loadBtn = document.getElementById("snapshot-load");
   const newBtn = document.getElementById("snapshot-new");
@@ -1631,12 +1662,24 @@ function initSnapshotControls({ resetDesign } = {}) {
       return;
     }
 
+    // UXR-004: everything New clears is held in memory, so Undo restores it
+    // in place (the confirm above stays; Undo is a second safety net).
+    const restoreDesign = captureDesign ? captureDesign() : null;
+
     // Same groups-before-pins ordering as Load, for the same reason.
     groupStore.replaceAll([]);
     pinStore.replaceAll([]);
     // Inset reset after the stores are empty so it doesn't refit to old pins.
     if (resetDesign) resetDesign();
     setSnapshotStatus("Cleared.");
+    offerUndo("Started a new map", () => {
+      // Groups before pins, as in Load; design last so the inset refits to
+      // the restored pins.
+      groupStore.replaceAll(groups);
+      pinStore.replaceAll(pins);
+      if (restoreDesign) restoreDesign();
+      setSnapshotStatus("");
+    });
   });
 }
 

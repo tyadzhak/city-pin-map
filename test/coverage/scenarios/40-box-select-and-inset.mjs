@@ -625,7 +625,7 @@ export async function run(page) {
   await step(
     "'Apply to all pins' clears every custom pin color back to inherit",
     async () => {
-      page.once("dialog", (dialog) => dialog.accept());
+      // UXR-004: no confirm any more (Undo toast instead).
       await page.click("#default-pin-apply-all");
       await page.waitForTimeout(300);
 
