@@ -98,7 +98,7 @@ let insetMap = null; // second maplibregl.Map, created LAZILY on first enable
 let insetLabels = null; // DOM label overlay for the inset (map-labels.js), draggable
 let lastCfg = null; // last config passed to update()
 let boundsInUse = null; // LngLatBounds currently fitted, or null when hidden
-let resizeObserver = null;
+let resizeBoundMap = null; // the main map whose `resize` event drives relayoutInset
 let deferPending = false; // a one-shot "retry once the main map is ready" wait
 // True when the main basemap (or its label visibility) changed while the inset
 // was NOT live to re-seed from it — because the inset was disabled/hidden, or
@@ -153,34 +153,20 @@ export function init(map) {
     overlay.addEventListener("pointercancel", onBoxPointerUp);
   }
 
-  // Keep the inset MapLibre map sized to its (square) overlay box AND re-run
-  // the dock/clamp math on every container resize (window resize, side-panel
-  // toggle, export-preset letterbox, and — critically — js/export.js's
-  // capture-time resize to the preset dims, which getResolvedPlacement() must
-  // read fresh). Observing the OVERLAY is safe across the export reparent: it
-  // lives inside #map and moves with it, and applyPlacement only writes the
-  // overlay's OWN inline geometry (never #map's), so — unlike
-  // js/map-viewport.js, which observes .app-map and mutates #map, needing a
-  // parent-check guard — no guard is required here.
-  if (!resizeObserver && typeof ResizeObserver === "function") {
-    resizeObserver = new ResizeObserver(() => {
-      if (insetMap && overlay && overlay.style.display !== "none") {
-        // Don't fight an in-flight box drag: the pointer is the source of
-        // truth until pointerup commits.
-        if (!boxDragging) applyPlacement(lastCfg);
-        insetMap.resize();
-        // A container resize (window/panel toggle, box drag-resize, export-
-        // preset letterbox) changes the inset's viewport, so the camera must
-        // be refit and the locator re-derived from the new visible bounds —
-        // otherwise the outline drifts from what the inset shows. Same drag
-        // guard as the placement above.
-        if (!boxDragging && boundsInUse) {
-          fitInset(boundsInUse);
-          refreshLocator();
-        }
-      }
-    });
-    resizeObserver.observe(overlay);
+  // Re-place and re-measure the inset whenever the MAIN map's container changes
+  // size (window/side-panel resize, the export-preset letterbox from
+  // js/map-viewport.js, and js/export.js's capture-time resize to the preset
+  // dims). The box's own px size is written by THIS module from a percentage of
+  // the container width, so observing the overlay (the old approach) could
+  // never notice the container changing: the box kept its stale x/width and
+  // stuck out past a smaller #map. MapLibre's `resize` event is the right
+  // signal — its trackResize observer fires it for async container changes and
+  // an explicit map.resize() (the export path) fires it synchronously — and it
+  // makes a second observer on the overlay redundant: every overlay-size change
+  // already goes through update()/refreshPlacement(), which re-measure the map.
+  if (resizeBoundMap !== map) {
+    resizeBoundMap = map;
+    map.on("resize", relayoutInset);
   }
 
   // Rebuild the inset's basemap whenever the MAIN basemap actually RENDERS (a
@@ -559,8 +545,8 @@ function applyPlacement(cfg) {
 /**
  * The inset box's ACTUAL top-left (x, y) + outer (border-box) width/height in
  * CSS px for the CURRENT container size, in whatever mode (docked or free).
- * Recomputed live on every call, so it stays correct after the ResizeObserver
- * fires AND after js/export.js resizes the container to a preset's dims at
+ * Recomputed live on every call, so it stays correct after a main-map resize
+ * (see relayoutInset) AND after js/export.js resizes the container to a preset's dims at
  * capture time (the export follow-up multiplies this by its CSS→output scale).
  * Returns zeros defensively when there's no map/config yet.
  */
@@ -580,6 +566,29 @@ export function refreshPlacement() {
   if (boxDragging) return;
   applyPlacement(lastCfg);
   if (insetMap) insetMap.resize();
+}
+
+/**
+ * Bring the inset box, its map canvas, camera and locator in line with the main
+ * container's CURRENT size. Runs on every main-map `resize` event, and is
+ * exported so js/export.js can call it explicitly after resizing #map to a
+ * preset's dims: getResolvedPlacement() is computed fresh from the container,
+ * so unless the inset canvas is re-measured to that same box, paintInset would
+ * stretch a small-box canvas into a much larger destination rect and place
+ * labels at small-box coordinates. No-op while hidden. During a box drag the
+ * pointer owns the geometry, so only the canvas re-measure runs.
+ */
+export function relayoutInset() {
+  if (!insetMap || !overlay || overlay.style.display === "none") return;
+  if (!boxDragging) applyPlacement(lastCfg);
+  insetMap.resize();
+  // The viewport changed, so refit the camera and re-derive the locator from
+  // the new visible bounds — otherwise the outline drifts from what the inset
+  // shows.
+  if (!boxDragging && boundsInUse) {
+    fitInset(boundsInUse);
+    refreshLocator();
+  }
 }
 
 // Resolve the box's outer top-left (x, y) + outer width/height, all CSS px, for

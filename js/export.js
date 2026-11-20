@@ -60,7 +60,12 @@ import {
   loadBottomFade,
 } from "./storage.js";
 import { computeLabelSpecs } from "./map-labels.js";
-import { getInsetMap, getResolvedPlacement, getInsetPins } from "./map-inset.js";
+import {
+  getInsetMap,
+  getResolvedPlacement,
+  getInsetPins,
+  relayoutInset,
+} from "./map-inset.js";
 
 // Safety net so a stalled tile fetch can't hang the whole export.
 // Same budgets the previous Leaflet impl used; MapLibre's `idle` event
@@ -309,7 +314,12 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // the finally-block restore, rather than shipping a broken inset.
     const insetMap = getInsetMap();
     if (insetMap) {
-      insetMap.resize();
+      // Re-place the box for the preset-sized container and re-measure the
+      // inset canvas to it BEFORE waiting on idle, so the canvas drawn below
+      // matches the getResolvedPlacement() rect paintInset targets. The main
+      // map's resize event already triggers this; calling it explicitly keeps
+      // the export from depending on that event's ordering.
+      relayoutInset();
       const settled = await waitForIdle(insetMap, TILE_WAIT_TIMEOUT_MS_PRESET);
       if (!settled) {
         throw new Error("inset map did not settle before export");
@@ -365,7 +375,7 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // it reflects the box's actual px rect at the EXPORT's resized container
     // dimensions — freePos fractions and the frame-aware dock offset both
     // included, exactly like the live overlay computes it on every
-    // ResizeObserver tick.
+    // main-map resize (relayoutInset).
     const activeInset = getInsetMap();
     const insetCanvas = activeInset ? activeInset.getCanvas() : null;
     const insetPlacement = activeInset ? getResolvedPlacement() : null;
@@ -413,12 +423,10 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     mapEl.style.width = savedInline.width;
     mapEl.style.height = savedInline.height;
     mapInstance.resize();
-    // The inset overlay travels inside #map, so it just resized back with the
-    // container above — re-measure its map so the live corner box returns to
-    // its on-screen size (mirrors the main map's restore resize). Re-read the
-    // handle: it may have been thrown-past or cleared during this capture.
-    const insetOnRestore = getInsetMap();
-    if (insetOnRestore) insetOnRestore.resize();
+    // The inset overlay still holds the preset-sized px box written during
+    // capture: re-place it for the restored container so the live corner box
+    // returns to its on-screen geometry (no-op if the inset hid meanwhile).
+    relayoutInset();
     wrapper.remove();
   }
 }
