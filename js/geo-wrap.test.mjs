@@ -79,3 +79,19 @@ test("projectNearCenter falls back to the raw longitude without getCenter", () =
   projectNearCenter(map, -172, 5);
   assert.deepEqual(seen, [-172, 5]);
 });
+
+import { pinsInViewport } from "./geo-wrap.js";
+
+test("pinsInViewport keeps only pins projected inside the box", () => {
+  const map = {
+    getCenter: () => ({ lng: 0 }),
+    project: ([lon, lat]) => ({ x: lon * 10 + 50, y: lat * 10 + 50 }),
+  };
+  const pins = [
+    { id: "a", lon: 0, lat: 0 },
+    { id: "b", lon: 9, lat: 0 },
+    { id: "c", lon: 0, lat: NaN },
+  ];
+  assert.deepEqual(pinsInViewport(map, pins, 100, 100).map((p) => p.id), ["a"]);
+  assert.deepEqual(pinsInViewport(map, pins, 200, 100).map((p) => p.id), ["a", "b"]);
+});
