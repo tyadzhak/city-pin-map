@@ -43,6 +43,7 @@ let searching = false;
 let outsideListenerBound = false;
 
 const PINNED_RADIUS_KM = 2;
+const PINNED_NAME_RADIUS_KM = 50;
 const DEDUPE_DEG = 0.01;
 
 /**
@@ -85,14 +86,17 @@ function distanceKm(lat1, lon1, lat2, lon2) {
 
 /**
  * Pure: is this result already on the map? Same short name as an existing pin
- * (case-insensitive), or within ~2 km of one.
+ * (case-insensitive) within ~50 km, or within ~2 km of one regardless of name.
  */
 export function isAlreadyPinned(result, pins) {
   const name = normName(shortName(result));
   return pins.some((p) => {
-    if (name && normName(p.name) === name) return true;
     if (![p.lat, p.lon, result.lat, result.lon].every(Number.isFinite)) return false;
-    return distanceKm(p.lat, p.lon, result.lat, result.lon) <= PINNED_RADIUS_KM;
+    const km = distanceKm(p.lat, p.lon, result.lat, result.lon);
+    if (km <= PINNED_RADIUS_KM) return true;
+    // A bare name match is not enough: "Paris, Texas" must not read as already
+    // pinned because "Paris" (France) is. Require the same name AND rough proximity.
+    return Boolean(name) && normName(p.name) === name && km <= PINNED_NAME_RADIUS_KM;
   });
 }
 

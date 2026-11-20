@@ -485,9 +485,12 @@ test("dedupeResults: empty input", () => {
   assert.deepEqual(dedupeResults([]), []);
 });
 
-test("isAlreadyPinned: matches by name (case-insensitive) or within 2 km", () => {
+test("isAlreadyPinned: same name within 50 km, or within 2 km regardless of name", () => {
   const pins = [{ name: "Berlin", lat: 52.52, lon: 13.4 }];
-  assert.equal(isAlreadyPinned(R("berlin, Germany", 0, 0), pins), true);
+  assert.equal(isAlreadyPinned(R("berlin, Germany", 52.6, 13.5), pins), true);
+  // Same name, far away (the Paris, Texas case): not pinned.
+  assert.equal(isAlreadyPinned(R("Berlin, USA", 44.47, -71.18), pins), false);
+  assert.equal(isAlreadyPinned(R("berlin, Germany", 0, 0), pins), false);
   assert.equal(isAlreadyPinned(R("Mitte, Germany", 52.53, 13.41), pins), true);
   assert.equal(isAlreadyPinned(R("Potsdam, Germany", 52.39, 13.06), pins), false);
   assert.equal(isAlreadyPinned(R("Potsdam, Germany", 52.39, 13.06), []), false);
