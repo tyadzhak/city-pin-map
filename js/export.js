@@ -324,6 +324,13 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
   mapEl.style.width = `${frameWidth}px`;
   mapEl.style.height = `${frameHeight}px`;
 
+  // UXR-020: moving #map off-screen leaves .app-map showing only its mat for
+  // the whole render. Park a frozen copy of the current map pixels (plus a
+  // "Rendering…" pill) in its place. It is a sibling of #map, never inside
+  // it, so it cannot leak into the captured canvas; the finally below always
+  // removes it.
+  const freezeOverlay = createFreezeOverlay(mapInstance, originalParent, rect);
+
   wrapper.appendChild(mapEl);
   document.body.appendChild(wrapper);
 
@@ -491,6 +498,44 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
     // returns to its on-screen geometry (no-op if the inset hid meanwhile).
     relayoutInset();
     wrapper.remove();
+    if (freezeOverlay) freezeOverlay.remove();
+  }
+}
+
+// Frozen-frame placeholder shown over .app-map while captureFramed has #map
+// off-screen. Best-effort: any failure (tainted/lost canvas) just means no
+// overlay, never a failed export.
+function createFreezeOverlay(mapInstance, host, rect) {
+  try {
+    if (!host || rect.width <= 0 || rect.height <= 0) return null;
+    const src = mapInstance.getCanvas();
+    const overlay = document.createElement("div");
+    overlay.className = "export-freeze";
+    overlay.setAttribute("aria-hidden", "true");
+    const hostRect = host.getBoundingClientRect();
+    overlay.style.left = `${rect.left - hostRect.left}px`;
+    overlay.style.top = `${rect.top - hostRect.top}px`;
+    overlay.style.width = `${rect.width}px`;
+    overlay.style.height = `${rect.height}px`;
+
+    const snap = document.createElement("canvas");
+    snap.width = src.width;
+    snap.height = src.height;
+    snap.className = "export-freeze__canvas";
+    snap.getContext("2d").drawImage(src, 0, 0);
+    overlay.appendChild(snap);
+
+    const pill = document.createElement("div");
+    pill.className = "export-freeze__pill";
+    pill.setAttribute("role", "status");
+    pill.textContent = "Rendering…";
+    overlay.appendChild(pill);
+
+    host.appendChild(overlay);
+    return overlay;
+  } catch (err) {
+    console.warn("Export freeze overlay skipped:", err);
+    return null;
   }
 }
 
