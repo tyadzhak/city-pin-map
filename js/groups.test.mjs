@@ -8,6 +8,8 @@ import {
   listGroups,
   replaceAll,
   subscribe,
+  pickGroupColor,
+  GROUP_PALETTE,
 } from "./groups.js";
 
 // groups.js is a singleton in-memory store, same shape as pins.js. Reset
@@ -153,4 +155,22 @@ test("a throwing listener does not prevent other listeners from being notified",
 
   assert.deepEqual(calls, ["second"]);
   assert.equal(errSpy.mock.calls.length, 1);
+});
+
+test("pickGroupColor never returns the default pin color", () => {
+  assert.notEqual(pickGroupColor([], "#e63946").toLowerCase(), "#e63946");
+  assert.notEqual(pickGroupColor([], GROUP_PALETTE[0]), GROUP_PALETTE[0]);
+});
+
+test("pickGroupColor gives consecutive groups distinct colors", () => {
+  const gs = [];
+  for (let i = 0; i < 5; i++) gs.push({ color: pickGroupColor(gs, "#E63946") });
+  assert.equal(new Set(gs.map((g) => g.color)).size, 5);
+});
+
+test("pickGroupColor rotates once the palette is exhausted", () => {
+  const gs = Array.from({ length: 12 }, (_, i) => ({ color: GROUP_PALETTE[i % 6] }));
+  const c = pickGroupColor(gs, "#e63946");
+  assert.ok(GROUP_PALETTE.includes(c));
+  assert.notEqual(c, "#e63946");
 });

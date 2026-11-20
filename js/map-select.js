@@ -53,20 +53,9 @@
 // Testing section.
 
 import { listPins, replaceAll as replacePins } from "./pins.js";
-import { listGroups, addGroup } from "./groups.js";
+import { listGroups, addGroup, pickGroupColor } from "./groups.js";
+import { loadDefaultPin } from "./storage.js";
 import { projectNearCenter } from "./geo-wrap.js";
-
-// Mirrors js/group-panel.js's own DEFAULT_COLORS verbatim (kept private
-// there) so a group created from either entry point rotates through the
-// same palette.
-const DEFAULT_COLORS = [
-  "#e63946",
-  "#1d3557",
-  "#2a9d8f",
-  "#f4a261",
-  "#264653",
-  "#9d4edd",
-];
 
 const NEW_GROUP_VALUE = "__new-group__";
 const HIGHLIGHT_CLASS = "map-select-highlighted";
@@ -425,7 +414,7 @@ function assign(selectedIds, select, nameInput) {
     const groups = listGroups();
     const group = addGroup({
       name,
-      color: DEFAULT_COLORS[groups.length % DEFAULT_COLORS.length],
+      color: pickGroupColor(groups, loadDefaultPin().color),
     });
     groupId = group.id;
   }
