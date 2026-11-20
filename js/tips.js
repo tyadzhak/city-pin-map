@@ -10,6 +10,7 @@ const TIPS = [
   "Double-click a pin's name in this list to rename it.",
   "Click a pin on the map to find it in the list.",
   "Click a row in the list to jump the map to that pin.",
+  "Drag ⋮⋮ to reorder pins (this also changes the route order).",
 ];
 
 function initTips() {
