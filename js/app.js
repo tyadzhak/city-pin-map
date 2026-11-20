@@ -43,6 +43,7 @@ import {
   loadHideLabels,
   saveHideLabels,
   loadOnMapTitle,
+  normalizeOnMapTitle,
   saveOnMapTitle,
   defaultTitleLine,
   ON_MAP_TITLE_FONTS,
@@ -310,7 +311,7 @@ function init() {
   const bottomFadeHandle = initBottomFadeOptions();
   const onMapTitleHandle = initOnMapTitle();
   insetHandle = initInset();
-  initInsetOptions(insetHandle);
+  const insetOptionsHandle = initInsetOptions(insetHandle);
   initExportButton({
     getFrame: exportFrameHandle?.getLiveFrame,
     getOnMapTitle: onMapTitleHandle?.getLivePosition,
@@ -319,7 +320,16 @@ function init() {
   initFileMenu();
   initBackupControls();
   initImportFromFileControl();
-  initSnapshotControls();
+  initSnapshotControls({
+    resetDesign: () => {
+      // Poster composition only; basemap, pin style, default pin, export
+      // size and API keys are deliberately left alone.
+      onMapTitleHandle?.reset();
+      exportFrameHandle?.reset();
+      bottomFadeHandle?.reset();
+      insetOptionsHandle?.reset();
+    },
+  });
   initSettingsPanel();
 }
 
@@ -479,7 +489,25 @@ function initExportFrameOptions() {
   // of re-reading (possibly stale) localStorage at click time. readFrameSet()
   // is the same DOM read persist()/mapFrame.update() use, so the export and
   // the preview can never disagree, even after a "kept in memory only" save.
-  return { getLiveFrame: () => normalizeFrameSet(readFrameSet()) };
+  //
+  // getState/setState/reset (UXR-021): setState writes a frame-set into the
+  // controls then runs the normal persist() path (save + overlay + inset
+  // re-dock + "Outside frame" block visibility), so a later Undo (UXR-004)
+  // can hand back a previously captured getState() value.
+  const getState = () => normalizeFrameSet(readFrameSet());
+  const setState = (state) => {
+    const next = normalizeFrameSet(state);
+    frame1?.writeFrame(next.frames[0]);
+    frame2?.writeFrame(next.frames[1]);
+    outside?.writeOutside(next.outside);
+    persist();
+  };
+  return {
+    getLiveFrame: getState,
+    getState,
+    setState,
+    reset: () => setState(normalizeFrameSet(null)),
+  };
 }
 
 // An empty number input has a NaN valueAsNumber (e.g. mid-edit after
@@ -530,14 +558,20 @@ function wireFrameControls(suffix, savedFrameEl) {
     radius: finiteOrZero(radius),
   });
 
-  enabled.checked = savedFrameEl.enabled;
-  thickness.value = String(savedFrameEl.thickness);
-  color.value = savedFrameEl.color;
-  padding.value = String(savedFrameEl.padding);
-  margin.value = String(savedFrameEl.margin);
-  radius.value = String(savedFrameEl.radius);
-  shadow.checked = savedFrameEl.shadow;
-  wrapper.dataset.frameEnabled = savedFrameEl.enabled ? "true" : "false";
+  // Pushes a (normalized) frame object into the controls. Shared by boot
+  // hydration and setState() so a reset/restore refreshes the dependent-
+  // controls visibility attribute exactly like a user toggle would.
+  const writeFrame = (frameEl) => {
+    enabled.checked = frameEl.enabled;
+    thickness.value = String(frameEl.thickness);
+    color.value = frameEl.color;
+    padding.value = String(frameEl.padding);
+    margin.value = String(frameEl.margin);
+    radius.value = String(frameEl.radius);
+    shadow.checked = frameEl.shadow;
+    wrapper.dataset.frameEnabled = frameEl.enabled ? "true" : "false";
+  };
+  writeFrame(savedFrameEl);
 
   const onChange = (persist) => {
     enabled.addEventListener("change", () => {
@@ -556,7 +590,7 @@ function wireFrameControls(suffix, savedFrameEl) {
     shadow.addEventListener("change", persist);
   };
 
-  return { readFrame, onChange };
+  return { readFrame, writeFrame, onChange };
 }
 
 // Wires the "outside the frame" treatment cluster (mode select + color +
@@ -585,10 +619,13 @@ function wireFrameOutsideControls(savedOutside) {
     blur: finiteOrZero(blur),
   });
 
-  mode.value = savedOutside.mode;
-  color.value = savedOutside.color;
-  blur.value = String(savedOutside.blur);
-  wrapper.dataset.outsideMode = savedOutside.mode;
+  const writeOutside = (o) => {
+    mode.value = o.mode;
+    color.value = o.color;
+    blur.value = String(o.blur);
+    wrapper.dataset.outsideMode = o.mode;
+  };
+  writeOutside(savedOutside);
 
   const onChange = (persist) => {
     mode.addEventListener("change", () => {
@@ -601,7 +638,7 @@ function wireFrameOutsideControls(savedOutside) {
     blur.addEventListener("input", persist);
   };
 
-  return { readOutside, onChange };
+  return { readOutside, writeOutside, onChange };
 }
 
 // Bottom fade (poster-style caption zone). Sibling of initExportFrameOptions:
@@ -637,12 +674,15 @@ function initBottomFadeOptions() {
     color: color.value,
   });
 
+  const writeFade = (f) => {
+    enabled.checked = f.enabled;
+    height.value = String(f.height);
+    intensity.value = String(f.intensity);
+    color.value = f.color;
+    controls.dataset.fadeEnabled = f.enabled ? "true" : "false";
+  };
   const saved = loadBottomFade();
-  enabled.checked = saved.enabled;
-  height.value = String(saved.height);
-  intensity.value = String(saved.intensity);
-  color.value = saved.color;
-  controls.dataset.fadeEnabled = saved.enabled ? "true" : "false";
+  writeFade(saved);
 
   // Reflect the persisted state on the overlay at boot, same as
   // mapFrame.update(saved) in initExportFrameOptions — otherwise the live
@@ -670,7 +710,19 @@ function initBottomFadeOptions() {
   // in-memory state the overlay renders from — normalized through the very
   // same normalizeBottomFade() that loadBottomFade() applies — instead of
   // re-reading (possibly stale) localStorage at click time.
-  return { getLiveFade: () => normalizeBottomFade(readFade()) };
+  //
+  // getState/setState/reset (UXR-021): see initExportFrameOptions.
+  const getState = () => normalizeBottomFade(readFade());
+  const setState = (state) => {
+    writeFade(normalizeBottomFade(state));
+    persist();
+  };
+  return {
+    getLiveFade: getState,
+    getState,
+    setState,
+    reset: () => setState(normalizeBottomFade(null)),
+  };
 }
 
 // Corner inset map (atlas-style magnifier). Inits the overlay module and
@@ -756,15 +808,18 @@ function initInsetOptions(insetHandle) {
     if (groupHint) groupHint.hidden = groups.length > 0;
   }
 
-  renderGroupOptions(saved.groupId);
-  cornerSelect.value = saved.corner;
-  sizeInput.value = String(saved.sizePct);
-  if (sizeValue) sizeValue.textContent = `${saved.sizePct}%`;
-  heightInput.value = String(saved.heightPct);
-  if (heightValue) heightValue.textContent = `${saved.heightPct}%`;
-  locator.checked = saved.showLocator;
-  enabled.checked = saved.enabled;
-  controls.dataset.insetEnabled = saved.enabled ? "true" : "false";
+  const writeInset = (cfg) => {
+    renderGroupOptions(cfg.groupId);
+    cornerSelect.value = cfg.corner;
+    sizeInput.value = String(cfg.sizePct);
+    if (sizeValue) sizeValue.textContent = `${cfg.sizePct}%`;
+    heightInput.value = String(cfg.heightPct);
+    if (heightValue) heightValue.textContent = `${cfg.heightPct}%`;
+    locator.checked = cfg.showLocator;
+    enabled.checked = cfg.enabled;
+    controls.dataset.insetEnabled = cfg.enabled ? "true" : "false";
+  };
+  writeInset(saved);
 
   // Single read path both persist() and the live-overlay update share, so
   // they can never disagree about what's currently on screen. An empty
@@ -820,6 +875,18 @@ function initInsetOptions(insetHandle) {
   // CURRENT select value (not `saved.groupId`) as the id to preserve, so a
   // rename after boot doesn't get reverted back to the original selection.
   groupStore.subscribe(() => renderGroupOptions(groupSelect.value));
+
+  // getState/setState/reset (UXR-021): see initExportFrameOptions. freePos
+  // rides along in the state (it is persisted, not a control) so a restore
+  // also puts a dragged box back.
+  const getState = () => normalizeInset(readInset());
+  const setState = (state) => {
+    const next = normalizeInset(state);
+    writeInset(next);
+    saveInset(next);
+    if (insetHandle) insetHandle.update(next);
+  };
+  return { getState, setState, reset: () => setState(normalizeInset(null)) };
 }
 
 // Global pin style (Design tab "Pin style" group, this batch's item 4).
@@ -1186,10 +1253,28 @@ function initOnMapTitle() {
 
   renderRows();
 
+  // getState/setState/reset (UXR-021): setState pushes a title through the
+  // overlay, persists, and rebuilds the row editor (zero lines -> one empty
+  // default row, same as boot) so a later Undo (UXR-004) can restore a
+  // captured getState().
+  const getState = () => mapTitle.getPosition();
+  const setState = (state) => {
+    const next = normalizeOnMapTitle(state);
+    if (next.lines.length === 0) next.lines = [defaultTitleLine()];
+    mapTitle.update(next);
+    persist();
+    renderRows();
+  };
+
   // FBL-013: expose the LIVE overlay position so the export reads the same
   // in-memory title state it renders — not the persisted copy, which can lag
   // behind after a "kept in memory only" save failure.
-  return { getLivePosition: () => mapTitle.getPosition() };
+  return {
+    getLivePosition: getState,
+    getState,
+    setState,
+    reset: () => setState(normalizeOnMapTitle(null)),
+  };
 }
 
 // Builds one line row's DOM (not yet wired or mounted) from a title line.
@@ -1375,7 +1460,7 @@ function initImportFromFileControl() {
 // Feedback split: purely-positive outcomes go to the inline
 // #snapshot-status span (mirroring #import-file-status), leaving the red
 // role="alert" #error-banner for failures and partial failures.
-function initSnapshotControls() {
+function initSnapshotControls({ resetDesign } = {}) {
   const saveBtn = document.getElementById("snapshot-save");
   const loadBtn = document.getElementById("snapshot-load");
   const newBtn = document.getElementById("snapshot-new");
@@ -1480,12 +1565,17 @@ function initSnapshotControls() {
     setSnapshotStatus("");
     const pins = pinStore.listPins();
     const groups = groupStore.listGroups();
-    if (pins.length === 0 && groups.length === 0) return; // nothing to clear
 
-    const current = describePinGroupCounts(pins.length, groups.length);
+    // UXR-021: New also resets the poster composition (title, frames, fade,
+    // inset), so there is always something to lose and the confirm always
+    // runs; it lists what goes and what stays.
+    const counts = describePinGroupCounts(pins.length, groups.length);
+    const cleared = [counts, "the title, frames, fade and inset map"]
+      .filter(Boolean)
+      .join(", ");
     if (
       !confirm(
-        `Start over? This clears ${current}. Your last saved snapshot is unaffected.`
+        `Start a new map? This clears ${cleared}. Your map style and pin style stay, and your last saved snapshot is unaffected.`
       )
     ) {
       return;
@@ -1494,6 +1584,8 @@ function initSnapshotControls() {
     // Same groups-before-pins ordering as Load, for the same reason.
     groupStore.replaceAll([]);
     pinStore.replaceAll([]);
+    // Inset reset after the stores are empty so it doesn't refit to old pins.
+    if (resetDesign) resetDesign();
     setSnapshotStatus("Cleared.");
   });
 }
