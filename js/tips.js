@@ -8,6 +8,8 @@ const TIPS = [
   "Drag a pin's name on the map to move its label.",
   "Drag the on-map title or the inset map to reposition it.",
   "Double-click a pin's name in this list to rename it.",
+  "Click a pin on the map to find it in the list.",
+  "Click a row in the list to jump the map to that pin.",
 ];
 
 function initTips() {

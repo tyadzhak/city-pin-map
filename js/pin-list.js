@@ -21,7 +21,9 @@ import {
   subscribe as subscribeGroups,
   listGroups,
 } from "./groups.js";
-import { effectiveColor } from "./map.js";
+import { effectiveColor, flyToPin, getMap, PIN_SELECTED_EVENT } from "./map.js";
+import { activateTab } from "./side-tabs.js";
+import { pulsePin } from "./map-labels.js";
 import { effectiveIcon, getIcon, renderIconGlyph, subscribe as subscribeIcons } from "./icons.js";
 import { openIconPicker } from "./icon-picker.js";
 import { loadDefaultPin } from "./storage.js";
@@ -88,6 +90,12 @@ export function initPinList() {
 
   panelEls = { listEl, emptyEl };
 
+  // UXR-007: a pin clicked on the map selects its row.
+  document.addEventListener(PIN_SELECTED_EVENT, (ev) => {
+    const pinId = ev.detail?.pinId;
+    if (pinId) selectPin(pinId, { reveal: true });
+  });
+
   const unsubPins = subscribe(requestRender);
   // Group changes (rename, recolor, delete) all alter what the row should
   // display — selector options, tile color — so re-render the whole list
@@ -112,6 +120,39 @@ export function initPinList() {
   };
 }
 
+// UXR-007 selection. Kept at module scope (not on the row) because every
+// store tick rebuilds the rows; render() re-applies the class.
+const SELECT_MS = 2500;
+let selectedPinId = null;
+let selectTimer = null;
+
+function applySelectionClass() {
+  if (!panelEls) return;
+  for (const row of panelEls.listEl.children) {
+    row.classList.toggle("pin-list__row--selected", row.dataset.pinId === selectedPinId);
+  }
+}
+
+function selectPin(pinId, { reveal = false } = {}) {
+  selectedPinId = pinId;
+  clearTimeout(selectTimer);
+  selectTimer = setTimeout(() => {
+    selectedPinId = null;
+    applySelectionClass();
+  }, SELECT_MS);
+  if (reveal) {
+    // Tab must be visible before the row can scroll into view.
+    activateTab("pins");
+    pulsePin(pinId);
+  }
+  applySelectionClass();
+  if (reveal) {
+    const row = panelEls?.listEl.querySelector(`[data-pin-id="${CSS.escape(pinId)}"]`);
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    row?.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+  }
+}
+
 function render(listEl, emptyEl, pins) {
   // Defensive copy is already provided by listPins(); the snapshot passed
   // through the listener is also a slice. Sorting here is therefore safe
@@ -134,6 +175,7 @@ function render(listEl, emptyEl, pins) {
     ...sorted.map((pin) => buildRow(pin, groups, defaultColor))
   );
   emptyEl.hidden = sorted.length > 0;
+  applySelectionClass();
 }
 
 function buildRow(pin, groups, defaultColor) {
@@ -151,6 +193,24 @@ function buildRow(pin, groups, defaultColor) {
   const tileIcon = effectiveIcon(pin);
 
   row.appendChild(buildAppearanceTile(pin, tileIcon, tileColor));
+
+  // UXR-007: click the row body to fly the map to the pin. Interactive
+  // children are excluded; detail > 1 leaves the second click of a
+  // double-click (rename) alone.
+  row.addEventListener("click", (ev) => {
+    if (ev.detail > 1) return;
+    if (
+      ev.target.closest(
+        "button, select, input, .pin-list__tile, .pin-list__color-swatch"
+      )
+    ) {
+      return;
+    }
+    selectPin(pin.id);
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const zoom = getMap()?.getZoom() ?? 0;
+    flyToPin(pin, { minZoom: zoom >= 4 ? zoom : 5, animate: !reduce });
+  });
 
   const name = document.createElement("span");
   name.className = "pin-list__name";

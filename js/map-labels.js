@@ -113,6 +113,8 @@ export function attachTo(map, { interactive = false, pinsProvider } = {}) {
 // scope (not on the element) so a render() that rebuilds the DOM mid-pulse —
 // any store tick — re-applies the cue instead of silently dropping it.
 const PULSE_MS = 1800;
+// UXR-007: pointer travel (px) below which a label press counts as a click.
+const CLICK_SLOP_PX = 4;
 const pulses = new Map();
 
 /** Briefly pulse a pin's label on every overlay so a new pin is easy to spot. */
@@ -389,6 +391,7 @@ function createOverlay(map, { interactive, pinsProvider }) {
     const startDx = pin && Number.isFinite(pin.labelDx) ? pin.labelDx : 0;
     const startDy = pin && Number.isFinite(pin.labelDy) ? pin.labelDy : 0;
     dragging = {
+      moved: false,
       pinId,
       el,
       pointerId: ev.pointerId,
@@ -412,6 +415,12 @@ function createOverlay(map, { interactive, pinsProvider }) {
     // Constant-offset drag: the label moves by exactly the pointer's screen
     // delta from pointerdown, added on top of the offset it already had —
     // identical px semantics to the old WebGL label drag (js/map.js onDocMove).
+    if (
+      Math.hypot(ev.clientX - dragging.startClientX, ev.clientY - dragging.startClientY) >=
+      CLICK_SLOP_PX
+    ) {
+      dragging.moved = true;
+    }
     const dx = dragging.startDx + (ev.clientX - dragging.startClientX);
     const dy = dragging.startDy + (ev.clientY - dragging.startClientY);
     dragging.lastDx = dx;
@@ -428,7 +437,7 @@ function createOverlay(map, { interactive, pinsProvider }) {
 
   function onPointerUp(ev) {
     if (!dragging || ev.pointerId !== dragging.pointerId) return;
-    const { pinId, el, lastDx, lastDy } = dragging;
+    const { pinId, el, lastDx, lastDy, moved } = dragging;
 
     el.removeEventListener("pointermove", onPointerMove);
     el.removeEventListener("pointerup", onPointerUp);
@@ -441,6 +450,18 @@ function createOverlay(map, { interactive, pinsProvider }) {
     el.style.cursor = "";
     document.body.classList.remove("dragging-pin");
     dragging = null;
+
+    // UXR-007: a release within the slop radius is a click, not a drag —
+    // select the pin and leave its label offset untouched.
+    if (!moved && ev.type === "pointerup") {
+      // Main map only: the inset's labels share this path but the Pins tab
+      // selection is equally meaningful there, so no gating needed.
+      document.dispatchEvent(
+        new CustomEvent("city-pin-map:pin-selected", { detail: { pinId } })
+      );
+      render();
+      return;
+    }
 
     // Commit through the pin store so persistence + the pin list stay in sync.
     // The resulting notify() → render() repaints this label at the same offset
