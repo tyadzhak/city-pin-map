@@ -45,6 +45,7 @@ import { listPins, subscribe as subscribePins, updatePin } from "./pins.js";
 import { subscribe as subscribeGroups } from "./groups.js";
 import { getPinStyle } from "./map.js";
 import { projectNearCenter } from "./geo-wrap.js";
+import { layoutLabels } from "./label-layout.js";
 
 // Baseline vertical offset (ems of the configured label size) anchoring a
 // label just below its pin — carried over verbatim from js/map.js's
@@ -186,20 +187,84 @@ export function computeLabelSpecs(map, { sizeMultiplier = 1, pins } = {}) {
     if (typeof pin.name !== "string" || pin.name.length === 0) continue;
 
     const p = projectNearCenter(map, pin.lon, pin.lat);
-    const dx = (Number.isFinite(pin.labelDx) ? pin.labelDx : 0) * m;
-    const dy = (Number.isFinite(pin.labelDy) ? pin.labelDy : 0) * m;
+    const rawDx = Number.isFinite(pin.labelDx) ? pin.labelDx : 0;
+    const rawDy = Number.isFinite(pin.labelDy) ? pin.labelDy : 0;
+    const dx = rawDx * m;
+    const dy = rawDy * m;
     labels.push({
       id: pin.id,
       text: pin.name,
-      // ems × label-size collapses to a fixed px value at every zoom, exactly
+      // ems x label-size collapses to a fixed px value at every zoom, exactly
       // like the old layer's `text-offset` expression, so the label keeps a
       // constant pixel gap from its pin. labelSize already carries the
       // multiplier, so the base offset scales with it.
       x: p.x + dx,
       y: p.y + PIN_LABEL_BASE_OFFSET_Y_EMS * labelSize + dy,
+      // Collision-avoidance inputs (UXR-019), stripped before returning.
+      _ax: p.x,
+      _ay: p.y,
+      _manual: rawDx !== 0 || rawDy !== 0,
+      _createdAt: Number.isFinite(pin.createdAt) ? pin.createdAt : 0,
     });
   }
+  applyCollisionAvoidance(labels, style, m);
+  for (const l of labels) {
+    delete l._ax;
+    delete l._ay;
+    delete l._manual;
+    delete l._createdAt;
+  }
   return { style, labels };
+}
+
+// UXR-019: nudge un-dragged labels off each other / off pin icons. Placement
+// order is createdAt (stable), so a pin's label doesn't hop when another is
+// added later. Everything scales with `m` (via the pre-multiplied sizePx and
+// the icon size below) so export arranges labels exactly like the live view.
+function applyCollisionAvoidance(labels, style, m) {
+  if (labels.length < 2) return;
+  const iconBase = Number(getPinStyle()?.size);
+  const font = `${style.italic ? "italic " : ""}${style.bold ? "700" : "400"} ${style.sizePx}px ${style.fontFamily}`;
+  const order = labels
+    .map((l, i) => ({ l, i }))
+    .sort((a, b) => a.l._createdAt - b.l._createdAt || a.i - b.i)
+    .map(({ l }) => l);
+  const placed = layoutLabels({
+    items: order.map((l) => ({
+      id: l.id,
+      ax: l._ax,
+      ay: l._ay,
+      text: l.text,
+      manual: l._manual,
+      x: l.x,
+      y: l.y,
+    })),
+    labelSize: style.sizePx,
+    iconSize: (Number.isFinite(iconBase) ? iconBase : 32) * m,
+    font,
+    measure: measureText,
+  });
+  for (const l of labels) {
+    const pos = placed.get(l.id);
+    if (pos) {
+      l.x = pos.x;
+      l.y = pos.y;
+    }
+  }
+}
+
+let measureCtx;
+function measureText(text, font) {
+  if (measureCtx === undefined) {
+    try {
+      measureCtx = document.createElement("canvas").getContext("2d");
+    } catch (_err) {
+      measureCtx = null;
+    }
+  }
+  if (!measureCtx) return text.length * 0.6 * (parseFloat(font.match(/([\d.]+)px/)?.[1]) || 13);
+  measureCtx.font = font;
+  return measureCtx.measureText(text).width;
 }
 
 // Reads the global pin style (js/map.js's live currentPinStyle) into the
