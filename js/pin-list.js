@@ -22,16 +22,16 @@ import {
   listGroups,
 } from "./groups.js";
 import { effectiveColor } from "./map.js";
-import { effectiveIcon, getIcon } from "./icons.js";
+import { effectiveIcon, getIcon, subscribe as subscribeIcons } from "./icons.js";
 import { openIconPicker } from "./icon-picker.js";
 import { loadDefaultPin } from "./storage.js";
 
 /**
- * Wires the list to the pin store AND the group store. Call once during
- * bootstrap, after both stores have been hydrated so the first render
- * reflects persisted data.
+ * Wires the list to the pin store, the group store AND the icon registry.
+ * Call once during bootstrap, after the stores (including user icons) have
+ * been hydrated so the first render reflects persisted data.
  *
- * Returns an unsubscribe function that tears down both subscriptions, for
+ * Returns an unsubscribe function that tears down all subscriptions, for
  * symmetry with subscribe(). app.js currently never tears down.
  */
 // Panel elements + deferred-render coordination (FBL-021). A full list
@@ -94,12 +94,21 @@ export function initPinList() {
   // from a fresh pin snapshot. Full re-render is fine at Core scale and
   // matches the strategy CORE-008 already uses for pin changes.
   const unsubGroups = subscribeGroups(requestRender);
+  // Icon-library changes alter what a row's tile shows without touching the
+  // pin or group store. Notably js/backup.js replaces pins BEFORE user icons,
+  // so an import onto a device lacking those icons renders every row while
+  // its custom icon doesn't exist yet and effectiveIcon() clamps to the
+  // default; only this subscription repaints the tiles once the library
+  // lands. Routed through requestRender (not renderNow) so a library change
+  // mid-rename defers instead of destroying the rename input (FBL-021).
+  const unsubIcons = subscribeIcons(requestRender);
   // Backfill the hydration notify() that fired before we subscribed.
   // See app.js for the same pattern around renderPins().
   renderNow();
   return () => {
     unsubPins();
     unsubGroups();
+    unsubIcons();
   };
 }
 
