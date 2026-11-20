@@ -1628,7 +1628,7 @@ test("normalizeTitleLine: text non-string falls back to '', bold/italic boolean 
 // ── normalizeOnMapTitle / loadOnMapTitle / saveOnMapTitle ───────────────
 
 test("normalizeOnMapTitle: defaults for empty input", () => {
-  assert.deepEqual(normalizeOnMapTitle(undefined), { nx: 0.5, ny: 0.85, lines: [] });
+  assert.deepEqual(normalizeOnMapTitle(undefined), { nx: 0.5, ny: 0.85, lines: [], background: "box" });
 });
 
 test("normalizeOnMapTitle: nx/ny clamp to [0,1], invalid falls back to 0.5/0.85", () => {
@@ -1680,6 +1680,14 @@ test("normalizeOnMapTitle: legacy migration strips a single trailing blank segme
   assert.deepEqual(interior.lines.map((l) => l.text), ["A", "", "B"]);
 });
 
+test("normalizeOnMapTitle: background defaults to box when missing or invalid (UXR-029)", () => {
+  assert.equal(normalizeOnMapTitle({}).background, "box");
+  assert.equal(normalizeOnMapTitle({ background: "weird" }).background, "box");
+  assert.equal(normalizeOnMapTitle({ background: 3 }).background, "box");
+  assert.equal(normalizeOnMapTitle({ background: "none" }).background, "none");
+  assert.equal(normalizeOnMapTitle({ background: "box" }).background, "box");
+});
+
 test("normalizeOnMapTitle: legacy text with no newline yields exactly one line", () => {
   const result = normalizeOnMapTitle({ text: "Solo line" });
   assert.equal(result.lines.length, 1);
@@ -1693,7 +1701,7 @@ test("normalizeOnMapTitle: blank/absent legacy text and non-array lines degrade 
 });
 
 test("loadOnMapTitle: missing key returns empty-title defaults", () => {
-  assert.deepEqual(loadOnMapTitle(), { nx: 0.5, ny: 0.85, lines: [] });
+  assert.deepEqual(loadOnMapTitle(), { nx: 0.5, ny: 0.85, lines: [], background: "box" });
 });
 
 test("loadOnMapTitle/saveOnMapTitle: round trip a multi-line title", () => {
@@ -1712,16 +1720,16 @@ test("loadOnMapTitle/saveOnMapTitle: round trip a multi-line title", () => {
 
 test("loadOnMapTitle: corrupt/non-object value falls back to empty defaults + banner", () => {
   globalThis.localStorage.setItem("city-pin-map.export-on-map-title.v1", "{bad");
-  assert.deepEqual(loadOnMapTitle(), { nx: 0.5, ny: 0.85, lines: [] });
+  assert.deepEqual(loadOnMapTitle(), { nx: 0.5, ny: 0.85, lines: [], background: "box" });
   assert.match(banner().textContent, /corrupted/);
 
   globalThis.localStorage.setItem("city-pin-map.export-on-map-title.v1", "42");
-  assert.deepEqual(loadOnMapTitle(), { nx: 0.5, ny: 0.85, lines: [] });
+  assert.deepEqual(loadOnMapTitle(), { nx: 0.5, ny: 0.85, lines: [], background: "box" });
 });
 
 test("loadOnMapTitle: getItem throw returns empty defaults with a banner", () => {
   const title = withThrowingGetItem(() => loadOnMapTitle());
-  assert.deepEqual(title, { nx: 0.5, ny: 0.85, lines: [] });
+  assert.deepEqual(title, { nx: 0.5, ny: 0.85, lines: [], background: "box" });
   assert.match(banner().textContent, /starting empty/);
 });
 

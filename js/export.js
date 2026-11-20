@@ -413,6 +413,7 @@ async function captureFramed(mapInstance, preset, onMapTitle, bottomFade) {
         x: onMapTitle.nx * outputWidth,
         y: onMapTitle.ny * outputHeight,
         lines: onMapTitle.lines,
+        background: onMapTitle.background,
       };
     }
 
@@ -633,6 +634,7 @@ function composite({
       x: titleChip.x,
       y: titleChip.y,
       lines: titleChip.lines,
+      background: titleChip.background,
       coeff: coeff * chipScale,
     });
   }
@@ -1121,7 +1123,12 @@ function prepareOnMapTitle(raw) {
     }));
   if (lines.length === 0) return null;
 
-  return { nx: raw.nx, ny: raw.ny, lines };
+  return {
+    nx: raw.nx,
+    ny: raw.ny,
+    lines,
+    background: raw.background === "none" ? "none" : "box",
+  };
 }
 
 // Per-line title model (this milestone). Paints the chip at (x, y) —
@@ -1137,7 +1144,7 @@ function prepareOnMapTitle(raw) {
 //
 // A single-line title is a 1-element `lines` array, so this collapses back
 // to exactly the old single-style box math.
-function drawOnMapTitle(ctx, { x, y, lines, coeff }) {
+function drawOnMapTitle(ctx, { x, y, lines, coeff, background }) {
   const padX = ON_MAP_TITLE_BOX.paddingX * coeff;
   const padY = ON_MAP_TITLE_BOX.paddingY * coeff;
   const radius = ON_MAP_TITLE_BOX.borderRadius * coeff;
@@ -1174,11 +1181,15 @@ function drawOnMapTitle(ctx, { x, y, lines, coeff }) {
   // landed in 2022 and is supported by every browser in this app's
   // target list, but a defensive fallback to a square fillRect keeps
   // older engines from throwing.
-  ctx.fillStyle = ON_MAP_TITLE_BOX.background;
-  drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, radius);
-  ctx.fill();
+  // UXR-029: "none" skips the chip entirely (mirrors .export-on-map-title--no-box).
+  const showBox = background !== "none";
+  if (showBox) {
+    ctx.fillStyle = ON_MAP_TITLE_BOX.background;
+    drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, radius);
+    ctx.fill();
+  }
 
-  if (borderWidth > 0) {
+  if (showBox && borderWidth > 0) {
     ctx.lineWidth = borderWidth;
     ctx.strokeStyle = ON_MAP_TITLE_BOX.borderColor;
     drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, radius);

@@ -1196,7 +1196,24 @@ function initOnMapTitle() {
   // default line so the user has a row to type into; the overlay itself
   // stays hidden (defaultTitleLine()'s text is "") until they do.
   const initialLines = saved.lines.length > 0 ? saved.lines : [defaultTitleLine()];
-  mapTitle.update({ nx: saved.nx, ny: saved.ny, lines: initialLines });
+  mapTitle.update({
+    nx: saved.nx,
+    ny: saved.ny,
+    lines: initialLines,
+    background: saved.background,
+  });
+
+  // UXR-029: title-level backdrop select; kept in sync with the overlay state
+  // on boot and after setState()/reset().
+  const backgroundSelect = document.getElementById("otm-background");
+  const syncBackgroundSelect = () => {
+    if (backgroundSelect) backgroundSelect.value = mapTitle.getPosition().background;
+  };
+  syncBackgroundSelect();
+  backgroundSelect?.addEventListener("change", () => {
+    mapTitle.update({ background: backgroundSelect.value });
+    saveOnMapTitle(mapTitle.getPosition());
+  });
 
   // Row handles currently mounted in the DOM, in display order — rebuilt
   // wholesale on add/remove, read in place on every other edit.
@@ -1291,6 +1308,7 @@ function initOnMapTitle() {
     mapTitle.update(next);
     persist();
     renderRows();
+    syncBackgroundSelect();
   };
 
   // FBL-013: expose the LIVE overlay position so the export reads the same

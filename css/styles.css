@@ -1076,6 +1076,17 @@ body.dragging-pin * {
   white-space: pre;
 }
 
+/* UXR-029: Background "None" — drop the chip chrome (fill, border, shadow,
+   blur) but keep padding so the text sits exactly where it does with the box
+   and the export's geometry matches. */
+.export-on-map-title--no-box {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 .export-on-map-title[hidden] {
   display: none;
 }

@@ -54,6 +54,7 @@ let position = {
   nx: 0.5,
   ny: 0.85,
   lines: [],
+  background: "box",
 };
 
 // Drag state. Set on pointerdown, cleared on pointerup. The pixel offset
@@ -133,10 +134,15 @@ export function update(next) {
     nx: Number.isFinite(next.nx) ? clamp01(next.nx) : position.nx,
     ny: Number.isFinite(next.ny) ? clamp01(next.ny) : position.ny,
     lines,
+    background:
+      next.background === "none" || next.background === "box"
+        ? next.background
+        : position.background,
   };
 
   if (!element || !mapInstance) return;
 
+  element.classList.toggle("export-on-map-title--no-box", position.background === "none");
   renderLines();
 
   if (!hasRenderableText(position.lines)) {
@@ -187,7 +193,12 @@ export function recenterX() {
 
 /** Read the live { nx, ny, lines }. Returns a fresh copy so callers can mutate freely. */
 export function getPosition() {
-  return { nx: position.nx, ny: position.ny, lines: position.lines.map((l) => ({ ...l })) };
+  return {
+    nx: position.nx,
+    ny: position.ny,
+    lines: position.lines.map((l) => ({ ...l })),
+    background: position.background,
+  };
 }
 
 // Clamp a fraction into [0, 1] — shared by every path that derives nx/ny
