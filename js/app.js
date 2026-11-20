@@ -127,10 +127,10 @@ function init() {
       // need to refresh the inline notice for the new style.
       refreshHideLabelsNotice();
     },
-    onOpenSettings: (provider) => {
+    onOpenSettings: (provider, styleLabel) => {
       // null provider = generic "Manage API keys" footer click; default
       // to the first section (Stadia).
-      openSettingsScrolledTo(provider ?? "stadia");
+      openSettingsScrolledTo(provider ?? "stadia", styleLabel ?? null);
     },
   });
 
