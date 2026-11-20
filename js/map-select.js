@@ -54,6 +54,7 @@
 
 import { listPins, replaceAll as replacePins } from "./pins.js";
 import { listGroups, addGroup } from "./groups.js";
+import { projectNearCenter } from "./geo-wrap.js";
 
 // Mirrors js/group-panel.js's own DEFAULT_COLORS verbatim (kept private
 // there) so a group created from either entry point rotates through the
@@ -264,7 +265,9 @@ function onContainerPointerUp(ev) {
   const points = listPins()
     .filter((p) => p && Number.isFinite(p.lon) && Number.isFinite(p.lat))
     .map((p) => {
-      const projected = mapInstance.project([p.lon, p.lat]);
+      // Nearest-world-copy projection so a pin whose icon renders on a wrapped
+      // copy (near the antimeridian) is hit-tested where the user sees it.
+      const projected = projectNearCenter(mapInstance, p.lon, p.lat);
       return { id: p.id, x: projected.x, y: projected.y };
     });
   const ids = pinsInRect(points, selRect);
