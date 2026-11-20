@@ -316,6 +316,20 @@
                   15×10 cm landscape (300 DPI)
                 </option>
               </select>
+              <!-- UXR-016: print quality. Only enabled for the A4/A3 presets
+                   (the photo presets are already 300 dpi). -->
+              <label for="export-quality" class="visually-hidden"
+                >Export quality</label
+              >
+              <select
+                id="export-quality"
+                class="export-format-select"
+                aria-label="Export quality"
+              >
+                <option value="screen">Screen (96 dpi)</option>
+                <option value="print">Print (300 dpi)</option>
+              </select>
+              <p id="export-quality-hint" class="design-hint" aria-live="polite"></p>
             </div>
 
             <div class="design-group">

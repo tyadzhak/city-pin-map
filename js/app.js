@@ -29,6 +29,8 @@ import {
   saveRouteVisible,
   loadExportFormat,
   saveExportFormat,
+  loadExportQuality,
+  saveExportQuality,
   loadExportFrame,
   saveExportFrame,
   normalizeFrameSet,
@@ -56,6 +58,7 @@ import {
 } from "./storage.js";
 import { showToast } from "./toast.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
+import { resolveExportSize, isPrintEligible } from "./export-quality.js";
 import { exportToJson } from "./backup.js";
 import { initFileMenu } from "./file-menu.js";
 import { importFromFile, setOnImportComplete } from "./import-foreign.js";
@@ -297,6 +300,7 @@ function init() {
   if (mapForSelect) mapSelect.init(mapForSelect);
 
   initExportFormatSelector();
+  initExportQualitySelector();
   // Capture the live-state accessors so the export button consumes the same
   // in-memory frame/title the on-map overlays render from (FBL-013), rather
   // than re-reading localStorage inside the export pipeline. Either handle is
@@ -358,6 +362,44 @@ function initExportFormatSelector() {
     // handler — only on an explicit user change.
     mapTitle.recenterX();
   });
+}
+
+// UXR-016: Screen/Print quality. Only the A4/A3 presets are print-eligible
+// (the photo presets are already 300 dpi; square/16:9/current have no paper
+// size), so the select is disabled elsewhere and the hint says why. The saved
+// choice is kept while disabled so switching back to A4 restores it.
+function initExportQualitySelector() {
+  const select = document.getElementById("export-quality");
+  const formatSelect = document.getElementById("export-format");
+  const hint = document.getElementById("export-quality-hint");
+  if (!select || !formatSelect) return;
+
+  select.value = loadExportQuality();
+
+  const refresh = () => {
+    const id = formatSelect.value;
+    const preset = EXPORT_PRESETS[id] ?? null;
+    const eligible = isPrintEligible(id);
+    select.disabled = !eligible;
+    if (!hint) return;
+    if (eligible) {
+      const size = resolveExportSize(id, preset, select.value);
+      hint.textContent = `Output: ${size.width} × ${size.height} px`;
+    } else if (id.startsWith("photo-")) {
+      hint.textContent = `Already 300 dpi (${preset.width} × ${preset.height} px)`;
+    } else if (preset) {
+      hint.textContent = `Fixed size: ${preset.width} × ${preset.height} px`;
+    } else {
+      hint.textContent = "Matches the on-screen map size.";
+    }
+  };
+
+  select.addEventListener("change", () => {
+    saveExportQuality(select.value);
+    refresh();
+  });
+  formatSelect.addEventListener("change", refresh);
+  refresh();
 }
 
 // Hydrates BOTH frames' seven inputs each (PO-007, extended to two

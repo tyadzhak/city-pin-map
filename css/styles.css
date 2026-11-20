@@ -496,6 +496,27 @@ body {
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.15);
 }
 
+/* UXR-016: the Quality select sits under the size select; the hint reports
+   the resulting pixel size. */
+#export-quality {
+  margin-top: 8px;
+}
+
+#export-quality:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.design-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.design-hint:empty {
+  display: none;
+}
+
 /* "Add frame" toggle (PO-007). Same chrome as .route-toggle so the cluster
    reads as one toolbar. The checked state doesn't drive any visual change
    on the toggle itself — the affordance is the dependent controls

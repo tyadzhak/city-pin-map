@@ -27,6 +27,9 @@ import {
   saveRouteVisible,
   loadExportFormat,
   saveExportFormat,
+  normalizeExportQuality,
+  loadExportQuality,
+  saveExportQuality,
   loadActiveSideTab,
   saveActiveSideTab,
   loadExportFrame,
@@ -811,6 +814,31 @@ test("loadExportFormat: getItem throw returns default with a banner", () => {
 test("saveExportFormat: setItem throw shows a banner", () => {
   withThrowingSetItem(() => saveExportFormat("current"));
   assert.match(banner().textContent, /Could not save export format/);
+});
+
+// ── loadExportQuality / saveExportQuality (UXR-016) ─────────────────────
+
+test("normalizeExportQuality: unknown values fall back to 'screen'", () => {
+  assert.equal(normalizeExportQuality("print"), "print");
+  assert.equal(normalizeExportQuality("screen"), "screen");
+  assert.equal(normalizeExportQuality("ultra"), "screen");
+  assert.equal(normalizeExportQuality(null), "screen");
+});
+
+test("loadExportQuality: missing key defaults, round trip, corrupt value", () => {
+  assert.equal(loadExportQuality(), "screen");
+  saveExportQuality("print");
+  assert.equal(loadExportQuality(), "print");
+  localStorage.setItem("city-pin-map.export-quality.v1", "garbage");
+  assert.equal(loadExportQuality(), "screen");
+});
+
+test("loadExportQuality/saveExportQuality: storage throws show banners", () => {
+  const value = withThrowingGetItem(() => loadExportQuality());
+  assert.equal(value, "screen");
+  assert.match(banner().textContent, /could not be read/);
+  withThrowingSetItem(() => saveExportQuality("print"));
+  assert.match(banner().textContent, /Could not save export quality/);
 });
 
 // ── loadActiveSideTab / saveActiveSideTab ───────────────────────────────

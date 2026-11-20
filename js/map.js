@@ -527,6 +527,10 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
     bearing: savedView ? savedView.bearing : 0,
     pitch: savedView ? savedView.pitch : 0,
     preserveDrawingBuffer: true,
+    // UXR-016: print-quality exports raise the render pixel ratio (A3 at 300
+    // dpi is 3508x4961). The 4096 default would silently clamp that; MapLibre
+    // still re-clamps to the GPU's real drawing-buffer limit on its own.
+    maxCanvasSize: [8192, 8192],
   });
 
   // Zoom +/- and "Fit all pins" in one top-left group (top-right/bottom-right
