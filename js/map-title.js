@@ -297,7 +297,12 @@ function onPointerUp(ev) {
     ny: h > 0 ? clamp01(newCenterY / h) : position.ny,
   };
 
-  applyTransform(newCenterX, newCenterY);
+  // Place from the CLAMPED anchor, not the raw drop pixel: the saved and
+  // exported position is clamped to [0,1], so leaving the overlay at the
+  // unclamped drop point would show it half off-map until the next resize
+  // while the PNG draws it at the edge. `dragging` is already false here,
+  // so reproject() is not short-circuited.
+  reproject();
 
   if (onAnchorChange) onAnchorChange(getPosition());
 }
@@ -340,7 +345,9 @@ function onKeyDown(ev) {
     nx: clamp01(newX / w),
     ny: clamp01(newY / h),
   };
-  applyTransform(newX, newY);
+  // Same reason as onPointerUp: nudging at an edge must not push the overlay
+  // past the clamped anchor that is saved and exported.
+  reproject();
 
   if (onAnchorChange) onAnchorChange(getPosition());
 }
