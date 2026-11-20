@@ -80,6 +80,7 @@ import * as mapViewport from "./map-viewport.js";
 import * as mapInset from "./map-inset.js";
 import * as mapLabels from "./map-labels.js";
 import * as mapSelect from "./map-select.js";
+import { pinsInViewport } from "./geo-wrap.js";
 
 // The live inset handle, exposed at module scope so the frame-control wiring
 // (initExportFrameOptions) can trigger a re-dock/re-clamp of the inset whenever
@@ -382,7 +383,26 @@ function initExportFormatSelector() {
 
   select.addEventListener("change", (event) => {
     saveExportFormat(event.target.value);
+    // UXR-033: the letterbox changes the visible box without moving the
+    // camera, which can crop pins out of preview AND export. Snapshot the
+    // visible pins, resize (map.resize() is synchronous), and refit only if
+    // some of them fell out — otherwise deliberate framing is left alone.
+    const container = map?.getContainer();
+    const visibleBefore = map
+      ? pinsInViewport(map, pinStore.listPins(), container.clientWidth, container.clientHeight)
+      : [];
     viewport?.setPreset(EXPORT_PRESETS[event.target.value] ?? null);
+    if (map && visibleBefore.length > 0) {
+      const stillVisible = pinsInViewport(
+        map, visibleBefore, container.clientWidth, container.clientHeight
+      );
+      if (stillVisible.length < visibleBefore.length) {
+        fitToPins(visibleBefore, {
+          animate: !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+        });
+        showToast("Adjusted the view to keep your pins in the frame", { type: "info" });
+      }
+    }
     // The title's anchor (nx/ny) is a normalized frame-relative fraction,
     // so it stays visually put across the letterbox resize above — but a
     // title dragged off-center under one aspect ratio can end up oddly

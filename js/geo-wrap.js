@@ -37,3 +37,16 @@ export function projectNearCenter(map, lon, lat) {
   const wrapped = center ? wrapLngNear(lon, center.lng) : lon;
   return map.project([wrapped, lat]);
 }
+
+/**
+ * UXR-033: the pins whose projected position lies inside the map's current
+ * `width` x `height` box. Pure apart from `map.project`/`getCenter`, so a
+ * preset letterbox change can snapshot "what is visible" before and after.
+ */
+export function pinsInViewport(map, pins, width, height) {
+  return (pins || []).filter((p) => {
+    if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return false;
+    const pt = projectNearCenter(map, p.lon, p.lat);
+    return pt.x >= 0 && pt.y >= 0 && pt.x <= width && pt.y <= height;
+  });
+}
