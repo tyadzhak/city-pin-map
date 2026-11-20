@@ -31,6 +31,8 @@ import {
   loadExportQuality,
   saveExportQuality,
   loadActiveSideTab,
+  loadTipsOpen,
+  saveTipsOpen,
   saveActiveSideTab,
   loadExportFrame,
   saveExportFrame,
@@ -839,6 +841,20 @@ test("loadExportQuality/saveExportQuality: storage throws show banners", () => {
   assert.match(banner().textContent, /could not be read/);
   withThrowingSetItem(() => saveExportQuality("print"));
   assert.match(banner().textContent, /Could not save export quality/);
+});
+
+// ── loadTipsOpen / saveTipsOpen ─────────────────────────────────────────
+
+test("loadTipsOpen: defaults open; remembers closed and re-open", () => {
+  assert.equal(loadTipsOpen(), true);
+  saveTipsOpen(false);
+  assert.equal(loadTipsOpen(), false);
+  saveTipsOpen(true);
+  assert.equal(loadTipsOpen(), true);
+});
+
+test("loadTipsOpen: getItem throw falls back to open", () => {
+  assert.equal(withThrowingGetItem(() => loadTipsOpen()), true);
 });
 
 // ── loadActiveSideTab / saveActiveSideTab ───────────────────────────────

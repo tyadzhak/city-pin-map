@@ -636,6 +636,12 @@
           <p id="pin-list-empty" class="pin-list__empty">
             No pins yet — search for a city above.
           </p>
+          <!-- Tips (UXR-017): list is filled by js/tips.js from one array. -->
+          <details id="pin-tips" class="pin-tips" open>
+            <summary>Tips</summary>
+            <ul id="pin-tips-list" class="pin-tips__list"></ul>
+          </details>
+          <script type="module" src="js/tips.js"></script>
         </section>
 
         <!-- Groups tab: unchanged Groups section, moved verbatim. -->

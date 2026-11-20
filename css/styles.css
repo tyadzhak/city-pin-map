@@ -1400,6 +1400,26 @@ body.dragging-inset * {
   color: #6b7280;
 }
 
+.pin-tips {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 16px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.pin-tips > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.pin-tips__list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+
 .pin-list__status-row {
   flex: 0 0 auto;
   display: flex;

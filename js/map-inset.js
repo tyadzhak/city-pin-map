@@ -127,6 +127,7 @@ export function init(map) {
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.className = "map-inset-overlay";
+    overlay.title = "Drag to move";
     // Hidden until update() enables it — display:none (not [hidden]) so the
     // inline corner/size styles the module writes stay authoritative.
     overlay.style.display = "none";

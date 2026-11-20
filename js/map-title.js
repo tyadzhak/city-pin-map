@@ -77,6 +77,7 @@ export function init(map, opts = {}) {
     element.id = OVERLAY_ID;
     element.className = "export-on-map-title";
     element.tabIndex = 0;
+    element.title = "Drag to move";
     element.setAttribute("role", "textbox");
     element.setAttribute(
       "aria-label",
