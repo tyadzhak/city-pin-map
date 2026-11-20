@@ -56,7 +56,8 @@ import {
 } from "./storage.js";
 import { showToast } from "./toast.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
-import { exportToJson, importFromJson } from "./backup.js";
+import { exportToJson } from "./backup.js";
+import { initFileMenu } from "./file-menu.js";
 import { importFromFile, setOnImportComplete } from "./import-foreign.js";
 import { initSearch, setOnPinAdded } from "./search.js";
 import { initPinList, refreshPinList } from "./pin-list.js";
@@ -171,6 +172,12 @@ function init() {
   // spec describes; the manual call below covers the pins loaded during
   // hydration (which fired notify() before we were listening).
   pinStore.subscribe(renderPins);
+  const updatePinCount = () => {
+    const el = document.getElementById("pin-count");
+    if (el) el.textContent = `(${pinStore.listPins().length})`;
+  };
+  pinStore.subscribe(updatePinCount);
+  updatePinCount();
   pinStore.subscribe((snapshot) => renderRoute(snapshot, { visible: routeVisible }));
   // Group changes (create / rename / recolor / delete) all alter the
   // effective color a marker should render with (NICE-005). The cheapest
@@ -305,6 +312,7 @@ function init() {
     getOnMapTitle: onMapTitleHandle?.getLivePosition,
     getBottomFade: bottomFadeHandle?.getLiveFade,
   });
+  initFileMenu();
   initBackupControls();
   initImportFromFileControl();
   initSnapshotControls();
@@ -1275,22 +1283,13 @@ function initExportButton({ getFrame, getOnMapTitle, getBottomFade } = {}) {
 // re-fires `change` cleanly without manual reset.
 function initBackupControls() {
   const exportBtn = document.getElementById("export-json");
-  const importBtn = document.getElementById("import-json");
-  if (!exportBtn || !importBtn) return;
+  if (!exportBtn) return;
 
+  // The standalone "Import JSON" entry was removed (UXR-006): "Import file…"
+  // already routes backup-shaped JSON to importFromJson() via
+  // js/import-foreign.js, so a second entry only added confusion.
   exportBtn.addEventListener("click", () => {
     exportToJson();
-  });
-
-  importBtn.addEventListener("click", () => {
-    const picker = document.createElement("input");
-    picker.type = "file";
-    picker.accept = "application/json,.json";
-    picker.addEventListener("change", () => {
-      const file = picker.files && picker.files[0];
-      if (file) importFromJson(file);
-    });
-    picker.click();
   });
 }
 

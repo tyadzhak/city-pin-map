@@ -1289,10 +1289,84 @@ body.dragging-inset * {
    panel doesn't sprout a third button style. The pair sits right-aligned
    in the Pins header bar and shares its own flex container so the gap
    stays tight regardless of label width. */
-.backup-controls {
+.file-menu {
+  position: relative;
   flex: 0 0 auto;
-  display: inline-flex;
-  gap: 6px;
+}
+
+.file-menu__list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 220px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+}
+
+.file-menu__list[hidden] {
+  display: none;
+}
+
+.file-menu__item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: #1f2933;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.file-menu__item:hover,
+.file-menu__item:focus-visible {
+  background: #eef2ff;
+  outline: none;
+}
+
+.file-menu__hint {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.file-menu__sep {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid #e4e7eb;
+}
+
+.pin-list__count {
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.pin-list__autosave {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.pin-list__status-row {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px;
+}
+
+.app-header__settings {
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 .backup-btn {
@@ -1320,26 +1394,6 @@ body.dragging-inset * {
   border-color: #4c6ef5;
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(76, 110, 245, 0.25);
-}
-
-/* PO-004: foreign-file import row, directly under the Pins header bar.
-   Its own row (rather than squeezing into .backup-controls) because the
-   320px side panel has no width left once a fourth, longer-labeled
-   button joins the gear + Export JSON + Import JSON on one line.
-   .snapshot-controls (Save/Load/New, browser-memory backup sibling) shares
-   this same row shape for the same width reason — one more row directly
-   underneath. flex-wrap lets the inline status span drop to a second line
-   instead of overflowing once its message outgrows the space left beside
-   the buttons (three of them on the snapshot row). */
-.import-controls,
-.snapshot-controls {
-  flex: 0 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid #e4e7eb;
 }
 
 /* Inline import status. Same :empty-hides-itself convention as

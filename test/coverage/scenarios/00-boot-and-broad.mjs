@@ -225,6 +225,7 @@ export async function run(page) {
   //     SAME pin ids so later steps (icon picker on coverage-pin-1) still
   //     find their rows. ──────────────────────────────────────────────
   await step("Save the current pins/groups into the browser snapshot", async () => {
+    await page.click("#file-menu-btn");
     await page.click("#snapshot-save");
     await page.waitForFunction(
       () => localStorage.getItem("city-pin-map.snapshot.v1") !== null,
@@ -234,11 +235,13 @@ export async function run(page) {
 
   await step("New: clear pins + groups (accepting the confirm dialog)", async () => {
     page.once("dialog", (dialog) => dialog.accept());
+    await page.click("#file-menu-btn");
     await page.click("#snapshot-new");
     await page.waitForSelector("#pin-list-empty:not([hidden])", { timeout: 5000 });
   });
 
   await step("Load: restore the saved snapshot", async () => {
+    await page.click("#file-menu-btn");
     await page.click("#snapshot-load");
     await page.waitForSelector('.pin-list__row[data-pin-id="coverage-pin-2"]', {
       timeout: 5000,
@@ -260,6 +263,7 @@ export async function run(page) {
       sawDialog = true;
       dialog.accept();
     });
+    await page.click("#file-menu-btn");
     await page.click("#snapshot-load");
     await page.waitForFunction(
       () =>
@@ -278,6 +282,7 @@ export async function run(page) {
       sawDialog = true;
       dialog.dismiss();
     });
+    await page.click("#file-menu-btn");
     await page.click("#snapshot-load");
     // Give any (buggy) asynchronously-emitted message time to land before
     // asserting silence.

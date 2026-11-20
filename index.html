@@ -129,6 +129,17 @@
           />
           <span class="route-toggle__label">Show route</span>
         </label>
+        <!-- API keys / preferences: unrelated to pins, so it lives at the
+             right end of the top header rather than in the Pins tab. -->
+        <button
+          id="open-settings"
+          type="button"
+          class="backup-btn backup-btn--icon app-header__settings"
+          aria-label="Open settings"
+          title="API keys and preferences"
+        >
+          ⚙
+        </button>
       </header>
 
       <main class="app-map" aria-label="Map">
@@ -552,72 +563,60 @@
           aria-labelledby="side-tab-pins"
           hidden
         >
-          <!-- Pins header bar mirrors .group-panel__header so the side panel
-               reads as one design family. The two backup buttons sit beside
-               the heading per HARDEN-001: a one-click rescue path the user
-               discovers in the same place they manage their pins. -->
+          <!-- UXR-006: one header row (heading + a single File menu) replaces
+               the former seven data buttons. The menu items keep the old
+               button ids so app.js's by-id wiring is unchanged. -->
           <div class="pin-list__header">
-            <h2 class="pin-list__heading">Pins</h2>
-            <div class="backup-controls">
+            <h2 class="pin-list__heading">
+              Pins <span id="pin-count" class="pin-list__count">(0)</span>
+            </h2>
+            <div class="file-menu">
               <button
-                id="open-settings"
+                id="file-menu-btn"
                 type="button"
-                class="backup-btn backup-btn--icon"
-                aria-label="Open settings"
-                title="API keys and preferences"
+                class="backup-btn"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="file-menu-list"
               >
-                ⚙
+                ⋯ File
               </button>
-              <button id="export-json" type="button" class="backup-btn">
-                Export JSON
-              </button>
-              <button id="import-json" type="button" class="backup-btn">
-                Import JSON
-              </button>
+              <div
+                id="file-menu-list"
+                class="file-menu__list"
+                role="menu"
+                aria-label="File"
+                hidden
+              >
+                <button id="export-json" type="button" role="menuitem" class="file-menu__item">
+                  Download backup (.json)
+                </button>
+                <button id="import-file" type="button" role="menuitem" class="file-menu__item">
+                  Import file…
+                  <span class="file-menu__hint">backup, CSV or city list</span>
+                </button>
+                <hr class="file-menu__sep" role="separator" />
+                <button id="snapshot-save" type="button" role="menuitem" class="file-menu__item">
+                  Save checkpoint
+                </button>
+                <button id="snapshot-load" type="button" role="menuitem" class="file-menu__item">
+                  Restore checkpoint
+                </button>
+                <hr class="file-menu__sep" role="separator" />
+                <button id="snapshot-new" type="button" role="menuitem" class="file-menu__item">
+                  New map…
+                </button>
+              </div>
             </div>
           </div>
-          <!-- PO-004: import a foreign CSV / loose-JSON city list (as opposed
-               to the app's own backup shape above). Lives on its own row —
-               the 320px side panel has no room left on the header line above
-               once a fourth label-length button joins the gear + two backup
-               buttons. The inline status span mirrors #export-status's
-               :empty-hides-itself convention (css/styles.css). -->
-          <div class="import-controls">
-            <button id="import-file" type="button" class="backup-btn">
-              Import from file
-            </button>
-            <span
-              id="import-file-status"
-              class="import-status"
-              role="status"
-              aria-live="polite"
-            ></span>
-          </div>
-          <!-- Save/Load/New (this milestone): a lighter, browser-memory
-               sibling of Export/Import JSON above — same pins+groups-only
-               scope, round-tripped through a single localStorage slot
-               instead of a downloaded file. Own row, same rationale as
-               .import-controls just above: no width left on the header
-               bar for three more buttons. Positive feedback lands in the
-               inline #snapshot-status span (same :empty-hides-itself
-               convention as #import-file-status); the error toast
-               (js/storage.js's showError() -> js/toast.js) stays reserved for failures. -->
-          <div class="snapshot-controls">
-            <button id="snapshot-save" type="button" class="backup-btn">
-              Save
-            </button>
-            <button id="snapshot-load" type="button" class="backup-btn">
-              Load
-            </button>
-            <button id="snapshot-new" type="button" class="backup-btn">
-              New
-            </button>
-            <span
-              id="snapshot-status"
-              class="import-status"
-              role="status"
-              aria-live="polite"
-            ></span>
+          <p class="pin-list__autosave">
+            Changes are saved automatically in this browser.
+          </p>
+          <!-- Inline feedback for import / checkpoint outcomes; :empty hides
+               each span at rest. -->
+          <div class="pin-list__status-row">
+            <span id="import-file-status" class="import-status" role="status" aria-live="polite"></span>
+            <span id="snapshot-status" class="import-status" role="status" aria-live="polite"></span>
           </div>
           <ul id="pin-list" class="pin-list"></ul>
           <p id="pin-list-empty" class="pin-list__empty">
