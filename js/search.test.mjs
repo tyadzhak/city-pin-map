@@ -24,7 +24,7 @@ import "./test-helpers.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockFetch, jsonResponse, resetStorage } from "./test-helpers.mjs";
-import { initSearch, __internals } from "./search.js";
+import { initSearch, dedupeResults, isAlreadyPinned, __internals } from "./search.js";
 import * as pinStore from "./pins.js";
 import { saveDefaultPin } from "./storage.js";
 
@@ -456,4 +456,130 @@ test("__internals exposes the module's tuning constants", () => {
   // reads that constant, and js/pins.test.mjs owns its value.
   assert.equal(__internals.DEBOUNCE_MS, 350);
   assert.equal(__internals.MIN_QUERY_LEN, 2);
+});
+
+// ── UXR-013: dedupe, already-pinned, keyboard, early Enter ───────────────
+
+const R = (displayName, lat, lon, address = null) => ({ displayName, lat, lon, address });
+
+test("dedupeResults: drops identical displayNames, keeps first", () => {
+  const out = dedupeResults([
+    R("Paris, Ile-de-France, France", 48.85, 2.35),
+    R("paris,  ile-de-france, France", 40, 10),
+    R("Lyon, France", 45.76, 4.83),
+  ]);
+  assert.deepEqual(out.map((r) => r.displayName), ["Paris, Ile-de-France, France", "Lyon, France"]);
+});
+
+test("dedupeResults: same short name within 0.01 deg collapses; farther apart does not", () => {
+  const out = dedupeResults([
+    R("Paris, A, France", 48.85, 2.35),
+    R("Paris, B, France", 48.855, 2.355),
+    R("Paris, Texas, USA", 33.66, -95.55),
+  ]);
+  assert.equal(out.length, 2);
+  assert.equal(out[1].displayName, "Paris, Texas, USA");
+});
+
+test("dedupeResults: empty input", () => {
+  assert.deepEqual(dedupeResults([]), []);
+});
+
+test("isAlreadyPinned: matches by name (case-insensitive) or within 2 km", () => {
+  const pins = [{ name: "Berlin", lat: 52.52, lon: 13.4 }];
+  assert.equal(isAlreadyPinned(R("berlin, Germany", 0, 0), pins), true);
+  assert.equal(isAlreadyPinned(R("Mitte, Germany", 52.53, 13.41), pins), true);
+  assert.equal(isAlreadyPinned(R("Potsdam, Germany", 52.39, 13.06), pins), false);
+  assert.equal(isAlreadyPinned(R("Potsdam, Germany", 52.39, 13.06), []), false);
+});
+
+test("results render with an already-pinned badge and the first option active", async (t) => {
+  const { input, list } = setupDom();
+  initSearch();
+  pinStore.addPin({ name: "Rome", lat: 41.9, lon: 12.5, color: null, group: null });
+  const restore = mockFetch(() =>
+    jsonResponse([
+      nominatimResult({ displayName: "Rome, Italy", lat: 41.9, lon: 12.5 }),
+      nominatimResult({ displayName: "Milan, Italy", lat: 45.46, lon: 9.19 }),
+    ])
+  );
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    typeQuery(input, "romeq");
+    await advance(t, SETTLE_MS);
+    assert.equal(list.children[0].children.length, 1);
+    assert.equal(list.children[0].children[0].className, "search__badge");
+    assert.equal(list.children[1].children.length, 0);
+    assert.ok(list.children[0].classList.contains("search__row--active"));
+    assert.equal(input.getAttribute("aria-activedescendant"), "search-opt-0");
+  } finally {
+    restore();
+  }
+});
+
+test("ArrowDown moves the active option and Enter picks it", async (t) => {
+  const { input, list } = setupDom();
+  initSearch();
+  const restore = mockFetch(() =>
+    jsonResponse([
+      nominatimResult({ displayName: "Alpha, X", lat: 1, lon: 1 }),
+      nominatimResult({ displayName: "Beta, X", lat: 5, lon: 5 }),
+    ])
+  );
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    typeQuery(input, "arrowq");
+    await advance(t, SETTLE_MS);
+    input.dispatchEvent({ type: "keydown", key: "ArrowDown" });
+    assert.ok(list.children[1].classList.contains("search__row--active"));
+    input.dispatchEvent({ type: "keydown", key: "ArrowDown" }); // wraps
+    assert.ok(list.children[0].classList.contains("search__row--active"));
+    input.dispatchEvent({ type: "keydown", key: "ArrowUp" }); // wraps back
+    input.dispatchEvent({ type: "keydown", key: "Enter" });
+    assert.equal(pinStore.listPins().at(-1).name, "Beta");
+  } finally {
+    restore();
+  }
+});
+
+test("typing shows a Searching row; Enter before results picks the first on arrival", async (t) => {
+  const { input, list } = setupDom();
+  initSearch();
+  const restore = mockFetch(() =>
+    jsonResponse([
+      nominatimResult({ displayName: "Early, X", lat: 1, lon: 1 }),
+      nominatimResult({ displayName: "Later, X", lat: 9, lon: 9 }),
+    ])
+  );
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    typeQuery(input, "earlyq");
+    assert.equal(list.hidden, false);
+    assert.equal(list.children[0].textContent, "Searching…");
+    input.dispatchEvent({ type: "keydown", key: "Enter" });
+    assert.equal(pinStore.listPins().length, 0);
+    await advance(t, SETTLE_MS);
+    assert.equal(pinStore.listPins().length, 1);
+    assert.equal(pinStore.listPins()[0].name, "Early");
+  } finally {
+    restore();
+  }
+});
+
+test("Escape cancels a pending Enter-pick", async (t) => {
+  const { input } = setupDom();
+  initSearch();
+  const restore = mockFetch(() =>
+    jsonResponse([nominatimResult({ displayName: "Gone, X", lat: 1, lon: 1 })])
+  );
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    typeQuery(input, "goneq");
+    input.dispatchEvent({ type: "keydown", key: "Enter" });
+    input.dispatchEvent({ type: "keydown", key: "Escape" });
+    await advance(t, SETTLE_MS);
+    assert.equal(pinStore.listPins().length, 0);
+  } finally {
+    restore();
+  }
 });
