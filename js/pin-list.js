@@ -22,7 +22,7 @@ import {
   listGroups,
 } from "./groups.js";
 import { effectiveColor } from "./map.js";
-import { effectiveIcon, getIcon, subscribe as subscribeIcons } from "./icons.js";
+import { effectiveIcon, getIcon, renderIconGlyph, subscribe as subscribeIcons } from "./icons.js";
 import { openIconPicker } from "./icon-picker.js";
 import { loadDefaultPin } from "./storage.js";
 
@@ -213,13 +213,7 @@ function buildAppearanceTile(pin, iconId, color) {
   tile.style.color = color;
 
   const iconEntry = getIcon(iconId);
-  const iconImg = document.createElement("img");
-  iconImg.alt = iconEntry?.label || iconId;
-  iconImg.src = iconEntry?.svg
-    ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(iconEntry.svg)
-    : iconEntry?.src || "";
-  iconImg.style.cssText = "width:18px;height:18px;display:block;";
-  tile.appendChild(iconImg);
+  renderIconGlyph(tile, iconEntry, iconId);
 
   tile.setAttribute("aria-label", `Change icon of pin ${pin.name}`);
   tile.setAttribute("aria-haspopup", "dialog");

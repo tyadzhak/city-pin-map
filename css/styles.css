@@ -1582,6 +1582,30 @@ body.dragging-inset * {
   display: block;
 }
 
+/* Icon glyphs (js/icons.js renderIconGlyph). Tintable icons are a CSS mask
+   over currentColor so the host's `color` tints them — an <img> SVG can't
+   inherit color. Non-tintable icons stay a plain <img> in their own colors. */
+.icon-glyph-mask,
+.icon-glyph-img {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.icon-glyph-mask {
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.icon-glyph-host {
+  display: inline-flex;
+}
+
 /* Disabled state, kept generic (not tied to the removed NICE-005
    grouped-pin read-only case — see js/pin-list.js's buildAppearanceTile,
    which no longer sets this on a grouped pin's tile after the 2026-08-11
@@ -2226,6 +2250,7 @@ body.dragging-inset * {
 }
 
 .icon-picker-modal__tile-icon img,
+.icon-picker-modal__tile-icon .icon-glyph-mask,
 .icon-picker-modal__tile-icon svg {
   width: 32px;
   height: 32px;
@@ -2363,6 +2388,7 @@ body.dragging-inset * {
 }
 
 .icon-picker-modal__preview img,
+.icon-picker-modal__preview .icon-glyph-mask,
 .icon-picker-modal__preview svg {
   width: 48px;
   height: 48px;

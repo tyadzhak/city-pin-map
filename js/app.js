@@ -62,7 +62,7 @@ import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
 import { initStylePicker } from "./style-picker.js";
 import { initSideTabs } from "./side-tabs.js";
 import { openIconPickerFor } from "./icon-picker.js";
-import { effectiveIcon, getIcon, subscribe as subscribeIcons } from "./icons.js";
+import { effectiveIcon, getIcon, renderIconGlyph, subscribe as subscribeIcons } from "./icons.js";
 import * as mapTitle from "./map-title.js";
 import * as mapFrame from "./map-frame.js";
 import * as mapFade from "./map-fade.js";
@@ -847,10 +847,9 @@ function initPinStyleOptions() {
 // other initXxxOptions() in this file.
 function initDefaultPinOptions() {
   const tile = document.getElementById("default-pin-tile");
-  const tileIcon = document.getElementById("default-pin-tile-icon");
   const colorInput = document.getElementById("default-pin-color");
   const applyAllBtn = document.getElementById("default-pin-apply-all");
-  if (!tile || !tileIcon || !colorInput || !applyAllBtn) return;
+  if (!tile || !colorInput || !applyAllBtn) return;
 
   // Single read path the tile render, the picker target, and the "apply to
   // all" handler all share — resolves a stale/unknown icon id (a deleted
@@ -865,10 +864,7 @@ function initDefaultPinOptions() {
     const state = readState();
     const iconEntry = getIcon(state.icon);
     tile.style.color = state.color;
-    tileIcon.alt = iconEntry?.label || state.icon;
-    tileIcon.src = iconEntry?.svg
-      ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(iconEntry.svg)
-      : iconEntry?.src || "";
+    renderIconGlyph(tile, iconEntry, state.icon);
     colorInput.value = state.color;
   };
   refreshTile();
