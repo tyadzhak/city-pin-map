@@ -17,6 +17,7 @@ const PROVIDERS = ["stadia", "maptiler", "thunderforest"];
 let modalEl = null;
 let triggerEl = null;
 let pendingFocusProvider = null;
+let pendingStyleLabel = null;
 
 export function initSettingsPanel() {
   modalEl = document.getElementById("settings-modal");
@@ -83,25 +84,29 @@ function renderFromStore(keys) {
 
 // Open the modal, optionally scrolling to a specific provider's section
 // and focusing its input. Used by the picker's locked-row click.
-export function openSettingsScrolledTo(provider) {
+export function openSettingsScrolledTo(provider, styleLabel = null) {
   pendingFocusProvider = provider;
+  pendingStyleLabel = styleLabel;
   openModal();
 }
 
 function openModal() {
   if (!modalEl) return;
   modalEl.hidden = false;
+  clearHighlight();
   // Scroll to a section if requested + focus its input.
   if (pendingFocusProvider) {
     const section = modalEl.querySelector(
       `[data-provider="${pendingFocusProvider}"]`
     );
     if (section) {
+      highlightSection(section, pendingStyleLabel);
       section.scrollIntoView({ block: "start", behavior: "instant" });
       const input = section.querySelector("[data-key-input]");
       if (input) input.focus();
     }
     pendingFocusProvider = null;
+    pendingStyleLabel = null;
   } else {
     // Default focus: first input.
     const firstInput = modalEl.querySelector("[data-key-input]");
@@ -109,9 +114,37 @@ function openModal() {
   }
 }
 
+// UXR-028: make it obvious WHICH provider key the clicked style needs —
+// accent the section, pulse once, and name the style in a one-line note.
+function highlightSection(section, styleLabel) {
+  section.classList.add("is-highlighted");
+  if (!styleLabel) return;
+  const title = section.querySelector(".settings-section__title");
+  const name = title ? title.textContent.trim() : "this provider";
+  const note = document.createElement("p");
+  note.className = "settings-section__needed";
+  note.setAttribute("role", "status");
+  note.textContent = `\u201C${styleLabel}\u201D needs a free ${name} key.`;
+  const header = section.querySelector(".settings-section__header");
+  if (header) header.after(note);
+  else section.prepend(note);
+}
+
+function clearHighlight() {
+  if (!modalEl) return;
+  modalEl
+    .querySelectorAll(".settings-section.is-highlighted")
+    .forEach((el) => el.classList.remove("is-highlighted"));
+  modalEl
+    .querySelectorAll(".settings-section__needed")
+    .forEach((el) => el.remove());
+}
+
 function closeModal() {
   if (!modalEl) return;
   modalEl.hidden = true;
+  pendingStyleLabel = null;
+  clearHighlight();
   pendingFocusProvider = null;
   // Force-flush any pending blur save by blurring the active element. The
   // input's blur handler runs synchronously and persists.

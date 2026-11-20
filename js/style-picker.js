@@ -66,6 +66,9 @@ let activeStyleId = null;
 let onSelectCb = null;
 let onOpenSettingsCb = null;
 let isOpen = false;
+// UXR-028: locked (key-needed) styles live in a collapsed section so the
+// default list stays short. Reset on close; a search force-expands it.
+let lockedExpanded = false;
 
 // PO-001: when true, every entry that fails isRasterStyleEntry() renders
 // disabled and routes its activation to the info popup instead of selecting.
@@ -180,6 +183,7 @@ function close() {
   pickerEl.dataset.pickerState = "closed";
   searchEl.value = "";
   currentSearch = "";
+  lockedExpanded = false;
   hideDisabledPopup();
 }
 
@@ -242,12 +246,27 @@ function renderRows() {
     groups.get(entry.provider).push(entry);
   }
 
+  const isLocked = (entry) =>
+    entry.requiresToken && !settings.isProviderUnlocked(entry.requiresToken);
+  const searching = currentSearch !== "";
+  const lockedFrags = [];
   for (const [provider, entries] of groups) {
     if (entries.length === 0) continue;
-    frag.appendChild(renderGroupHeader(provider));
-    for (const entry of entries) {
-      frag.appendChild(renderRow(entry));
+    const open = entries.filter((e) => !isLocked(e));
+    const locked = entries.filter(isLocked);
+    if (open.length > 0) {
+      frag.appendChild(renderGroupHeader(provider));
+      for (const entry of open) frag.appendChild(renderRow(entry));
     }
+    if (locked.length > 0) {
+      lockedFrags.push(renderGroupHeader(provider));
+      for (const entry of locked) lockedFrags.push(renderRow(entry));
+    }
+  }
+  if (lockedFrags.length > 0) {
+    const expanded = searching || lockedExpanded;
+    frag.appendChild(renderLockedToggle(expanded, searching));
+    if (expanded) for (const el of lockedFrags) frag.appendChild(el);
   }
 
   if (filtered.length === 0) {
@@ -268,6 +287,42 @@ function matches(entry, query) {
     entry.label.toLowerCase().includes(query) ||
     (entry.provider && entry.provider.toLowerCase().includes(query))
   );
+}
+
+function renderLockedToggle(expanded, forced) {
+  const li = document.createElement("li");
+  li.className = "picker__group-header picker__more-toggle";
+  li.setAttribute("role", "button");
+  li.setAttribute("tabindex", "0");
+  li.setAttribute("aria-expanded", String(expanded));
+  li.textContent = `${expanded ? "▾" : "▸"} More styles — free key needed`;
+  if (forced) return li; // searching: always open, nothing to toggle
+  const toggle = () => {
+    lockedExpanded = !lockedExpanded;
+    renderRows();
+    const again = listEl.querySelector(".picker__more-toggle");
+    if (again) again.focus();
+  };
+  li.addEventListener("click", toggle);
+  li.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = li.nextElementSibling;
+      if (next && next.classList.contains("picker__group-header")) {
+        const row = next.nextElementSibling;
+        if (row) row.focus();
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prev = li.previousElementSibling;
+      if (prev) prev.focus();
+      else searchEl.focus();
+    }
+  });
+  return li;
 }
 
 function renderGroupHeader(provider) {
@@ -323,7 +378,7 @@ function renderRow(entry) {
     }
     if (locked) {
       close();
-      if (onOpenSettingsCb) onOpenSettingsCb(entry.requiresToken);
+      if (onOpenSettingsCb) onOpenSettingsCb(entry.requiresToken, entry.label);
       return;
     }
     setActive(entry.id);
@@ -363,7 +418,9 @@ function onRowKeydown(e, li, disabled = false) {
     e.preventDefault();
     const next = li.nextElementSibling;
     if (!next) return;
-    if (next.classList.contains("picker__group-header")) {
+    if (next.classList.contains("picker__more-toggle")) {
+      next.focus();
+    } else if (next.classList.contains("picker__group-header")) {
       const nextRow = next.nextElementSibling;
       if (nextRow) nextRow.focus();
     } else {
@@ -376,9 +433,12 @@ function onRowKeydown(e, li, disabled = false) {
       searchEl.focus();
       return;
     }
-    if (prev.classList.contains("picker__group-header")) {
+    if (prev.classList.contains("picker__more-toggle")) {
+      prev.focus();
+    } else if (prev.classList.contains("picker__group-header")) {
       const prevRow = prev.previousElementSibling;
-      if (prevRow) prevRow.focus();
+      if (prevRow?.classList.contains("picker__more-toggle")) prevRow.focus();
+      else if (prevRow) prevRow.focus();
       else searchEl.focus();
     } else {
       prev.focus();
