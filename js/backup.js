@@ -32,6 +32,7 @@ import {
   showError,
   prewriteImportPayloads,
   normalizeLoadedPinColor,
+  loadDefaultPin,
 } from "./storage.js";
 
 const BACKUP_VERSION = 3;
@@ -231,6 +232,11 @@ function pluralize(count, noun) {
 
 function normalizePins(rawPins, dropped, { migrateLegacyDefault = false } = {}) {
   const out = [];
+  // Same once-per-pass default-pin read as storage.js's normalizeLoadedPins:
+  // pre-flip add paths stamped the user's default-pin color on untouched
+  // pins, so it counts as "never customized" too while migrating. Here it's
+  // the IMPORTING browser's saved default, the only one available.
+  const customDefaultColor = migrateLegacyDefault ? loadDefaultPin().color : null;
   for (const raw of rawPins) {
     if (!raw || typeof raw !== "object") {
       dropped.pins++;
@@ -259,7 +265,7 @@ function normalizePins(rawPins, dropped, { migrateLegacyDefault = false } = {}) 
       // (v1/v2) payload, per migrateLegacyDefault above, so a v3 file's
       // colors — including a deliberately-picked DEFAULT_PIN_COLOR —
       // round-trip verbatim.
-      color: normalizeLoadedPinColor(raw.color, { migrateLegacyDefault }),
+      color: normalizeLoadedPinColor(raw.color, { migrateLegacyDefault, customDefaultColor }),
       group: typeof raw.group === "string" ? raw.group : null,
       icon: typeof raw.icon === "string" ? raw.icon : null,
       createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),

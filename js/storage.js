@@ -553,6 +553,22 @@ function toFiniteNumber(raw) {
 // Post-migration, a concrete color — DEFAULT_PIN_COLOR included — is the
 // user's choice and passes through untouched.
 //
+// The "untouched" shade is NOT always DEFAULT_PIN_COLOR, though: before the
+// flip, search.js / import-foreign.js stamped `loadDefaultPin().color` — the
+// user's Design-tab default-pin color — and "Apply to all pins" stamped it
+// onto every pin too. A user with a blue default therefore has untouched
+// pins carrying blue, and without the extra match below those would read as
+// customized forever (grouped pins would stop showing their group color,
+// and later default-color edits would never recolor them). So while
+// migrating, a stored color equal to the CURRENT saved default-pin color
+// (`customDefaultColor`, compared case-insensitively) also becomes `null`.
+// ACCEPTED TRADE-OFF: a pin deliberately set, pre-flip, to exactly that
+// default shade also becomes inherit — the same class of guess the red
+// heuristic already makes, and visually a no-op until the default or the
+// pin's group changes. Callers resolve the default ONCE per migration pass
+// and pass it in (loadDefaultPin() can banner on a corrupt key, and a
+// per-pin read would be wasteful); omitted/null means "no extra match".
+//
 // Net effect of the one migrating pass: an untouched red pin starts
 // inheriting — a grouped one keeps showing its group's color, a ZERO visual
 // change from before the flip — while a pin with a genuinely different
@@ -566,17 +582,33 @@ function toFiniteNumber(raw) {
 // rule instead of drifting from it.
 //
 // @param {unknown} raw - The stored color value.
-// @param {{migrateLegacyDefault?: boolean}} [options] - Opt IN to the
-//   one-shot legacy-default heuristic. Defaults to false (verbatim).
-export function normalizeLoadedPinColor(raw, { migrateLegacyDefault = false } = {}) {
+// @param {{migrateLegacyDefault?: boolean, customDefaultColor?: string|null}}
+//   [options] - `migrateLegacyDefault` opts IN to the one-shot legacy-default
+//   heuristic (default false = verbatim). `customDefaultColor` is the saved
+//   default-pin color to treat as "untouched" too; only consulted while
+//   migrating.
+export function normalizeLoadedPinColor(
+  raw,
+  { migrateLegacyDefault = false, customDefaultColor = null } = {}
+) {
   if (typeof raw !== "string" || !raw) return null;
-  if (migrateLegacyDefault && raw === DEFAULT_PIN_COLOR) return null;
+  if (migrateLegacyDefault) {
+    if (raw === DEFAULT_PIN_COLOR) return null;
+    if (
+      typeof customDefaultColor === "string" &&
+      raw.toLowerCase() === customDefaultColor.toLowerCase()
+    ) {
+      return null;
+    }
+  }
   return raw;
 }
 
 function normalizeLoadedPins(rawPins, { migrateLegacyDefault = false } = {}) {
   const items = [];
   let dropped = 0;
+  // Read once per pass, and only while migrating (see normalizeLoadedPinColor).
+  const customDefaultColor = migrateLegacyDefault ? loadDefaultPin().color : null;
   for (const raw of rawPins) {
     if (!raw || typeof raw !== "object") {
       dropped++;
@@ -598,7 +630,7 @@ function normalizeLoadedPins(rawPins, { migrateLegacyDefault = false } = {}) {
       name: raw.name,
       lat,
       lon,
-      color: normalizeLoadedPinColor(raw.color, { migrateLegacyDefault }),
+      color: normalizeLoadedPinColor(raw.color, { migrateLegacyDefault, customDefaultColor }),
       group: typeof raw.group === "string" ? raw.group : null,
       icon: typeof raw.icon === "string" ? raw.icon : null,
       createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
