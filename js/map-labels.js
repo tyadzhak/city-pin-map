@@ -115,6 +115,8 @@ export function attachTo(map, { interactive = false, pinsProvider } = {}) {
 const PULSE_MS = 1800;
 // UXR-007: pointer travel (px) below which a label press counts as a click.
 const CLICK_SLOP_PX = 4;
+// UXR-027: repeat clicks on the same label inside this window are part of a double-click.
+const DBLCLICK_WINDOW_MS = 500;
 const pulses = new Map();
 
 /** Briefly pulse a pin's label on every overlay so a new pin is easy to spot. */
@@ -330,6 +332,7 @@ function createOverlay(map, { interactive, pinsProvider }) {
   // active pointer capture, and reposition() leaves the dragged label under
   // cursor control.
   let dragging = null;
+  let lastSelect = { pinId: null, at: 0 };
 
   function currentPins() {
     return typeof pinsProvider === "function" ? pinsProvider() : undefined;
@@ -351,6 +354,7 @@ function createOverlay(map, { interactive, pinsProvider }) {
       }
       if (interactive) {
         el.dataset.pinId = label.id;
+        el.title = "Drag to move · double-click to reset";
         el.style.pointerEvents = "auto";
         el.addEventListener("pointerdown", (ev) => onPointerDown(ev, label.id, el));
       }
@@ -454,8 +458,22 @@ function createOverlay(map, { interactive, pinsProvider }) {
     // UXR-007: a release within the slop radius is a click, not a drag —
     // select the pin and leave its label offset untouched.
     if (!moved && ev.type === "pointerup") {
-      // Main map only: the inset's labels share this path but the Pins tab
-      // selection is equally meaningful there, so no gating needed.
+      // UXR-027: a double-click is two clicks + a dblclick (reset). Select on
+      // the FIRST click only; a repeat click on the same pin within the
+      // double-click window is swallowed so the Pins tab isn't re-driven.
+      const now = Date.now();
+      const repeat = lastSelect.pinId === pinId && now - lastSelect.at < DBLCLICK_WINDOW_MS;
+      lastSelect = { pinId, at: now };
+      if (repeat) {
+        // Detected here rather than from the native dblclick: the pointerdown
+        // preventDefault + the first click's render() replacing this node make
+        // dblclick unreliable. Zero offsets = "not manual" to computeLabelSpecs
+        // (auto placement). lastSelect is cleared so a triple-click doesn't
+        // reset twice.
+        lastSelect = { pinId: null, at: 0 };
+        updatePin(pinId, { labelDx: 0, labelDy: 0 });
+        return;
+      }
       document.dispatchEvent(
         new CustomEvent("city-pin-map:pin-selected", { detail: { pinId } })
       );
@@ -467,6 +485,17 @@ function createOverlay(map, { interactive, pinsProvider }) {
     // The resulting notify() → render() repaints this label at the same offset
     // we just drew, so it's effectively a no-op reposition.
     updatePin(pinId, { labelDx: lastDx, labelDy: lastDy });
+  }
+
+  // UXR-027: the reset itself happens in onPointerUp (see there); this only
+  // keeps a native dblclick on a label from reaching the map's double-click
+  // zoom. Delegated because render() replaces label nodes between clicks.
+  if (interactive) {
+    container.addEventListener("dblclick", (ev) => {
+      if (!(ev.target instanceof Element) || !ev.target.closest("[data-pin-id]")) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+    });
   }
 
   function destroy() {
