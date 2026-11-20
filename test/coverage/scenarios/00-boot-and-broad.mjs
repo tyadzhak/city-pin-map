@@ -111,7 +111,9 @@ export async function run(page) {
     );
     await page.reload({ waitUntil: "load", timeout: 30000 });
     await page.waitForSelector("#side-tab-design", { timeout: 20000 });
+    // The Pins panel is a hidden tab here, so wait for attachment, not visibility.
     await page.waitForSelector('.pin-list__row[data-pin-id="coverage-pin-1"]', {
+      state: "attached",
       timeout: 10000,
     });
   });
@@ -304,6 +306,38 @@ export async function run(page) {
     if (toastText && /snapshot|skipped/i.test(toastText)) {
       throw new Error("cancelled Load still emitted a toast: " + toastText);
     }
+  });
+
+  // File menu keyboard + dismissal behaviour (file-menu.js, UXR-006).
+  await step("file menu: arrow/Home/End focus, Escape and outside click close", async () => {
+    const focusedId = () => page.evaluate(() => document.activeElement?.id || "");
+    const isOpen = () => page.evaluate(() => !document.getElementById("file-menu-list").hidden);
+    const itemIds = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('#file-menu-list [role="menuitem"]')).map((el) => el.id)
+    );
+    if (itemIds.length < 2) throw new Error("file menu has too few items: " + itemIds.length);
+
+    await page.click("#file-menu-btn");
+    if (!(await isOpen())) throw new Error("file menu did not open on click");
+    await page.focus("#file-menu-list [role=\"menuitem\"]");
+    await page.keyboard.press("End");
+    if ((await focusedId()) !== itemIds[itemIds.length - 1]) throw new Error("End did not focus last item");
+    await page.keyboard.press("Home");
+    if ((await focusedId()) !== itemIds[0]) throw new Error("Home did not focus first item");
+    await page.keyboard.press("ArrowDown");
+    if ((await focusedId()) !== itemIds[1]) throw new Error("ArrowDown did not focus second item");
+    await page.keyboard.press("ArrowUp");
+    if ((await focusedId()) !== itemIds[0]) throw new Error("ArrowUp did not focus first item");
+
+    await page.keyboard.press("Escape");
+    if (await isOpen()) throw new Error("Escape did not close the file menu");
+    if ((await focusedId()) !== "file-menu-btn") throw new Error("Escape did not return focus to the button");
+
+    // ArrowDown on the button opens the menu and focuses the first item.
+    await page.keyboard.press("ArrowDown");
+    if (!(await isOpen())) throw new Error("ArrowDown on the button did not open the menu");
+    await page.mouse.click(5, 5);
+    if (await isOpen()) throw new Error("outside click did not close the file menu");
   });
 
   // ── 10. Icon picker modal + add-icon sub-view (icon-picker.js) ─────

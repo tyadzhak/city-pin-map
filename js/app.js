@@ -1633,11 +1633,15 @@ function initSnapshotControls({ resetDesign, captureDesign } = {}) {
       // than being split across two affordances the user has to read
       // together to understand what happened.
       showError(
-        `Loaded ${loaded || "an empty snapshot"}, but skipped ${skipped} that couldn't be read.`
+        loaded
+          ? `Restored ${loaded}, but skipped ${skipped} that couldn't be read.`
+          : `The saved checkpoint is empty and ${skipped} couldn't be read — nothing to restore.`
       );
     } else {
       setSnapshotStatus(
-        loaded ? `Loaded ${loaded}.` : "Loaded an empty snapshot."
+        loaded
+          ? `Restored ${loaded}.`
+          : "The saved checkpoint is empty — nothing to restore."
       );
     }
   });

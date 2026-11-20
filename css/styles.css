@@ -283,6 +283,13 @@ body {
   font-size: 12px;
   font-style: italic;
   line-height: 1.3;
+  /* Single line, ellipsised (full text in the title tooltip): wrapped, it grew
+     taller than the 56px header at narrow widths. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
   color: #7a4a00;
   background: #fff7ed;
   border: 1px solid #fed7aa;
@@ -3085,14 +3092,16 @@ body.dragging-inset * {
    input (font grows, the rest are fixed-size). */
 .otm-line-controls {
   display: flex;
-  flex-wrap: nowrap;
+  /* Wrap rather than squeeze: at nowrap the font select shrank to ~78px and
+     truncated names like "Georgia" to "Georg". */
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
 
 .otm-line-controls .otm-format-select {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 116px;
+  min-width: 116px;
 }
 
 .otm-size-field {
