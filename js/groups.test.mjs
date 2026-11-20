@@ -174,3 +174,10 @@ test("pickGroupColor rotates once the palette is exhausted", () => {
   assert.ok(GROUP_PALETTE.includes(c));
   assert.notEqual(c, "#e63946");
 });
+
+test("formatPinCount words zero, one and many", async () => {
+  const { formatPinCount } = await import("./groups.js");
+  assert.equal(formatPinCount(0), "No pins");
+  assert.equal(formatPinCount(1), "1 pin");
+  assert.equal(formatPinCount(3), "3 pins");
+});

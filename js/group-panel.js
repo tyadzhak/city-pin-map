@@ -19,9 +19,10 @@ import {
   updateGroup,
   removeGroup,
   pickGroupColor,
+  formatPinCount,
 } from "./groups.js";
 import { loadDefaultPin } from "./storage.js";
-import { listPins, updatePin } from "./pins.js";
+import { listPins, updatePin, subscribe as subscribePins } from "./pins.js";
 
 export function initGroupPanel() {
   const listEl = document.getElementById("group-list");
@@ -40,17 +41,62 @@ export function initGroupPanel() {
   addBtn.addEventListener("click", () => {
     const groups = listGroups();
     const n = groups.length + 1;
-    addGroup({
+    // addGroup notifies synchronously, so the row is already rendered when
+    // it returns; focus it so the auto-name can be typed over immediately.
+    const group = addGroup({
       name: `Group ${n}`,
       color: pickGroupColor(groups, loadDefaultPin().color),
     });
+    const input = listEl.querySelector(
+      `[data-group-id="${group.id}"] .group-list__name-input`,
+    );
+    if (input) {
+      input.focus();
+      input.select();
+    }
   });
 
   const unsubscribe = subscribe((groups) => render(listEl, emptyEl, groups));
+  // Pin edits only change the counts, so patch the count text in place
+  // instead of rebuilding rows: a rebuild would destroy a name input the
+  // user is typing into (the pin list needs a deferral for the same reason).
+  const unsubscribePins = subscribePins(() => refreshCounts(listEl));
   // Backfill the hydration notify() that fired before we subscribed —
   // same pattern as pin-list.js.
   render(listEl, emptyEl, listGroups());
-  return unsubscribe;
+  return () => {
+    unsubscribe();
+    unsubscribePins();
+  };
+}
+
+function countPinsInGroup(groupId) {
+  return listPins().filter((p) => p.group === groupId).length;
+}
+
+function deleteLabel(group, count) {
+  const name = group.name || "group";
+  const tail = count > 0 ? ` (${formatPinCount(count)} will be ungrouped)` : "";
+  return `Delete group “${name}”${tail}`;
+}
+
+function applyCount(row, group, count) {
+  const countEl = row.querySelector(".group-list__count");
+  if (countEl) countEl.textContent = formatPinCount(count);
+  const remove = row.querySelector(".remove-group");
+  if (remove) {
+    const label = deleteLabel(group, count);
+    remove.setAttribute("aria-label", label);
+    remove.title = label;
+  }
+}
+
+function refreshCounts(listEl) {
+  const byId = new Map(listGroups().map((g) => [g.id, g]));
+  for (const row of listEl.querySelectorAll(".group-list__row")) {
+    const group = byId.get(row.dataset.groupId);
+    if (group) applyCount(row, group, countPinsInGroup(group.id));
+  }
 }
 
 function render(listEl, emptyEl, groups) {
@@ -117,7 +163,6 @@ function buildRow(group) {
   remove.type = "button";
   remove.className = "remove-group";
   remove.textContent = "✕";
-  remove.setAttribute("aria-label", `Remove group ${group.name || ""}`);
   remove.addEventListener("click", () => {
     // NICE-005 cascade: clear `pin.group` on every pin pointing at this
     // group BEFORE removing the group itself. Order matters — if we
@@ -134,7 +179,12 @@ function buildRow(group) {
   });
 
   row.appendChild(colorInput);
+  const countEl = document.createElement("span");
+  countEl.className = "group-list__count";
+
   row.appendChild(nameInput);
+  row.appendChild(countEl);
   row.appendChild(remove);
+  applyCount(row, group, countPinsInGroup(group.id));
   return row;
 }

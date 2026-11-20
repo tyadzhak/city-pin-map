@@ -86,3 +86,9 @@ export function pickGroupColor(existingGroups, defaultPinColor) {
   const n = (existingGroups || []).length;
   return usable[n % usable.length];
 }
+
+// Pin-count wording shared by the group rows and the delete tooltip.
+export function formatPinCount(n) {
+  if (!n) return "No pins";
+  return n === 1 ? "1 pin" : `${n} pins`;
+}
