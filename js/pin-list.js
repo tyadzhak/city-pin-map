@@ -237,19 +237,23 @@ function buildAppearanceTile(pin, iconId, color) {
     colorInput.title = "Following group/default color — pick to customize";
   }
 
-  // `input` AND `change`: `input` fires while the native picker is live, so
-  // a user who opens it on an INHERITED pin and re-commits the shade it's
-  // already showing still ends up with a concrete (customized) color rather
-  // than a silent no-op. The guard keeps that from becoming an updatePin
-  // storm — each write re-renders the whole list — by writing only when the
-  // value actually differs from the pin's STORED color. A null (inherited)
-  // color is always "different", which is exactly what makes the pin-it-at-
-  // its-current-shade case work.
+  // Commit on `change` ONLY, never `input`. `input` fires on every tick while
+  // the user scrubs the native picker; each updatePin notifies the pin store,
+  // which rebuilds the whole list and detaches this very <input>. Chrome
+  // closes the native picker when its input leaves the DOM, so an `input`
+  // listener made the picker die after the first tick (and, where the old
+  // element survived, the stale-closure guard below let every later tick
+  // rewrite the store/localStorage and re-render map, list, labels and inset).
+  // `change` fires once, when the picker is committed/dismissed, so there is
+  // exactly one write and one re-render. Trade-off: no live map preview while
+  // dragging. Re-picking the identical shade fires neither event, so an
+  // inherited pin is only pinned once the user actually picks a different
+  // value. The guard skips a write when the committed value already equals
+  // the stored color.
   const commitColor = () => {
     if (pin.color === colorInput.value) return;
     updatePin(pin.id, { color: colorInput.value });
   };
-  colorInput.addEventListener("input", commitColor);
   colorInput.addEventListener("change", commitColor);
   wrapper.appendChild(colorInput);
 
