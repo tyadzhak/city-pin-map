@@ -531,6 +531,20 @@ export function initMap(containerId, initialStyleId = DEFAULT_MAP_STYLE_ID) {
     // dpi is 3508x4961). The 4096 default would silently clamp that; MapLibre
     // still re-clamps to the GPU's real drawing-buffer limit on its own.
     maxCanvasSize: [8192, 8192],
+    // UXR-031: compact attribution is one (i) button instead of several
+    // link tab stops, yet attribution stays visible/required.
+    attributionControl: { compact: true },
+  });
+
+  // MapLibre opens the compact control on first render, which exposes every
+  // attribution link as a tab stop. Collapse it once; the (i) button still
+  // toggles it open on demand.
+  mapInstance.once("load", () => {
+    const attrib = mapInstance.getContainer().querySelector(".maplibregl-ctrl-attrib");
+    if (attrib) {
+      attrib.removeAttribute("open");
+      attrib.classList.remove("maplibregl-compact-show");
+    }
   });
 
   // Zoom +/- and "Fit all pins" in one top-left group (top-right/bottom-right
