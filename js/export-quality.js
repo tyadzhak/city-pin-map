@@ -15,6 +15,39 @@ const PRINT_WIDTHS = {
   "a3-landscape": 4961,
 };
 
+const SLUG_MAX_LENGTH = 40;
+const FALLBACK_BASENAME = "city-pin-map";
+
+// Lowercase-ASCII, hyphen-separated slug capped at SLUG_MAX_LENGTH with no
+// trailing hyphen. Returns "" when nothing usable survives (e.g. a title
+// made only of non-Latin characters).
+export function slugify(text) {
+  if (typeof text !== "string") return "";
+  return text
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "") // strip accents: "Zürich" -> "zurich"
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, SLUG_MAX_LENGTH)
+    .replace(/-+$/g, "");
+}
+
+// PNG file name from the first non-empty on-map title line plus the date
+// stamp ("YYYY-MM-DD"); falls back to the generic name when no line yields a
+// slug.
+export function buildExportFilename(titleLines, dateStamp) {
+  let base = "";
+  if (Array.isArray(titleLines)) {
+    for (const line of titleLines) {
+      if (!line || typeof line.text !== "string" || line.text.trim() === "") continue;
+      base = slugify(line.text);
+      break;
+    }
+  }
+  return `${base || FALLBACK_BASENAME}-${dateStamp}.png`;
+}
+
 export function isPrintEligible(presetId) {
   return Object.prototype.hasOwnProperty.call(PRINT_WIDTHS, presetId);
 }
