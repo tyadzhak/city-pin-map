@@ -117,6 +117,7 @@ const EMPTY_ON_MAP_TITLE = Object.freeze({
   nx: 0.5,
   ny: 0.85,
   lines: [],
+  background: "box",
 });
 
 // PO-007 (+ two-frames extension, this milestone): a single-key object
@@ -1720,7 +1721,10 @@ export function normalizeOnMapTitle(value) {
       rawLines = [];
     }
   }
-  return { nx, ny, lines: rawLines.map(normalizeTitleLine) };
+  // UXR-029: title-level backdrop choice; anything but "none" (missing, junk,
+  // pre-field saves) keeps the original white box.
+  const background = v.background === "none" ? "none" : "box";
+  return { nx, ny, lines: rawLines.map(normalizeTitleLine), background };
 }
 
 // Hydrate first, subscribe second — see CORE-004 notes. Reversing this order
