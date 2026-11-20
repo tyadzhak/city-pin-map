@@ -13,6 +13,8 @@ import {
   applyLabelVisibility,
   isRasterStyleEntry,
   setPinStyle,
+  fitToPins,
+  revealPin,
 } from "./map.js";
 import * as pinStore from "./pins.js";
 import * as groupStore from "./groups.js";
@@ -55,8 +57,8 @@ import {
 import { showToast } from "./toast.js";
 import { exportMapAsPng, EXPORT_PRESETS } from "./export.js";
 import { exportToJson, importFromJson } from "./backup.js";
-import { importFromFile } from "./import-foreign.js";
-import { initSearch } from "./search.js";
+import { importFromFile, setOnImportComplete } from "./import-foreign.js";
+import { initSearch, setOnPinAdded } from "./search.js";
 import { initPinList, refreshPinList } from "./pin-list.js";
 import { initGroupPanel } from "./group-panel.js";
 import { initSettingsPanel, openSettingsScrolledTo } from "./settings-panel.js";
@@ -196,6 +198,16 @@ function init() {
   // doesn't depend on the map directly — pin additions flow through the
   // store and reach the map via the subscription above.
   initSearch();
+  // UXR-002: a searched city must not be added invisibly off-screen.
+  setOnPinAdded((pin) => {
+    revealPin(pin);
+    mapLabels.pulsePin(pin.id);
+  });
+  setOnImportComplete(() =>
+    fitToPins(undefined, {
+      animate: !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+    })
+  );
 
   initRouteToggle({
     initialValue: routeVisible,

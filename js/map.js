@@ -804,6 +804,32 @@ export function flyToPin(pin, opts = {}) {
   });
 }
 
+const REVEAL_MARGIN_PX = 48;
+
+/**
+ * Bring a freshly added pin into view. A pin already comfortably on screen
+ * leaves the camera alone; otherwise the map eases to it at the CURRENT zoom
+ * (a pan never loses the pin, so no zoom-out is needed). Reduced motion jumps.
+ *
+ * @param {{lat:number, lon:number}} pin
+ */
+export function revealPin(pin) {
+  if (!mapInstance || !pin) return;
+  if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lon)) return;
+  const { clientWidth: w, clientHeight: h } = mapInstance.getContainer();
+  const pt = mapInstance.project([pin.lon, pin.lat]);
+  const inView =
+    pt.x >= REVEAL_MARGIN_PX && pt.x <= w - REVEAL_MARGIN_PX &&
+    pt.y >= REVEAL_MARGIN_PX && pt.y <= h - REVEAL_MARGIN_PX;
+  if (inView) return;
+  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  mapInstance.easeTo({
+    center: [pin.lon, pin.lat],
+    animate: !reduce,
+    duration: 700,
+  });
+}
+
 /** MapLibre IControl: a button styled as part of the zoom button group. */
 class FitPinsControl {
   onAdd() {

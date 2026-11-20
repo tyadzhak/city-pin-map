@@ -1126,6 +1126,25 @@ body.dragging-inset * {
   background: rgba(37, 99, 235, 0.15);
 }
 
+/* UXR-002: brief pulse on a just-added pin's label. Animates box-shadow and
+   background only — the label's position lives in an inline transform that an
+   animated transform would clobber. */
+.map-pin-labels__label--new {
+  border-radius: 4px;
+  animation: pin-label-pulse 0.6s ease-out 3;
+}
+@keyframes pin-label-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7); background: rgba(37, 99, 235, 0.3); }
+  100% { box-shadow: 0 0 0 14px rgba(37, 99, 235, 0); background: rgba(37, 99, 235, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-pin-labels__label--new {
+    animation: none;
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
 /* Box-select rubber band (js/map-select.js). Shift+drag on the main map
    draws this dashed rectangle live; MapLibre's own Shift-drag boxZoom is
    disabled so it can't fight the gesture (see that module's header for the

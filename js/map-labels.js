@@ -104,6 +104,21 @@ export function attachTo(map, { interactive = false, pinsProvider } = {}) {
   return { refresh: overlay.render, destroy: overlay.destroy };
 }
 
+// UXR-002: pinId -> expiry timestamp of the "just added" pulse. Kept at module
+// scope (not on the element) so a render() that rebuilds the DOM mid-pulse —
+// any store tick — re-applies the cue instead of silently dropping it.
+const PULSE_MS = 1800;
+const pulses = new Map();
+
+/** Briefly pulse a pin's label on every overlay so a new pin is easy to spot. */
+export function pulsePin(pinId) {
+  pulses.set(pinId, Date.now() + PULSE_MS);
+  for (const overlay of overlays) overlay.render();
+  setTimeout(() => {
+    if ((pulses.get(pinId) ?? 0) <= Date.now()) pulses.delete(pinId);
+  }, PULSE_MS + 50);
+}
+
 /**
  * Refresh every attached overlay (main + inset). js/map.js's setPinStyle()
  * calls this so a live Design-tab pin-style edit (label size/color/bold/font)
@@ -240,6 +255,9 @@ function createOverlay(map, { interactive, pinsProvider }) {
       el.textContent = label.text;
       applyStyle(el, style);
       position(el, label.x, label.y);
+      if ((pulses.get(label.id) ?? 0) > Date.now()) {
+        el.classList.add("map-pin-labels__label--new");
+      }
       if (interactive) {
         el.dataset.pinId = label.id;
         el.style.pointerEvents = "auto";
