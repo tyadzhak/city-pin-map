@@ -6,9 +6,9 @@ name: Deploy to GitHub Pages
 #
 # Security note: this workflow does NOT consume any untrusted github.event
 # inputs (issue titles, PR bodies, commit messages, etc.) in run: blocks.
-# The only ${{ }} expression is `steps.deployment.outputs.page_url`, which
-# is an output from the official actions/deploy-pages action and is used
-# only as a UI display URL — never interpolated into shell commands.
+# The only ${{ }} expressions read outputs of the official
+# actions/deploy-pages action (`page_url` as a UI display URL, `outcome`
+# as a step condition) — never interpolated into shell commands.
 
 on:
   push:
@@ -28,10 +28,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -58,6 +55,33 @@ jobs:
         with:
           path: _site
 
+  # Deploy is its own job rather than a step right after the upload: run
+  # 44770858332 failed because deploy-pages looked the artifact up 0.4s
+  # after upload-pages-artifact finished, before GitHub's artifact listing
+  # had caught up ("Found 0 artifact(s)"). The job boundary gives the
+  # listing time to settle, and "Re-run failed jobs" then retries only the
+  # deploy against the already-uploaded artifact.
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment-retry.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      # deploy-pages@v5 backs off while polling deployment status but not on
+      # the initial artifact lookup, so one transient API miss there fails
+      # the run. Tolerate one failed attempt, wait, and try once more; a
+      # second failure still fails the job.
       - name: Deploy to GitHub Pages
         id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Wait before retrying deploy
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy to GitHub Pages (retry)
+        id: deployment-retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v5
